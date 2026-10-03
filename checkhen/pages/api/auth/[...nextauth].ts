@@ -2,24 +2,11 @@ import NextAuth from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
 import { prisma } from '@/lib/prisma';
 
-if (!process.env.AUTH_SECRET) {
-  throw new Error('AUTH_SECRET is not set');
-}
-if (!process.env.AUTH_GOOGLE_ID) {
-  throw new Error('AUTH_GOOGLE_ID is not set');
-}
-if (!process.env.AUTH_GOOGLE_SECRET) {
-  throw new Error('AUTH_GOOGLE_SECRET is not set');
-}
-if (!process.env.NEXT_PUBLIC_EMAIL_DOMAIN) {
-  throw new Error('NEXT_PUBLIC_EMAIL_DOMAIN is not set');
-}
-
 export const authOptions = {
   providers: [
     GoogleProvider({
-      clientId: process.env.AUTH_GOOGLE_ID,
-      clientSecret: process.env.AUTH_GOOGLE_SECRET,
+      clientId: process.env.AUTH_GOOGLE_ID || '',
+      clientSecret: process.env.AUTH_GOOGLE_SECRET || '',
       authorization: {
         params: { prompt: 'select_account' },
       },

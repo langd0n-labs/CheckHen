@@ -298,6 +298,7 @@ export default function AdminDashboard() {
       ws.current?.off('user-hand-update');
       ws.current?.off('fetch-messages');
       ws.current?.off('pace-signal-update');
+      ws.current?.disconnect();
     };
   }, [user, currentClassId]);
 

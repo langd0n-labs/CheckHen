@@ -20,6 +20,7 @@ import { AggregatedView } from '@/components/Admin/Analytics/AggregatedView';
 import { StudentDetailView } from '@/components/Admin/Analytics/StudentDetailView';
 
 type StudentSummary = {
+  displayName: string | null;
   email: string;
   anonymousName: string | null;
   checkInTime: string;
@@ -43,6 +44,7 @@ type PaceTimelineBucket = {
 };
 
 type LeaveEvent = {
+  displayName: string | null;
   anonymousName: string | null;
   checkInTime: string;
   checkOutTime: string | null;

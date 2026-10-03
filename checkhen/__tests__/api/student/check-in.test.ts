@@ -98,7 +98,7 @@ describe('POST /api/student/check-in', () => {
     expect(res._getStatusCode()).toBe(200);
     expect(prisma.checkIn.update).toHaveBeenCalledWith({
       where: { id: 'ci-1' },
-      data: { isPresent: true },
+      data: { isPresent: true, checkOutTime: null },
     });
   });
 
