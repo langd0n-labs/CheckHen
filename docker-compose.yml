@@ -44,6 +44,7 @@ services:
       - "${APP_BIND_ADDRESS:-127.0.0.1}:6060:6060"
     environment:
       PORT: 6060
+      AUTH_SECRET: ${AUTH_SECRET:?Run the setup command}
       DATABASE_URL: postgresql://checkhen:${POSTGRES_PASSWORD:?Run the setup command}@db:5432/checkhen
     depends_on:
       app:

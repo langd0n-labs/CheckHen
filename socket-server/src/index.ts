@@ -1,6 +1,7 @@
 import { Server, Socket } from "socket.io";
 import { PrismaClient } from "@prisma/client";
 import cron from "node-cron";
+import { createHmac, timingSafeEqual } from "node:crypto";
 
 const prisma = new PrismaClient(); // Initialize Prisma client for database operations
 
@@ -10,80 +11,40 @@ const io = new Server(6060, {
   },
 });
 
-// Function to handle a new socket connection
-const handleSocketConnection = async (socket: Socket) => {
-  console.log("a user connected");
-
-  console.log(socket.handshake.query); // Log query parameters from the connection
-
-  // Validate required query parameters
-  if (
-    !socket.handshake.query.classId ||
-    !socket.handshake.query.email
-  ) {
-    socket.disconnect();
-    return;
-  }
-
-  // Extract query parameters, handling cases where they might be arrays
-  const classId = Array.isArray(socket.handshake.query.classId)
-    ? socket.handshake.query.classId[0]
-    : socket.handshake.query.classId;
-
-  const email = Array.isArray(socket.handshake.query.email)
-    ? socket.handshake.query.email[0]
-    : socket.handshake.query.email;
-
-  console.log(classId, email); // Log extracted parameters
-
-  // Upsert user in the database (create if not exists, otherwise update)
-  await prisma.user.upsert({
-    where: {
-      email: email,
-    },
-    update: {}, // No updates for existing users
-    create: {
-      email: email,
-    },
-  });
-
-  // Check-in user
-  let dbCheckIn = await prisma.checkIn.findFirst({
-    where: {
-      user: {
-        email: email,
-      },
-      class: {
-        id: classId,
-      },
-    },
-  });
-
-  if (!dbCheckIn) {
-    dbCheckIn = await prisma.checkIn.create({
-      data: {
-        user: {
-          connect: {
-            email: email,
-          },
-        },
-        class: {
-          connect: {
-            id: classId,
-          },
-        },
-        socketId: socket.id,
-      },
+// Only the authenticated application can mint a short-lived socket ticket.
+const roomKey = (courseId: string, classId: string) => courseId + ':' + classId;
+io.use(async (socket, next) => {
+  try {
+    const ticket = socket.handshake.auth.ticket;
+    const [payload, signature] = typeof ticket === 'string' ? ticket.split('.') : [];
+    const secret = process.env.AUTH_SECRET;
+    if (!payload || !signature || !secret) throw new Error('Missing socket ticket');
+    const expected = createHmac('sha256', secret).update(payload).digest('base64url');
+    const a = Buffer.from(signature);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length || !timingSafeEqual(a, b)) throw new Error('Invalid ticket');
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (typeof data.expires !== 'number' || data.expires < Date.now() ||
+        typeof data.courseId !== 'string' || typeof data.classId !== 'string' ||
+        typeof data.userId !== 'string' || typeof data.admin !== 'boolean') throw new Error('Expired ticket');
+    const selected = await prisma.class.findFirst({
+      where: { id: data.classId, courseId: data.courseId },
     });
-  }
-
-  if (!dbCheckIn) {
-    socket.disconnect();
-    return;
-  }
-
-  socket.join(classId);
-};
+    if (!selected) throw new Error('Unknown class session');
+    const user = await prisma.user.findUnique({ where: { id: data.userId } });
+    if (!user) throw new Error('Unknown user');
+    if (!data.admin) {
+      const roster = await prisma.rosterEntry.findUnique({
+        where: { courseId_userId: { courseId: data.courseId, userId: data.userId } },
+      });
+      if (!roster?.active) throw new Error('Inactive roster entry');
+    }
+    socket.data.courseId = data.courseId;
+    socket.data.classId = data.classId;
+    socket.data.userId = data.userId;
+    next();
+  } catch { next(new Error('Socket authentication failed')); }
+});
 
 // Auto-start scheduled classes every minute
 cron.schedule("* * * * *", async () => {
@@ -110,6 +71,7 @@ cron.schedule("* * * * *", async () => {
           duration: t.duration,
           color: t.color,
           templateId: t.id,
+          courseId: t.courseId,
         },
       });
       console.log(`[cron] Auto-started class "${t.name}" from template ${t.id}`);
@@ -117,44 +79,20 @@ cron.schedule("* * * * *", async () => {
   }
 });
 
-// Listen for new socket connections
-io.on("connection", async (socket) => {
-  await handleSocketConnection(socket);
-
-  // socket.on("user-hand-update", (data) => {
-  //   io.sockets.emit("user-hand-update", data);
-  // });
-
-  // socket.on("user-hand-acked", async (data) => {
-  //   await handleUserHandAck(socket, data);
-  // });
-
-  socket.on("disconnect", () => {
-    console.log("user disconnected");
-  });
-
-  socket.onAny((event, ...args) => {
-    const roomId = args[0]?.classId as string | undefined;
-    if (!roomId) return;
-
-    if (event === "user-hand-update") {
-      io.to(roomId).emit("user-hand-update", args[0]);
-    }
-
-    if (event === "user-hand-acked") {
-      io.to(roomId).emit("check-raised-hands", args[0]);
-    }
-
-    if (event === "chat-message-sent") {
-      io.to(roomId).emit("fetch-messages", args[0]);
-    }
-
-    if (event === "pace-signal-sent") {
-      io.to(roomId).emit("pace-signal-update", args[0]);
-    }
-
-    if (event === "pace-signals-reset") {
-      io.to(roomId).emit("pace-signals-reset", args[0]);
-    }
+// Join only after scope and roster validation; never trust a broadcast room from the payload.
+io.on("connection", socket => {
+  const room = roomKey(socket.data.courseId, socket.data.classId);
+  socket.join(room);
+  const events: Record<string, string> = {
+    "user-hand-update": "user-hand-update",
+    "user-hand-acked": "check-raised-hands",
+    "chat-message-sent": "fetch-messages",
+    "pace-signal-sent": "pace-signal-update",
+    "pace-signals-reset": "pace-signals-reset",
+  };
+  socket.onAny((event, payload) => {
+    if (!events[event] || payload?.classId !== socket.data.classId ||
+        (payload.courseId && payload.courseId !== socket.data.courseId)) return;
+    io.to(room).emit(events[event], payload);
   });
 });

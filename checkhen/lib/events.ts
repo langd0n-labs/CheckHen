@@ -79,10 +79,10 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
       messages.push({ id, userId, classId, createdAt, message: String(payload.message), anonymousName: String(payload.anonymousName) });
     } else if (event.kind === 'SESSION_ENDED') {
       endedAt = createdAt;
-      for (const [student, entry] of attendance) {
+      for (const [student, entry] of Array.from(attendance.entries())) {
         if (entry.isPresent) attendance.set(student, { ...entry, isPresent: false, checkOutTime: createdAt });
       }
     }
   }
-  return { attendance: [...attendance.values()], hands: [...hands.values()], pace: [...pace.values()], messages, endedAt };
+  return { attendance: Array.from(attendance.values()), hands: Array.from(hands.values()), pace: Array.from(pace.values()), messages, endedAt };
 }

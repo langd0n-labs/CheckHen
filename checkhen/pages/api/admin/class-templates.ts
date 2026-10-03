@@ -46,10 +46,14 @@ export default async function handler(
   if (!session?.user?.email) return res.status(401).json({ message: 'Unauthorized' });
   if (!getAdminEmails().includes(session.user.email))
     return res.status(403).json({ message: 'Forbidden: Admin only' });
+  const courseId = req.query.courseId ?? req.body?.courseId;
+  if (typeof courseId !== 'string' || !await prisma.course.findUnique({ where: { id: courseId } }))
+    return res.status(400).json({ message: 'Select a course' });
 
   // GET — list all templates
   if (req.method === 'GET') {
     const templates = await prisma.classTemplate.findMany({
+      where: { courseId },
       orderBy: { name: 'asc' },
     });
     return res.status(200).json(
@@ -85,6 +89,7 @@ export default async function handler(
 
     const template = await prisma.classTemplate.create({
       data: {
+        courseId,
         name: name.trim(),
         color: normalizedColor,
         duration,
@@ -112,7 +117,9 @@ export default async function handler(
     if (!id || typeof id !== 'string')
       return res.status(400).json({ message: 'Missing id query param' });
 
-    await prisma.classTemplate.delete({ where: { id } });
+    const target = await prisma.classTemplate.findFirst({ where: { id, courseId } });
+    if (!target) return res.status(404).json({ message: 'Template not found' });
+    await prisma.classTemplate.delete({ where: { id: target.id } });
     return res.status(200).json({ message: 'Deleted' });
   }
 

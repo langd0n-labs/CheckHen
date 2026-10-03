@@ -51,34 +51,37 @@ Independent review: a separate Codex session found no clear M0 defect.
 Its sandbox could not run Podman or find Node on PATH. The primary session ran
 those checks successfully. No merge is performed in this task.
 
-## M1 — domain model and event log
+## M1 — domain model and event log: complete
 
-In progress. Work-in-progress commit; not complete. All three acceptance checks
-pending.
+Implementation: `Course`, `RosterEntry`, `ParticipationEvent`, and course-scoped
+sessions and templates are migrated. Existing sessions, users, profiles, and
+participation rows are assigned to one Imported course; legacy rows remain as
+an archive. Writes use an append-only event store. Student and instructor APIs,
+analytics, and socket rooms use explicit course and session scope. Socket
+tickets are signed, short-lived, and checked against the active roster at
+connection. The interface provides course and session selection.
 
-State at the checkpoint (2026-10-03, session stopped at the usage limit):
-- Schema: `Course`, `RosterEntry`, and `ParticipationEvent` added; `courseId`
-  added to scoped models. Migration `20261003000000_courses_and_events` and
-  `prisma/sql/event-guards.sql` written. Assignment of existing sessions to one
-  Imported course is approved (see Operator decisions); confirm the migration
-  implements it.
-- New libraries: `lib/events.ts` (event types and fold), `lib/event-store.ts`
-  (append and read), `lib/participation-api.ts` (one handler for the
-  participation routes), `lib/request-scope.ts`, `lib/scoped-fetch.ts`.
-- New routes: `api/courses.ts`, `api/sessions.ts`, `api/admin/events.ts`,
-  `api/admin/roster.ts`.
-- The participation API routes now delegate to `participationHandler(...)`.
-- New tests: `__tests__/lib/events.test.ts`, `scripts/test-event-store.ts`.
+| Acceptance check | Result |
+| --- | --- |
+| Courses, rosters, class sessions, and append-only event log exist | PASS: clean and populated PostgreSQL migrations succeeded. The populated legacy fixture retained user profile fields and check-in, hand, pace, and chat records. Direct update, delete, and truncate attempts on the event log fail. Legacy tables reject new writes. |
+| Two courses run in parallel without crossing data | PASS: `test-event-store.ts` writes to both courses concurrently and verifies distinct folded attendance, isolation of pace events, and rejection of cross-course session and undo references. A live Socket.IO check verifies room isolation and rejects a mismatched course/session ticket. |
+| Undo and correction append new events; folded state is correct | PASS: `test-event-store.ts` records an original pace event, correction, undo, and undo of undo; reads after each operation match the expected state. The original event remains unchanged and 12 concurrent appends receive distinct order timestamps. |
 
-Failures at the checkpoint:
-- Jest: 5 suites failed, 33 of 71 tests failed. The failing suites are the
-  existing route tests (check-in, send-chat, send-pace-signal, ack-hand-raise,
-  fetch-check-ins). They mock the old per-route Prisma calls; update them to the
-  event-store design.
-- Typecheck: 7 errors. `lib/events.ts` iterates a Map without
-  `downlevelIteration` or an ES2015+ target. `api/admin/class-templates.ts` and
-  `scripts/seed-test-data.ts` create class templates and classes without the new
-  required `course` relation.
+Verification: the populated legacy migration passes `test-legacy-import.ts`.
+Jest route suites were rewritten around the event-backed API because the old
+suites asserted direct writes to legacy tables. The replacement covers scope,
+roster, check-in, chat, pace, and instructor actions. TypeScript and Jest pass.
+Final results: TypeScript passes; Jest passes 8 suites and 49 tests. The live
+socket test passes cross-course isolation, mismatched-ticket rejection, and
+inactive-roster rejection. The final Podman production image builds, migration
+`20261003000000_courses_and_events` applies to the retained database, all three
+services run, and `/api/ping` and `/` return HTTP 200. `git diff --check` passes.
+Live Google OAuth remains deferred until credentials are supplied.
+
+Independent review: a Codex bulk session flagged socket roster validation and
+the unused socket argument; both were fixed. It also claimed repeated trigger
+names block migration. PostgreSQL scopes trigger names by table; both clean and
+populated migrations applied successfully. The reviewer had no Node runtime.
 
 ## M2 — laptop network profile, class mode
 
@@ -87,10 +90,7 @@ adapter checks are pending. No adapter has been validated for 150 stations.
 
 ## Resume
 
-M0 is committed (`86eabe9`). Continue M1 from the checkpoint above:
-1. Fix the typecheck errors.
-2. Update the failing route tests to the event-store design.
-3. Confirm the Imported-course migration preserves every existing record.
-4. Run the three M1 acceptance checks and record the results.
-Then do M2. Docker acceptance remains deferred at the operator's request. Do
-not start M3.
+M0 is committed (`86eabe9`). M1 is complete. Notify the operator in Telegram
+alerts and in the build session, then pause before M2 so the operator can
+switch account or model. Docker acceptance remains deferred at the operator's
+request. Do not start M3.

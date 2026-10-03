@@ -1,3 +1,4 @@
+import { selectScope, selectedScope } from '@/lib/scoped-fetch';
 import { scopedFetch as fetch } from '@/lib/scoped-fetch';
 import { useEffect, useState } from 'react';
 import { useSession, signIn } from 'next-auth/react';
@@ -76,6 +77,7 @@ export default function JoinPage() {
 
   const handleJoin = async (classId: string) => {
     setJoiningId(classId);
+    selectScope({ ...selectedScope(), classId });
     const response = await fetch('/api/student/check-in', { method: 'POST' });
     if (response.ok) {
       router.push('/');

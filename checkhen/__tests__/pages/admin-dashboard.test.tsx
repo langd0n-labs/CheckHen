@@ -27,7 +27,7 @@ it('connects on first load after the user and current class arrive, then disconn
     return { ok: true, json: async () => data } as Response;
   });
   const view = render(<MantineProvider theme={theme}><AdminDashboard /></MantineProvider>);
-  await waitFor(() => expect(getSocket).toHaveBeenCalledWith('session-1', 'instructor@example.edu'));
+  await waitFor(() => expect(getSocket).toHaveBeenCalledWith('session-1'));
   expect(getSocket).toHaveBeenCalledTimes(1);
   view.unmount();
   expect(socket.disconnect).toHaveBeenCalledTimes(1);

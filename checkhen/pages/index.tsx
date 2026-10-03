@@ -1,4 +1,4 @@
-import { scopedFetch as fetch } from '@/lib/scoped-fetch';
+import { scopedFetch as fetch, selectedScope } from '@/lib/scoped-fetch';
 import { useEffect, useRef, useState } from 'react';
 import { useSession, signIn, signOut } from 'next-auth/react';
 import { useRouter } from 'next/router';
@@ -296,7 +296,11 @@ export default function HomePage() {
     if (!isCheckedIn) return;
 
     const handleUnload = () => {
-      navigator.sendBeacon('/api/student/check-out');
+      const scope = selectedScope();
+      if (scope.courseId && scope.classId) {
+        const query = new URLSearchParams({ courseId: scope.courseId, classId: scope.classId });
+        navigator.sendBeacon('/api/student/check-out?' + query);
+      }
     };
 
     window.addEventListener('beforeunload', handleUnload);
@@ -308,9 +312,7 @@ export default function HomePage() {
     if (!user || !currentClassId) return;
 
     const classId = currentClassId;
-    const email = user.emailAddresses[0]?.emailAddress || '';
-
-    ws.current = getSocket(classId, email);
+    ws.current = getSocket(classId);
 
     // Listen for updates
     ws.current?.on('check-raised-hands', () => {

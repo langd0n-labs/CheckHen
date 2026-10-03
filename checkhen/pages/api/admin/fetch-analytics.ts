@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import { prisma } from '@/lib/prisma';
+import { readState } from '@/lib/event-store';
 
 type StudentSummary = {
   email: string;
@@ -113,8 +114,29 @@ export default async function handler(
     return res.status(403).json({ message: 'Forbidden: Admin only' });
   }
 
+  const courseId = req.query.courseId;
+  if (typeof courseId !== 'string' || !await prisma.course.findUnique({ where: { id: courseId } })) {
+    return res.status(400).json({ message: 'Select a course' });
+  }
+  const participation = async (classIds: string[]) => {
+    const states = await Promise.all(classIds.map(classId => readState(prisma, { courseId, classId })));
+    const entries = states.flatMap(state => state.attendance);
+    const users = await prisma.user.findMany({ where: { id: { in: entries.map(entry => entry.userId) } } });
+    const checkIns = entries.flatMap(entry => {
+      const user = users.find(candidate => candidate.id === entry.userId);
+      return user && !adminEmails.includes(user.email) ? [{ ...entry, updatedAt: null, user }] : [];
+    });
+    return {
+      checkIns,
+      handRaises: states.flatMap(state => state.hands),
+      paceSignals: states.flatMap(state => state.pace),
+      messages: states.flatMap(state => state.messages),
+    };
+  };
+
   // Fetch all classes for the selector (most recent first, include color)
   const allClasses = await prisma.class.findMany({
+    where: { courseId },
     orderBy: { createdAt: 'desc' },
     take: 50,
   });
@@ -128,7 +150,7 @@ export default async function handler(
   }));
 
   // Fetch all templates for the "All Sessions" options
-  const allTemplates = await prisma.classTemplate.findMany({ orderBy: { name: 'asc' } });
+  const allTemplates = await prisma.classTemplate.findMany({ where: { courseId }, orderBy: { name: 'asc' } });
   const templateOptions: TemplateOption[] = allTemplates.map((t) => ({
     id: t.id,
     name: t.name,
@@ -145,7 +167,7 @@ export default async function handler(
     }
 
     const templateClasses = await prisma.class.findMany({
-      where: { templateId },
+      where: { templateId, courseId },
       orderBy: { createdAt: 'asc' },
     });
 
@@ -166,21 +188,13 @@ export default async function handler(
     const classIds = templateClasses.map((c) => c.id);
     const totalPlannedMinutes = templateClasses.reduce((sum, c) => sum + c.duration, 0);
 
-    const checkIns = await prisma.checkIn.findMany({
-      where: { classId: { in: classIds }, user: { email: { notIn: adminEmails } } },
-      include: { user: true },
-    });
-
-    const handRaises = await prisma.handRaise.findMany({ where: { classId: { in: classIds } } });
+    const { checkIns, handRaises, paceSignals } = await participation(classIds);
     const handRaiseCounts: Record<string, number> = {};
     for (const hr of handRaises) {
       handRaiseCounts[hr.userId] = (handRaiseCounts[hr.userId] ?? 0) + 1;
     }
 
-    const paceSignals = await prisma.paceSignal.findMany({
-      where: { classId: { in: classIds } },
-      orderBy: { createdAt: 'desc' },
-    });
+    paceSignals.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     const latestPaceSignal: Record<string, string> = {};
     for (const ps of paceSignals) {
       if (!latestPaceSignal[ps.userId]) latestPaceSignal[ps.userId] = ps.signalType;
@@ -290,7 +304,7 @@ export default async function handler(
 
   const targetClass = typeof classId === 'string'
     ? allClasses.find((c) => c.id === classId)
-    : allClasses[0];
+    : null;
 
   if (!targetClass) {
     return res.status(200).json({
@@ -302,24 +316,13 @@ export default async function handler(
     });
   }
 
-  const checkIns = await prisma.checkIn.findMany({
-    where: {
-      classId: targetClass.id,
-      user: { email: { notIn: adminEmails } },
-    },
-    include: { user: true },
-  });
-
-  const handRaises = await prisma.handRaise.findMany({ where: { classId: targetClass.id } });
+  const { checkIns, handRaises, paceSignals, messages } = await participation([targetClass.id]);
   const handRaiseCounts: Record<string, number> = {};
   for (const hr of handRaises) {
     handRaiseCounts[hr.userId] = (handRaiseCounts[hr.userId] ?? 0) + 1;
   }
 
-  const paceSignals = await prisma.paceSignal.findMany({
-    where: { classId: targetClass.id },
-    orderBy: { createdAt: 'desc' },
-  });
+  paceSignals.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   const latestPaceSignal: Record<string, string> = {};
   for (const ps of paceSignals) {
     if (!latestPaceSignal[ps.userId]) latestPaceSignal[ps.userId] = ps.signalType;
@@ -368,12 +371,7 @@ export default async function handler(
   });
 
   // ── Aggregated stats ───────────────────────────────────────────────────────
-  const messageCounts = await prisma.chatMessage.groupBy({
-    by: ['userId'],
-    where: { classId: targetClass.id },
-    _count: { id: true },
-  });
-  const totalMessages = messageCounts.reduce((sum, m) => sum + m._count.id, 0);
+  const totalMessages = messages.length;
   const totalHandRaises = Object.values(handRaiseCounts).reduce((sum, n) => sum + n, 0);
 
   const studentsWithDuration = students.filter((s) => s.durationMinutes !== null);

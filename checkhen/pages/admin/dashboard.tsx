@@ -279,9 +279,7 @@ export default function AdminDashboard() {
     if (!user || !currentClassId) return;
 
     const classId = currentClassId;
-    const email = user.emailAddresses[0]?.emailAddress || '';
-
-    ws.current = getSocket(classId, email);
+    ws.current = getSocket(classId);
 
     ws.current?.on('user-hand-update', () => {
       fetchHandRaiseData();
