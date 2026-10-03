@@ -1,0 +1,70 @@
+import { effectiveEvents, foldEvents, ParticipationEvent } from '@/lib/events';
+
+const scope = { courseId: 'course-a', classId: 'session-a' };
+const event = (id: string, kind: ParticipationEvent['kind'], payload = {}, supersedesId: string | null = null): ParticipationEvent =>
+  ({ id, kind, payload, supersedesId, ...scope, userId: 'student', createdAt: new Date(1000) });
+
+it('folds two concurrent courses without crossing data', () => {
+  const events = [
+    event('01', 'CHECK_IN', { anonymousName: 'Swift Panda' }),
+    { ...event('02', 'CHECK_IN', { anonymousName: 'Calm Otter' }), courseId: 'course-b', classId: 'session-b' },
+    event('03', 'CHAT_MESSAGE', { message: 'A only', anonymousName: 'Swift Panda' }),
+  ];
+  expect(foldEvents(events, scope).attendance[0].anonymousName).toBe('Swift Panda');
+  const b = foldEvents(events, { courseId: 'course-b', classId: 'session-b' });
+  expect(b.attendance[0].anonymousName).toBe('Calm Otter');
+  expect(b.messages).toEqual([]);
+});
+
+it('correction and undo append facts while preserving all original events', () => {
+  const events = [event('01', 'PACE_SIGNAL', { signalType: 'slow_down' })];
+  events.push(event('02', 'PACE_SIGNAL', { signalType: 'ready_to_move_on' }, '01'));
+  expect(foldEvents(events, scope).pace[0].signalType).toBe('ready_to_move_on');
+  events.push(event('03', 'UNDO', {}, '02'));
+  expect(foldEvents(events, scope).pace[0].signalType).toBe('slow_down');
+  events.push(event('04', 'UNDO', {}, '03'));
+  expect(foldEvents(events, scope).pace[0].signalType).toBe('ready_to_move_on');
+  expect(events.map(e => e.id)).toEqual(['01', '02', '03', '04']);
+  expect(events[0].payload).toEqual({ signalType: 'slow_down' });
+});
+
+it('orders equal timestamps by ID, independent of input order', () => {
+  const events = [event('02', 'CHECK_OUT'), event('01', 'CHECK_IN', { anonymousName: 'Swift Panda' })];
+  expect(foldEvents(events, scope).attendance[0].isPresent).toBe(false);
+  expect(foldEvents(events.reverse(), scope).attendance[0].isPresent).toBe(false);
+});
+
+it('rejects forward, missing, and cross-course supersession targets', () => {
+  expect(() => effectiveEvents([event('01', 'UNDO', {}, '02'), event('02', 'CHECK_OUT')], scope)).toThrow();
+  expect(() => effectiveEvents([event('01', 'UNDO', {}, 'missing')], scope)).toThrow();
+  expect(() => effectiveEvents([
+    { ...event('01', 'CHECK_OUT'), courseId: 'course-b' }, event('02', 'UNDO', {}, '01'),
+  ], scope)).toThrow();
+});
+
+it('derives hand state, pace reset, and session checkout without changing stored facts', () => {
+  const events = [
+    event('01', 'CHECK_IN', { anonymousName: 'Swift Panda' }),
+    event('02', 'HAND_RAISED'),
+    event('03', 'HAND_ACKNOWLEDGED', { handRaiseId: '02' }),
+    event('04', 'HAND_RATED', { handRaiseId: '02', hasValue: true }),
+    event('05', 'PACE_SIGNAL', { signalType: 'slow_down' }),
+    event('06', 'PACE_RESET'),
+    event('07', 'SESSION_ENDED'),
+  ];
+  const original = JSON.stringify(events);
+  const state = foldEvents(events, scope);
+  expect(state.hands[0]).toMatchObject({ isAcknowledged: true, isRated: true, hasValue: true });
+  expect(state.pace).toEqual([]);
+  expect(state.attendance[0].isPresent).toBe(false);
+  expect(JSON.stringify(events)).toBe(original);
+});
+
+it('keeps a corrected hand raise addressable by its original ID', () => {
+  const events = [
+    event('01', 'HAND_RAISED'),
+    event('02', 'HAND_RAISED', {}, '01'),
+    event('03', 'HAND_ACKNOWLEDGED', { handRaiseId: '01' }),
+  ];
+  expect(foldEvents(events, scope).hands[0]).toMatchObject({ id: '01', isAcknowledged: true });
+});

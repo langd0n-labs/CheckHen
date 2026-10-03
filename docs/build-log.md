@@ -16,6 +16,8 @@ Branch: build/m0-m2. Scope: M0, M1, M2 only.
   Make both configurable. Refuse startup when the AP subnet overlaps an existing
   host route. Do not use campus 10.x, container pools 172.17.0.0/16 through
   172.31.0.0/16, or the operator VPN subnet 172.16.100.0/24.
+- 2026-10-03: Operator approved assigning all existing sessions to one Imported
+  course, preserving the original records.
 - Send decision requests to Telegram alerts as well as the build session.
 
 ## M0 — implementation verified; operator checks pending
@@ -51,7 +53,32 @@ those checks successfully. No merge is performed in this task.
 
 ## M1 — domain model and event log
 
-Not started. All three acceptance checks pending.
+In progress. Work-in-progress commit; not complete. All three acceptance checks
+pending.
+
+State at the checkpoint (2026-10-03, session stopped at the usage limit):
+- Schema: `Course`, `RosterEntry`, and `ParticipationEvent` added; `courseId`
+  added to scoped models. Migration `20261003000000_courses_and_events` and
+  `prisma/sql/event-guards.sql` written. Assignment of existing sessions to one
+  Imported course is approved (see Operator decisions); confirm the migration
+  implements it.
+- New libraries: `lib/events.ts` (event types and fold), `lib/event-store.ts`
+  (append and read), `lib/participation-api.ts` (one handler for the
+  participation routes), `lib/request-scope.ts`, `lib/scoped-fetch.ts`.
+- New routes: `api/courses.ts`, `api/sessions.ts`, `api/admin/events.ts`,
+  `api/admin/roster.ts`.
+- The participation API routes now delegate to `participationHandler(...)`.
+- New tests: `__tests__/lib/events.test.ts`, `scripts/test-event-store.ts`.
+
+Failures at the checkpoint:
+- Jest: 5 suites failed, 33 of 71 tests failed. The failing suites are the
+  existing route tests (check-in, send-chat, send-pace-signal, ack-hand-raise,
+  fetch-check-ins). They mock the old per-route Prisma calls; update them to the
+  event-store design.
+- Typecheck: 7 errors. `lib/events.ts` iterates a Map without
+  `downlevelIteration` or an ES2015+ target. `api/admin/class-templates.ts` and
+  `scripts/seed-test-data.ts` create class templates and classes without the new
+  required `course` relation.
 
 ## M2 — laptop network profile, class mode
 
@@ -60,7 +87,10 @@ adapter checks are pending. No adapter has been validated for 150 stations.
 
 ## Resume
 
-M0 is ready for its milestone commit and push.
-Before M1 migration, await the operator decision about assigning old sessions
-to courses (one Imported course is proposed). Docker acceptance remains deferred
-at the operator's request. Do not start M3.
+M0 is committed (`86eabe9`). Continue M1 from the checkpoint above:
+1. Fix the typecheck errors.
+2. Update the failing route tests to the event-store design.
+3. Confirm the Imported-course migration preserves every existing record.
+4. Run the three M1 acceptance checks and record the results.
+Then do M2. Docker acceptance remains deferred at the operator's request. Do
+not start M3.

@@ -12,6 +12,8 @@ datasource db {
 }
 
 model ClassTemplate {
+  courseId String
+  course Course @relation(fields: [courseId], references: [id])
   id         String   @id @default(uuid())
   name       String
   color      String   // hex, e.g. "#0066ff"
@@ -24,6 +26,11 @@ model ClassTemplate {
 }
 
 model Class {
+  courseId String
+  course Course @relation(fields: [courseId], references: [id])
+  events ParticipationEvent[]
+
+  @@unique([id, courseId])
   id           String         @id @default(uuid())
   checkIns     CheckIn[]
   handRaises   HandRaise[]
@@ -72,6 +79,8 @@ model HandRaise {
 }
 
 model User {
+  rosterEntries RosterEntry[]
+  participationEvents ParticipationEvent[]
   id                String        @id @default(uuid())
   email             String        @unique
   isAdmin           Boolean       @default(false)
@@ -113,4 +122,39 @@ model PaceSignal {
   createdAt  DateTime  @default(now())
 
   @@index([classId, signalType])
+}
+model Course {
+  id String @id @default(uuid())
+  name String
+  createdAt DateTime @default(now())
+  classes Class[]
+  templates ClassTemplate[]
+  roster RosterEntry[]
+}
+
+model RosterEntry {
+  courseId String
+  userId String
+  active Boolean @default(true)
+  course Course @relation(fields: [courseId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+  @@id([courseId, userId])
+}
+
+model ParticipationEvent {
+  id String @id @default(uuid())
+  courseId String
+  classId String
+  userId String?
+  actorId String
+  kind String
+  payload Json
+  createdAt DateTime @default(now())
+  supersedesId String?
+  class Class @relation(fields: [classId, courseId], references: [id, courseId])
+  user User? @relation(fields: [userId], references: [id])
+  supersedes ParticipationEvent? @relation("Supersession", fields: [supersedesId, courseId, classId], references: [id, courseId, classId])
+  supersededBy ParticipationEvent[] @relation("Supersession")
+  @@unique([id, courseId, classId])
+  @@index([courseId, classId, createdAt, id])
 }

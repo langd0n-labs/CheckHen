@@ -1,3 +1,5 @@
+import { selectScope, selectedScope } from '@/lib/scoped-fetch';
+import { scopedFetch as fetch } from '@/lib/scoped-fetch';
 import { useEffect, useRef, useState } from 'react';
 import {
   Box,
@@ -169,6 +171,7 @@ export default function ClassSessionManager({
 
     if (currentClassId === jsonData.id) return;
 
+    selectScope({ ...selectedScope(), classId: jsonData.id });
     setCurrentClassId(jsonData.id);
     onClassColor?.(jsonData.color ?? null);
     const formattedDate = date.toLocaleString();
@@ -211,6 +214,7 @@ export default function ClassSessionManager({
 
   const applyNewClass = (jsonData: { id: string; name: string; createdAt: string; color?: string | null }) => {
     const date = new Date(jsonData.createdAt);
+    selectScope({ ...selectedScope(), classId: jsonData.id });
     setCurrentClassId(jsonData.id);
     onClassColor?.(jsonData.color ?? null);
     setCurrentClass(`${jsonData.name} - ${date.toLocaleString()}`);

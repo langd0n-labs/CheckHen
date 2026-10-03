@@ -30,6 +30,10 @@ export default async function handler(
     .map((e) => `${e.trim()}@${process.env.NEXT_PUBLIC_EMAIL_DOMAIN}`) || [];
   if (!adminEmails.includes(session.user.email)) return res.status(403).json({ message: 'Forbidden: Admin only' });
 
+  const courseId = req.query.courseId ?? req.body?.courseId;
+  if (typeof courseId !== 'string' || !await prisma.course.findUnique({ where: { id: courseId } })) {
+    return res.status(400).json({ message: 'Select a course' });
+  }
   const { templateId, name: bodyName, duration: bodyDuration, color: bodyColor } = req.body;
 
   let name: string;
@@ -43,7 +47,7 @@ export default async function handler(
       return res.status(400).json({ message: 'Invalid templateId' });
 
     const template = await prisma.classTemplate.findUnique({ where: { id: templateId } });
-    if (!template) return res.status(404).json({ message: 'Template not found' });
+    if (!template || template.courseId !== courseId) return res.status(404).json({ message: 'Template not found' });
 
     name = template.name;
     duration = template.duration;
@@ -67,6 +71,7 @@ export default async function handler(
 
   const newClass = await prisma.class.create({
     data: {
+      courseId,
       name,
       duration,
       color,

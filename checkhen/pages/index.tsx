@@ -1,3 +1,4 @@
+import { scopedFetch as fetch } from '@/lib/scoped-fetch';
 import { useEffect, useRef, useState } from 'react';
 import { useSession, signIn, signOut } from 'next-auth/react';
 import { useRouter } from 'next/router';

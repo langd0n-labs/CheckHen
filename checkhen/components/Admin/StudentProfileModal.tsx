@@ -1,3 +1,4 @@
+import { scopedFetch as fetch } from '@/lib/scoped-fetch';
 import { useEffect, useState } from 'react';
 import { Avatar, Badge, Group, Loader, Modal, Stack, Text, Title } from '@mantine/core';
 
