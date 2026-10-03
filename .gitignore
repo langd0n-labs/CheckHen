@@ -7,3 +7,4 @@ pgdata/
 !.env.example
 .claude/settings.local.json
 node_modules/
+wt/
