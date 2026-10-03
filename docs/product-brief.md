@@ -238,8 +238,22 @@ application layer.
   events.
 - The router's uplink uses the instructor's network login. Document how to
   configure it.
-- Provide an install package or script for the router, and a list of tested
-  router models.
+- Do not use containers on the router. OpenWrt runs the AP (hostapd), DHCP and
+  DNS (dnsmasq), and the firewall (fw4 with nftables) as native services under
+  UCI configuration. Configure those services. Do not duplicate them.
+- Deliver the router side in three forms, in this order:
+  1. A `uci-defaults` script. It sets the UCI configuration and installs the
+     required packages (for example openNDS for the captive portal and `rpcd`
+     for the control interface). Running it a second time must give the same
+     result.
+  2. An OpenWrt package, `checkhen-router`, that contains the script, the
+     control interface, and the exam-mode switch. It installs, upgrades, and
+     removes cleanly with the release's package manager.
+  3. A firmware image for each tested router model, built with the OpenWrt
+     Image Builder, with `checkhen-router` preinstalled.
+- Target the current stable OpenWrt release. Record the release and its package
+  manager (`opkg` or `apk`) in `docs/build-log.md`.
+- Keep a list of tested router models with their hardware (RAM, flash, radio).
 
 ### Both profiles
 
@@ -332,6 +346,9 @@ check "waiting for operator" in the build log. Continue with the next milestone.
   virtual machine or emulator, with the application layer on a separate host.
 - A test script runs the same checks against a real router. The operator runs
   it with a macOS laptop; record the result when the operator reports it.
+- The `uci-defaults` script and the `checkhen-router` package install on the
+  OpenWrt virtual machine, and a second run of the script changes nothing.
+- An Image Builder image for at least one router model builds.
 - The router install and the router-control interface are documented.
 
 **M7. Cold calling.**
