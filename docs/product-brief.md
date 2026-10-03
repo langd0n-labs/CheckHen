@@ -291,6 +291,15 @@ if it does.
 Do the milestones in order. A milestone is complete only when each acceptance
 check passes. Record the result of each check in `docs/build-log.md`.
 
+Rules for every milestone:
+
+- Every new module gets unit tests.
+- When a change breaks an existing test, update the test to the new design. Do
+  not delete or skip a test without the operator's approval.
+- If the brief seems wrong, a check seems unreasonable, or a simpler design
+  meets the same goal, stop and tell the operator before you build around it.
+  Say what you would change and why.
+
 Some checks need hardware that the build environment does not have: a USB Wi-Fi
 adapter, a real router, a macOS or Windows laptop, phones. For each such check,
 write a script or a step-by-step procedure that the operator runs. Mark the
