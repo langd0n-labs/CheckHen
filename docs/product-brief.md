@@ -195,8 +195,9 @@ Participation grade:
   grades) from the log when read. Do not store derived state.
 - Scope every record to a course and a class session. The current code treats
   "the most recent class" as the current class. Replace that assumption.
-- Keep the student profile fields that the features need: display name, name
-  pronunciation, pronouns, photo. Remove `foodAllergies`. Remove `bio`.
+- Keep all student profile fields: display name, name pronunciation, pronouns,
+  photo, food allergies, and bio. Show food allergies and bio only in instructor
+  interfaces. Never show them to other students.
 
 ## 6. Deployment
 
@@ -230,9 +231,11 @@ check-out, class templates, student profiles, an analytics page, tests, and the
 Raspberry Pi exam-network scripts.
 
 Keep the stack: Next.js, a Socket.IO server, PostgreSQL with Prisma. Remove
-Clerk remnants, such as `pages/api/get-clerk-info.ts`. Remove the Grafana
-service, which is already commented out in `docker-compose.yml`, and the
-`grafana/` directory. I4 replaces it.
+Clerk remnants, such as `pages/api/get-clerk-info.ts`. Keep Grafana as an
+optional Docker Compose profile. It is commented out in `docker-compose.yml`
+now. Enable it as a profile and fix the datasource reference: Grafana assigns a
+random UID to the datasource, and the provisioned dashboard then cannot find it.
+Set a fixed UID in the datasource provisioning file.
 
 The original README reported that the admin dashboard needs a manual refresh
 before its socket connects. Check whether this defect still exists. Fix it in M0
@@ -248,6 +251,8 @@ check passes. Record the result of each check in `docs/build-log.md`.
 - All existing tests pass.
 - No `.env` file or other secret is tracked. `.env.example` lists every
   variable.
+- The Grafana profile starts, and its dashboard loads data from PostgreSQL
+  without manual repair.
 
 **M1. Domain model and event log.**
 - Courses, rosters, class sessions, and the append-only event log exist.
@@ -301,10 +306,7 @@ Record a decision or a finding for each item in `docs/build-log.md`:
 
 1. Which USB Wi-Fi chipsets support AP mode with 150 associated clients. Test
    at least one adapter before M2 is complete.
-2. Whether the institution's network acceptable-use policy permits routing
-   student traffic through an instructor's network login. Do not resolve this.
-   Record it as a deployment risk.
-3. macOS laptops. This build supports Linux only. Record what macOS support
+2. macOS laptops. This build supports Linux only. Record what macOS support
    would need.
 
 ## 10. Non-goals
