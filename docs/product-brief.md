@@ -3,8 +3,9 @@
 Status: draft for the build agent. Owner: Langdon White.
 
 CheckHen is a classroom interaction system. One instructor runs it for one class
-at a time, on a laptop in the room. Students connect to a Wi-Fi access point
-(AP) that the laptop provides. Every feature uses that connection.
+at a time, on a laptop in the room. Students connect to a classroom Wi-Fi access
+point (AP). The laptop or an OpenWrt router provides the AP. Every feature uses
+that connection.
 
 ## 1. Features
 
@@ -52,8 +53,9 @@ Rules:
 3. Sign-in binds the device to the student for the class session. Record the
    student, the client IP address, and the client MAC address from the DHCP
    lease.
-4. Internet access for students goes out through the laptop's own uplink. The
-   instructor's institutional network login provides that uplink.
+4. Internet access for students goes out through the AP's uplink (the laptop
+   in profile A, the router in profile B). The instructor's institutional
+   network login provides that uplink.
 
 The instructor is an admin by configuration (allowlisted emails). Teaching
 assistants are admins with the same rights in this build.
@@ -79,7 +81,8 @@ Exam mode does not need to allow a new Google sign-in.
 
 - A check-in is valid only if the request comes from the AP subnet and the
   session is signed in.
-- The server listens only on the AP interface. Do not expose it on the uplink.
+- The server accepts student requests only from the AP subnet. Do not expose
+  it on the uplink.
 - One device per student per session counts for attendance. A second device
   can use chat but does not change attendance.
 - Record check-out when the device leaves the AP or the session ends.
@@ -201,27 +204,52 @@ Participation grade:
 
 ## 6. Deployment
 
-### Profile A: laptop (primary)
+The deployment has two layers:
+
+- **Application layer:** the Next.js application, the socket server,
+  PostgreSQL, and optional Grafana. It runs with Docker Compose or Podman
+  Compose on Linux, macOS, and Windows. Test it on all three.
+- **Network layer:** the AP, DHCP, DNS filtering, nftables enforcement, and the
+  captive portal. It needs direct access to a Wi-Fi radio. On macOS and Windows,
+  containers run in a Linux virtual machine that cannot reach the host's USB
+  Wi-Fi adapter, so the network layer cannot run in a container there.
+
+Two network profiles exist. Both must give the same behavior to the
+application layer.
+
+### Profile A: Linux laptop
 
 - Host: a Linux laptop with a USB Wi-Fi adapter that supports AP mode. The
   laptop's built-in Wi-Fi or Ethernet is the uplink.
-- Run the application, socket server, and database with Docker Compose.
-- Run the AP and network control (hostapd, dnsmasq, nftables, captive portal) in
-  a privileged container with host networking, or as host scripts that one
-  command installs. Choose one and document the reason.
+- Run the network layer in a privileged container with host networking, or as
+  host scripts that one command installs. Choose one and document the reason.
 - One command starts class mode. One command switches to exam mode and back.
   One command stops everything and restores the laptop's network.
+
+### Profile B: OpenWrt router (macOS and Windows)
+
+- An OpenWrt router runs the network layer: AP, DHCP, DNS filtering, nftables
+  (fw4), and redirection to the captive portal.
+- The laptop runs only the application layer. It connects to the router by
+  Ethernet or Wi-Fi.
+- The application controls the router through a defined interface (for example
+  rpcd/ubus over HTTP, or SSH). It authorizes a signed-in client, switches class
+  and exam mode, updates the allowlist, and reads DHCP leases and station
+  events.
+- The router's uplink uses the instructor's network login. Document how to
+  configure it.
+- Provide an install package or script for the router, and a list of tested
+  router models.
+
+### Both profiles
+
 - Target: 150 concurrent student clients. The Raspberry Pi 3B+ did not reach
   this target in testing.
-
-### Profile B: OpenWrt router (lowest priority)
-
-- The router runs the AP and the network enforcement. The application stays on
-  the laptop.
-- Do not start this profile before profile A passes its acceptance checks.
+- Put the shared network rules (allowlist, nftables sets, captive-portal
+  behavior) in one place that both profiles use.
 
 Delete the Raspberry Pi path (`pi-setup/`) after profile A replaces it. Keep its
-working parts, such as the NAT rules, where profile A reuses them.
+working parts, such as the NAT rules, where the profiles reuse them.
 
 ## 7. Starting point
 
@@ -231,11 +259,14 @@ check-out, class templates, student profiles, an analytics page, tests, and the
 Raspberry Pi exam-network scripts.
 
 Keep the stack: Next.js, a Socket.IO server, PostgreSQL with Prisma. Remove
-Clerk remnants, such as `pages/api/get-clerk-info.ts`. Keep Grafana as an
-optional Docker Compose profile. It is commented out in `docker-compose.yml`
-now. Enable it as a profile and fix the datasource reference: Grafana assigns a
-random UID to the datasource, and the provisioned dashboard then cannot find it.
-Set a fixed UID in the datasource provisioning file.
+Clerk remnants, such as `pages/api/get-clerk-info.ts`. Grafana is commented
+out in `docker-compose.yml`. Only a provisioned dashboard
+(`grafana/dashboards/student-statistics.json`) uses it; no application code
+does. Decide whether to keep it as an optional profile for analytics or to
+remove it. Record the decision and the reason in `docs/build-log.md`. If you
+keep it, fix the datasource reference: Grafana assigns a random UID to the
+datasource, and the provisioned dashboard then cannot find it. Set a fixed UID
+in the datasource provisioning file.
 
 The original README reported that the admin dashboard needs a manual refresh
 before its socket connects. Check whether this defect still exists. Fix it in M0
@@ -246,13 +277,22 @@ if it does.
 Do the milestones in order. A milestone is complete only when each acceptance
 check passes. Record the result of each check in `docs/build-log.md`.
 
+Some checks need hardware that the build environment does not have: a USB Wi-Fi
+adapter, a real router, a macOS or Windows laptop, phones. For each such check,
+write a script or a step-by-step procedure that the operator runs. Mark the
+check "waiting for operator" in the build log. Continue with the next milestone.
+
 **M0. Baseline.**
 - From a clean clone, one documented command starts the stack.
 - All existing tests pass.
 - No `.env` file or other secret is tracked. `.env.example` lists every
   variable.
-- The Grafana profile starts, and its dashboard loads data from PostgreSQL
-  without manual repair.
+- The application layer starts with Docker Compose on Linux.
+- A documented procedure starts it with Docker Desktop or Podman on macOS and
+  Windows. The operator runs this procedure; record the result when the
+  operator reports it.
+- The Grafana decision is recorded. If Grafana stays, its dashboard loads data
+  from PostgreSQL without manual repair.
 
 **M1. Domain model and event log.**
 - Courses, rosters, class sessions, and the append-only event log exist.
@@ -287,18 +327,24 @@ check passes. Record the result of each check in `docs/build-log.md`.
 - An excuse event clears the fail in the instructor view. The fail event stays
   in the log.
 
-**M6. Cold calling.**
+**M6. OpenWrt profile.**
+- The M2, M3, and M5 acceptance checks pass against an OpenWrt image in a
+  virtual machine or emulator, with the application layer on a separate host.
+- A test script runs the same checks against a real router. The operator runs
+  it with a macOS laptop; record the result when the operator reports it.
+- The router install and the router-control interface are documented.
+
+**M7. Cold calling.**
 - Sampler tests: seeded replay gives identical selections. Input order does not
   change the result. Weights match the formula for each factor.
 - Grade tests: `A`, volunteer cap, and score match hand-computed examples,
   including the bounds of `A`.
 - The in-class interface (I3) completes Call → Answered in two taps.
 
-**M7. Analytics and scoring (I4).**
+**M8. Analytics and scoring (I4).**
 - Attendance, participation, and exam events per student and per session.
 - CSV export with the configuration stamp.
 
-**M8. OpenWrt profile.** Start only after the operator approves M0–M7.
 
 ## 9. Open items
 
@@ -306,8 +352,9 @@ Record a decision or a finding for each item in `docs/build-log.md`:
 
 1. Which USB Wi-Fi chipsets support AP mode with 150 associated clients. Test
    at least one adapter before M2 is complete.
-2. macOS laptops. This build supports Linux only. Record what macOS support
-   would need.
+2. Native network layer on macOS (Internet Sharing with `pf`). Do not build
+   it. Record whether it could reach 150 clients. Windows Mobile Hotspot allows
+   only 8 clients and is not a candidate.
 
 ## 10. Non-goals
 
