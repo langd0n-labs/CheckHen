@@ -195,6 +195,15 @@ credential and certificate setup commands can launch Podman through the
 required Bitwarden runner; those setup commands themselves have not been
 rerun on x1 after the container revision.
 
+The pushed container revision `499e99f` is checked out cleanly on x1.
+The existing ignored certificate files are present. The laptop Compose
+profile parses on x1 without displaying `.env` values, and the rootless
+setup/Certbot image builds there. The proxy image also builds on x1 and
+passes `nginx -t` with the existing real certificate mounted read-only in
+an isolated container network. `iw dev` shows only the built-in managed
+Wi-Fi interface; `lsusb` shows no external Wi-Fi adapter. The earlier rootless
+app stack has not yet been stopped for the rootful class-mode tests.
+
 Independent Claude personal review found one startup blocker: the AP service
 healthcheck contacted loopback although the signed binding helper listens on
 `AP_ADDRESS`. The healthcheck now uses `AP_ADDRESS`. The reviewer also flagged
