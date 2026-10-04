@@ -37,6 +37,10 @@ def validate(settings: dict[str, str]) -> tuple[ipaddress.IPv4Network, ipaddress
     address = ipaddress.IPv4Address(settings.get("AP_ADDRESS", "172.16.77.1"))
     if subnet.prefixlen != 24 or address not in subnet.hosts():
         raise ValueError("AP_SUBNET must be a /24 and AP_ADDRESS must be a usable address in it")
+    ipv6_subnet = ipaddress.IPv6Network(settings.get("AP_IPV6_PREFIX", "fd9b:2f69:8c44::/64"), strict=True)
+    ipv6_address = ipaddress.IPv6Address(settings.get("AP_IPV6_ADDRESS", "fd9b:2f69:8c44::1"))
+    if ipv6_subnet.prefixlen != 64 or not ipv6_subnet.subnet_of(ipaddress.IPv6Network("fc00::/7")) or ipv6_address not in ipv6_subnet or ipv6_address == ipv6_subnet.network_address:
+        raise ValueError("AP_IPV6_PREFIX must be a ULA /64 containing AP_IPV6_ADDRESS")
     if any(subnet.overlaps(block) for block in RESERVED):
         raise ValueError("AP subnet overlaps a reserved campus, container, or VPN network")
     for name in ("AP_INTERFACE", "UPLINK_INTERFACE"):
@@ -81,6 +85,22 @@ def conflicting_routes(subnet: ipaddress.IPv4Network) -> list[str]:
     return conflicts
 
 
+def conflicting_ipv6_routes(subnet: ipaddress.IPv6Network) -> list[str]:
+    routes = json.loads(run("ip", "-j", "-6", "route", "show", "table", "all").stdout)
+    conflicts = []
+    for route in routes:
+        destination = route.get("dst", "default")
+        if destination == "default":
+            continue
+        try:
+            other = ipaddress.IPv6Network(destination, strict=False)
+        except ValueError:
+            continue
+        if subnet.overlaps(other):
+            conflicts.append(f"{destination} on {route.get('dev', 'unknown interface')}")
+    return conflicts
+
+
 def domains(settings: dict[str, str]) -> list[str]:
     names = [name.strip().lower() for name in settings.get("PREAUTH_DOMAINS", "").split(",")]
     names = [name for name in names if name]
@@ -94,12 +114,15 @@ def write_configs(settings: dict[str, str], subnet: ipaddress.IPv4Network,
     ap = settings["AP_INTERFACE"]
     uplink = settings["UPLINK_INTERFACE"]
     ip = str(address)
+    ipv6_address = settings.get("AP_IPV6_ADDRESS", "fd9b:2f69:8c44::1")
+    ipv6_subnet = settings.get("AP_IPV6_PREFIX", "fd9b:2f69:8c44::/64")
     domain_names = domains(settings)
     discovery = settings.get("PREAUTH_DISCOVERY", "0") == "1"
     redirect = (
         f'    iifname "{ap}" ip saddr . ether saddr @authorized4 return\n'
         f'    iifname "{ap}" tcp dport 80 dnat to {ip}\n')
     open_rule = f'    iifname "{ap}" oifname "{uplink}" tcp dport {{ 80, 443 }} accept\n' if discovery else ""
+    open_rule6 = f'    iifname "{ap}" oifname "{uplink}" tcp dport {{ 80, 443 }} accept\n' if discovery else ""
     (STATE / "firewall.nft").write_text(f'''table ip checkhen {{
   set authorized4 {{ type ipv4_addr . ether_addr; }}
   set preauth4 {{ type ipv4_addr; flags timeout; timeout 5m; }}
@@ -114,7 +137,7 @@ def write_configs(settings: dict[str, str], subnet: ipaddress.IPv4Network,
   chain forward {{
     type filter hook forward priority -5; policy accept;
     oifname "{ap}" ct state established,related accept
-    iifname "{ap}" ip daddr @private4 drop
+    iifname "{ap}" ip daddr @private4 counter drop
     iifname "{ap}" ip saddr . ether saddr @authorized4 oifname "{uplink}" accept
 {open_rule}    iifname "{ap}" ip daddr @preauth4 oifname "{uplink}" tcp dport 443 accept
     iifname "{ap}" drop
@@ -128,8 +151,33 @@ def write_configs(settings: dict[str, str], subnet: ipaddress.IPv4Network,
   }}
 }}
 table ip6 checkhen6 {{
-  chain input {{ type filter hook input priority -5; policy accept; iifname "{ap}" drop; }}
-  chain forward {{ type filter hook forward priority -5; policy accept; iifname "{ap}" drop; }}
+  set authorized6 {{ type ether_addr; }}
+  set preauth6 {{ type ipv6_addr; flags timeout; timeout 5m; }}
+  set private6 {{ type ipv6_addr; flags interval; elements = {{ ::/128, ::1/128, fc00::/7, fe80::/10, ff00::/8, 2001:db8::/32 }}; }}
+  chain input {{
+    type filter hook input priority -5; policy accept;
+    iifname "{ap}" icmpv6 type {{ nd-router-solicit, nd-neighbor-solicit, nd-neighbor-advert }} accept
+    iifname "{ap}" ip6 daddr {ipv6_address} udp dport 53 accept
+    iifname "{ap}" ip6 daddr {ipv6_address} tcp dport {{ 53, 80, 443 }} accept
+    iifname "{ap}" drop
+  }}
+  chain forward {{
+    type filter hook forward priority -5; policy accept;
+    oifname "{ap}" ct state established,related accept
+    iifname "{ap}" ip6 daddr @private6 counter drop
+    iifname "{ap}" ether saddr @authorized6 oifname "{uplink}" accept
+{open_rule6}    iifname "{ap}" ip6 daddr @preauth6 oifname "{uplink}" tcp dport 443 accept
+    iifname "{ap}" drop
+  }}
+  chain prerouting {{
+    type nat hook prerouting priority dstnat; policy accept;
+    iifname "{ap}" ether saddr @authorized6 return
+    iifname "{ap}" tcp dport 80 dnat to {ipv6_address}
+  }}
+  chain postrouting {{
+    type nat hook postrouting priority srcnat; policy accept;
+    oifname "{uplink}" ip6 saddr {ipv6_subnet} masquerade
+  }}
 }}
 ''')
     hostapd = f'''interface={ap}
@@ -154,15 +202,19 @@ wpa_passphrase={settings["AP_PASSPHRASE"]}
             start = host_address
         previous = host_address
     ranges.append((start, previous))
-    dns = [f"interface={ap}", "bind-interfaces", f"listen-address={ip}",
+    dns = [f"interface={ap}", "bind-interfaces", f"listen-address={ip},{ipv6_address}",
            f"dhcp-option=option:router,{ip}", f"dhcp-option=option:dns-server,{ip}",
            f"dhcp-leasefile={STATE / 'dnsmasq/leases'}", "no-resolv",
            "server=1.1.1.1", "server=9.9.9.9", "log-queries",
            f"log-facility={STATE / 'dnsmasq/query.log'}",
            f"address=/{settings.get('AP_HOSTNAME', 'checkhen.rfkill.dev')}/{ip}",
+           f"address=/{settings.get('AP_HOSTNAME', 'checkhen.rfkill.dev')}/{ipv6_address}",
            f"local=/{settings.get('AP_HOSTNAME', 'checkhen.rfkill.dev')}/"]
     dns.extend(f"dhcp-range={first},{last},12h" for first, last in ranges)
+    dns.extend(["enable-ra", f"dhcp-range=::,constructor:{ap},ra-only,64,12h",
+                f"dhcp-option=option6:dns-server,[{ipv6_address}]"])
     dns.extend(f"nftset=/{name}/4#ip#checkhen#preauth4" for name in domain_names)
+    dns.extend(f"nftset=/{name}/6#ip6#checkhen6#preauth6" for name in domain_names)
     (STATE / "dnsmasq.conf").write_text("\n".join(dns) + "\n")
 
 
@@ -189,6 +241,8 @@ def start(config_path: Path | None = None) -> None:
     settings = read_env(config_path)
     subnet, address = validate(settings)
     conflicts = conflicting_routes(subnet)
+    conflicts.extend(conflicting_ipv6_routes(ipaddress.IPv6Network(
+        settings.get("AP_IPV6_PREFIX", "fd9b:2f69:8c44::/64"))))
     if conflicts:
         raise RuntimeError("AP subnet overlaps an existing host route: " + ", ".join(conflicts))
     if subprocess.run(["nft", "list", "table", "ip", "checkhen"], capture_output=True).returncode == 0:
@@ -199,6 +253,7 @@ def start(config_path: Path | None = None) -> None:
     os.chmod(STATE, 0o711)
     # A new class starts with an empty authorized set, even if the old lease persists.
     (STATE / "bindings.json").unlink(missing_ok=True)
+    (STATE / "pending-checkouts.json").unlink(missing_ok=True)
     dns_user = pwd.getpwnam("dnsmasq")
     dns_dir = STATE / "dnsmasq"
     dns_dir.mkdir(mode=0o700, exist_ok=True)
@@ -215,14 +270,20 @@ def start(config_path: Path | None = None) -> None:
                               text=True, capture_output=True).stdout.strip() if firewalld else ""
     if old_zone == "no zone":
         old_zone = ""
-    state = {"ap": settings["AP_INTERFACE"], "address": str(address), "subnet": str(subnet),
+    ipv6_address = settings.get("AP_IPV6_ADDRESS", "fd9b:2f69:8c44::1")
+    ipv6_subnet = settings.get("AP_IPV6_PREFIX", "fd9b:2f69:8c44::/64")
+    state = {"ap": settings["AP_INTERFACE"], "uplink": settings["UPLINK_INTERFACE"],
+             "address": str(address), "subnet": str(subnet),
+             "ipv6_address": ipv6_address, "ipv6_subnet": ipv6_subnet,
              "managed": "test" if test_mode else run("nmcli", "-g", "GENERAL.NM-MANAGED", "device", "show",
                                                         settings["AP_INTERFACE"]).stdout.strip(),
              "link_up": "UP" in json.loads(run("ip", "-j", "link", "show", "dev",
                                                  settings["AP_INTERFACE"]).stdout)[0]["flags"],
              "forward": Path("/proc/sys/net/ipv4/ip_forward").read_text().strip(),
+             "forward6": Path("/proc/sys/net/ipv6/conf/all/forwarding").read_text().strip(),
+             "uplink_accept_ra": Path(f"/proc/sys/net/ipv6/conf/{settings['UPLINK_INTERFACE']}/accept_ra").read_text().strip(),
              "processes": {}, "pid_namespace": os.stat("/proc/self/ns/pid").st_ino,
-             "firewall": False, "address_added": False,
+             "firewall": False, "address_added": False, "address6_added": False,
              "firewalld": firewalld, "old_zone": old_zone, "zone_changed": False}
     save_state(state)
     try:
@@ -230,6 +291,9 @@ def start(config_path: Path | None = None) -> None:
             run("nmcli", "device", "set", state["ap"], "managed", "no")
         run("ip", "address", "add", f"{address}/{subnet.prefixlen}", "dev", state["ap"])
         state["address_added"] = True
+        save_state(state)
+        run("ip", "-6", "address", "add", f"{ipv6_address}/{ipaddress.IPv6Network(ipv6_subnet).prefixlen}", "dev", state["ap"])
+        state["address6_added"] = True
         save_state(state)
         run("ip", "link", "set", state["ap"], "up")
         run("nft", "-f", str(STATE / "firewall.nft"))
@@ -240,6 +304,8 @@ def start(config_path: Path | None = None) -> None:
             state["zone_changed"] = True
             save_state(state)
         Path("/proc/sys/net/ipv4/ip_forward").write_text("1\n")
+        Path("/proc/sys/net/ipv6/conf/all/forwarding").write_text("1\n")
+        Path(f"/proc/sys/net/ipv6/conf/{state['uplink']}/accept_ra").write_text("2\n")
         spawn(state, "dnsmasq", ["dnsmasq", "--no-daemon", f"--conf-file={STATE / 'dnsmasq.conf'}"])
         seeded: set[str] = set()
         for name in domains(settings):
@@ -248,6 +314,12 @@ def start(config_path: Path | None = None) -> None:
                     value = str(ipaddress.IPv4Address(address_info[0]))
                     if value not in seeded:
                         run("nft", "add", "element", "ip", "checkhen", "preauth4", "{", value, "}")
+                        seeded.add(value)
+            for family, _, _, _, address_info in socket.getaddrinfo(name, 443, socket.AF_INET6):
+                if family == socket.AF_INET6:
+                    value = str(ipaddress.IPv6Address(address_info[0]))
+                    if value not in seeded:
+                        run("nft", "add", "element", "ip6", "checkhen6", "preauth6", "{", value, "}")
                         seeded.add(value)
         agent_args = [sys.executable, str(Path(__file__).with_name("agent.py"))]
         if config_path:
@@ -308,10 +380,21 @@ def stop() -> None:
     if state.get("address_added"):
         restore("AP address", "ip", "address", "delete",
                 f"{state['address']}/{ipaddress.IPv4Network(state['subnet']).prefixlen}", "dev", state["ap"])
+    if state.get("address6_added"):
+        restore("AP IPv6 address", "ip", "-6", "address", "delete",
+                f"{state['ipv6_address']}/{ipaddress.IPv6Network(state['ipv6_subnet']).prefixlen}", "dev", state["ap"])
     try:
         Path("/proc/sys/net/ipv4/ip_forward").write_text(state["forward"] + "\n")
     except OSError:
         errors.append("IP forwarding")
+    try:
+        Path("/proc/sys/net/ipv6/conf/all/forwarding").write_text(state["forward6"] + "\n")
+    except OSError:
+        errors.append("IPv6 forwarding")
+    try:
+        Path(f"/proc/sys/net/ipv6/conf/{state['uplink']}/accept_ra").write_text(state["uplink_accept_ra"] + "\n")
+    except OSError:
+        errors.append("Uplink IPv6 router advertisements")
     if not state.get("link_up"):
         restore("AP link", "ip", "link", "set", state["ap"], "down")
     if state.get("managed", "").lower() in {"yes", "true"}:
@@ -354,8 +437,11 @@ def main() -> None:
         elif sys.argv[1] == "stop":
             stop()
         else:
-            subnet, address = validate(read_env(config_path))
+            settings = read_env(config_path)
+            subnet, address = validate(settings)
             conflicts = conflicting_routes(subnet)
+            conflicts.extend(conflicting_ipv6_routes(ipaddress.IPv6Network(
+                settings.get("AP_IPV6_PREFIX", "fd9b:2f69:8c44::/64"))))
             if conflicts:
                 raise RuntimeError("AP subnet overlaps an existing host route: " + ", ".join(conflicts))
             print(f"AP {address}/{subnet.prefixlen}; no conflicting host routes")

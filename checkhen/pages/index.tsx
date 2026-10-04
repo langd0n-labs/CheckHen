@@ -100,6 +100,7 @@ export default function HomePage() {
   // Check if user is checked in to the current class
   const checkIfCheckedIn = async () => {
     const response = await fetch('/api/student/fetch-check-in');
+    if (response.ok) await fetch('/api/student/check-in', { method: 'POST' });
     setIsCheckedIn(response.ok);
     setCheckInResolved(true);
     return response.ok;
@@ -283,6 +284,7 @@ export default function HomePage() {
     if (!isCheckedIn) return;
 
     const _dataInterval = setInterval(() => {
+      fetch('/api/student/check-in', { method: 'POST' });
       fetchAllChatMessages();
       fetchHandRaiseStatus();
       fetchPaceSignals();

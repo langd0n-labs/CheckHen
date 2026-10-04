@@ -5,8 +5,8 @@ session. Do not send environment files, tokens, database records, or passwords.
 
 ## Disposable PostgreSQL integration checks
 
-With PostgreSQL and `psql` available locally, run the event-store, legacy-import,
-and socket-isolation checks together:
+With a disposable PostgreSQL admin account available locally, run the
+event-store, route-to-store, legacy-import, and socket-isolation checks together:
 
 ```bash
 CHECKHEN_TEST_PG_ADMIN_URL='postgresql://USER:PASSWORD@127.0.0.1:5432/postgres' bash scripts/test-postgres.sh
@@ -14,8 +14,8 @@ CHECKHEN_TEST_PG_ADMIN_URL='postgresql://USER:PASSWORD@127.0.0.1:5432/postgres' 
 
 The command drops and recreates only `checkhen_test` and
 `checkhen_legacy_test` on localhost. Use disposable credentials. It installs
-the pinned Yarn dependencies, applies migrations, seeds the legacy fixture,
-starts a test socket server on port 6061, and runs all three scripts.
+socket-server dependencies if needed, applies migrations, seeds the legacy
+fixture, starts a test socket server on port 6061, and runs the integration checks.
 
 ## M0: macOS and Windows application startup
 

@@ -285,9 +285,9 @@ The independent M0–M2 review report identified seven findings.
 Finding 3 was fixed in the first M3 commit. Findings 1, 2, 4, and 5 are
 addressed in this follow-up: the agent reconciles saved bindings with live
 leases and nftables after restart; a new class discards old bindings; checkout,
-session end, lease expiry, and AP station departure revoke matching devices;
-the AP drops IPv6 input and forwarding,
-isolates wireless stations, and blocks private IPv4 uplink destinations; student
+session end and lease expiry revoke matching devices; brief AP station
+departures keep their binding for reassociation. The AP isolates wireless
+stations and blocks private IPv4 uplink destinations; student
 chat responses omit the stable `userId`.
 
 The route suites now include per-route 401 checks, no-active-check-in cases,
@@ -307,11 +307,36 @@ behavior rather than restored verbatim:
 New tests cover signed agent requests, expiry, subnet and lease denial, changed
 MAC, revoke scope, session revocation, and agent restart with a stale
 `bindings.json`. Portal client tests cover header validation, fail-closed
-configuration, timeout, and response mapping. The namespace procedure now
-tests two clients, agent and IPv6 isolation, negative binding requests, and a
-second class cycle. It requires the deferred root-capable x1 run. The three
-PostgreSQL scripts have one repeatable command in `scripts/test-postgres.sh`;
-that command also needs a local PostgreSQL server and has not run here.
-Follow-up verification: 16 Jest suites and 159 tests, TypeScript typecheck,
-and 12 Python unit tests pass. The namespace script compiles but has not run
-on a root-capable host.
+configuration, timeout, and response mapping.
+
+## M3 follow-up review and dual-stack AP
+
+The agent retains bindings during AP station departures. Lease expiry removes
+the matching nft entries and sends a signed checkout notification to the app,
+retrying if the app is temporarily unavailable. IPv6-only bindings expire
+after 12 hours or an explicit revoke. The app folds `DEVICE_BOUND` and
+`DEVICE_UNBOUND`, so a primary device that obtains a new IP can check out.
+Nft add and destroy operations are idempotent; failed prune operations do not
+block later bindings. Check-in cleanup preserves the original append error.
+Concurrent check-ins serialize inside the event-store transaction.
+
+A scheduled app job revokes access and appends `CHECK_OUT` and `SESSION_ENDED`
+when a class duration lapses. Revocation remains a prerequisite for checkout
+and session-end writes, including in the app-only profile; when the agent is
+unavailable, these writes retry rather than claiming access ended. The socket
+server broadcasts notifications from persisted events and ignores client
+broadcast requests.
+
+The laptop AP config now advertises a ULA /64 by SLAAC, resolves the portal on
+both families, authorizes IPv6 by MAC, and applies host, private-range, and
+pre-binding uplink blocks to both families. IPv4 remains available without an
+IPv6 uplink. The namespace script covers a dual-stack client, an IPv6-only
+client, unbound traffic on both families, private destination blocks, agent
+restart with a stale `bindings.json`, reassociation, revoke, and a second class
+cycle. The root namespace test is written but has not run. The live AP and
+Google sign-in checks remain pending.
+
+The disposable PostgreSQL script passed against a local test server on
+2026-10-04: event store, route-to-store attendance and concurrent check-ins,
+legacy migration, session expiry, and socket isolation. The laptop Python
+unit tests, Jest suite, and TypeScript typecheck passed locally.

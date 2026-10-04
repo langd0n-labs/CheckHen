@@ -5,6 +5,7 @@ import hmac
 import ipaddress
 import json
 import os
+import signal
 from pathlib import Path
 import socket
 import subprocess
@@ -37,6 +38,17 @@ def namespace(*args: str, check: bool = True, name: str = NAMESPACE) -> subproce
     return run("ip", "netns", "exec", name, *args, check=check)
 
 
+def drop_count(family: str, table: str, set_name: str) -> int:
+    rules = json.loads(run("nft", "-j", "list", "chain", family, table, "forward").stdout)["nftables"]
+    for item in rules:
+        rule = item.get("rule", {})
+        if set_name in json.dumps(rule):
+            for expression in rule.get("expr", []):
+                if "counter" in expression:
+                    return expression["counter"]["packets"]
+    raise RuntimeError(f"Missing counter for {set_name}")
+
+
 def main() -> None:
     if os.geteuid() != 0:
         raise SystemExit("Run this namespace check with sudo")
@@ -54,6 +66,8 @@ def main() -> None:
     settings["AP_PASSPHRASE"] = "namespace-only"
     secret = settings["PORTAL_CONTROL_SECRET"]
     address = settings.get("AP_ADDRESS", "172.16.77.1")
+    address6 = settings.get("AP_IPV6_ADDRESS", "fd9b:2f69:8c44::1")
+    prefix6 = ipaddress.IPv6Network(settings.get("AP_IPV6_PREFIX", "fd9b:2f69:8c44::/64"))
     subnet = ipaddress.IPv4Network(settings.get("AP_SUBNET", "172.16.77.0/24"))
     config_path = None
     started = False
@@ -62,6 +76,7 @@ def main() -> None:
     created_veth = False
     created_bridge = False
     proxy = None
+    restarted_agent = None
     try:
         run("ip", "netns", "add", NAMESPACE)
         created_namespace = True
@@ -74,17 +89,19 @@ def main() -> None:
         created_veth = True
         run("ip", "link", "set", CLIENT_IF, "netns", NAMESPACE)
         run("ip", "link", "set", HOST_VETH, "master", HOST_IF)
+        run("bridge", "link", "set", "dev", HOST_VETH, "isolated", "on")
         run("ip", "link", "set", HOST_VETH, "up")
         run("ip", "link", "add", SECOND_HOST_VETH, "type", "veth", "peer", "name", SECOND_CLIENT_IF)
         run("ip", "link", "set", SECOND_CLIENT_IF, "netns", SECOND_NAMESPACE)
         run("ip", "link", "set", SECOND_HOST_VETH, "master", HOST_IF)
+        run("bridge", "link", "set", "dev", SECOND_HOST_VETH, "isolated", "on")
         run("ip", "link", "set", SECOND_HOST_VETH, "up")
         namespace("ip", "link", "set", "lo", "up")
         namespace("ip", "link", "set", CLIENT_IF, "up")
         namespace("ip", "link", "set", "lo", "up", name=SECOND_NAMESPACE)
         namespace("ip", "link", "set", SECOND_CLIENT_IF, "up", name=SECOND_NAMESPACE)
-        run("ip", "-6", "address", "add", "fd77::1/64", "dev", HOST_IF)
-        namespace("ip", "-6", "address", "add", "fd77::2/64", "dev", CLIENT_IF)
+        namespace("sysctl", "-w", f"net.ipv6.conf.{CLIENT_IF}.accept_ra=2")
+        namespace("sysctl", "-w", f"net.ipv6.conf.{SECOND_CLIENT_IF}.accept_ra=2", name=SECOND_NAMESPACE)
         RESOLV.mkdir(parents=True, exist_ok=True)
         (RESOLV / "resolv.conf").write_text(f"nameserver {address}\n")
         SECOND_RESOLV.mkdir(parents=True, exist_ok=True)
@@ -98,9 +115,9 @@ def main() -> None:
         run(sys.executable, str(ROOT / "network/laptop/classroom.py"), "start", str(config_path))
         started = True
         template = (ROOT / "network/proxy/default.conf.template").read_text()
-        rendered = subprocess.run(["envsubst", "${AP_ADDRESS} ${AP_HOSTNAME}"],
+        rendered = subprocess.run(["envsubst", "${AP_ADDRESS} ${AP_IPV6_ADDRESS} ${AP_HOSTNAME}"],
                                   input=template, text=True, capture_output=True, check=True,
-                                  env={**os.environ, "AP_ADDRESS": address,
+                                  env={**os.environ, "AP_ADDRESS": address, "AP_IPV6_ADDRESS": address6,
                                        "AP_HOSTNAME": settings.get("AP_HOSTNAME", "checkhen.rfkill.dev")}).stdout
         server_config = Path("/tmp/checkhen-test-proxy-server.conf")
         main_config = Path("/tmp/checkhen-test-proxy.conf")
@@ -138,6 +155,22 @@ def main() -> None:
         second_ip = second_ips[0]
         second_mac = json.loads(namespace("ip", "-j", "link", "show", "dev", SECOND_CLIENT_IF,
                                           name=SECOND_NAMESPACE).stdout)[0]["address"]
+        def slaac(name: str, interface: str) -> str:
+            for _ in range(40):
+                info = json.loads(namespace("ip", "-j", "-6", "address", "show", "dev", interface,
+                                            name=name).stdout)
+                addresses6 = [entry["local"] for entry in info[0].get("addr_info", [])
+                              if ipaddress.IPv6Address(entry["local"]) in prefix6]
+                if addresses6:
+                    return addresses6[0]
+                time.sleep(0.5)
+            raise RuntimeError(f"SLAAC did not configure {name}")
+        first_ip6 = slaac(NAMESPACE, CLIENT_IF)
+        second_ip6 = slaac(SECOND_NAMESPACE, SECOND_CLIENT_IF)
+        for family, peer in (("-4", second_ip), ("-6", second_ip6)):
+            direct = namespace("ping", family, "-c", "1", "-W", "2", peer, check=False)
+            if direct.returncode == 0:
+                raise RuntimeError("Bridge client isolation failed for " + family)
         routes = json.loads(namespace("ip", "-j", "-4", "route", "show", "default").stdout)
         if not any(route.get("gateway") == address for route in routes):
             raise RuntimeError("DHCP did not configure the AP as the default gateway")
@@ -164,9 +197,14 @@ def main() -> None:
                                      f"http://{address}:7878/bind", name=client, check=False)
             if agent_access.returncode == 0:
                 raise RuntimeError("An AP client reached the portal agent")
-        ipv6 = namespace("ping", "-6", "-c", "1", "-W", "2", "fd77::1", check=False)
+        ipv6 = namespace("ping", "-6", "-c", "1", "-W", "2", address6, check=False)
         if ipv6.returncode == 0:
             raise RuntimeError("An AP client reached the host over IPv6")
+        for name in (NAMESPACE, SECOND_NAMESPACE):
+            blocked6 = namespace("curl", "-6", "--noproxy", "*", "--max-time", "3", "-fsSI",
+                                 "https://example.com", name=name, check=False)
+            if blocked6.returncode == 0:
+                raise RuntimeError("An unbound client reached IPv6 uplink")
         for label, candidate_ip, timestamp, valid_signature in (
             ("forged signature", lease_ip, int(time.time() * 1000), False),
             ("expired timestamp", lease_ip, 1, True),
@@ -198,20 +236,91 @@ def main() -> None:
             binding = json.load(response)
         if binding != {"ip": lease_ip, "mac": mac.lower()}:
             raise RuntimeError("The portal agent did not bind the DHCP IP and MAC")
+        namespace("curl", "-4", "--noproxy", "*", "--max-time", "12", "-fsSI",
+                  "https://example.com")
+        for family, name in (("-4", SECOND_NAMESPACE), ("-6", SECOND_NAMESPACE)):
+            blocked_second = namespace("curl", family, "--noproxy", "*", "--max-time", "3", "-fsSI",
+                                       "https://example.com", name=name, check=False)
+            if blocked_second.returncode == 0:
+                raise RuntimeError("The unbound client gained uplink while another client was bound")
+        private_before = drop_count("ip", "checkhen", "private4")
+        private = namespace("curl", "-4", "--noproxy", "*", "--max-time", "3", "-fsSI",
+                            "http://192.168.1.1", check=False)
+        if private.returncode == 0 or drop_count("ip", "checkhen", "private4") <= private_before:
+            raise RuntimeError("An authorized client bypassed the private IPv4 block")
+        namespace("ip", "link", "set", CLIENT_IF, "down")
+        time.sleep(1)
+        namespace("ip", "link", "set", CLIENT_IF, "up")
+        namespace("curl", "-4", "--noproxy", "*", "--max-time", "12", "-fsSI",
+                  "https://example.com")
+        namespace("ip", "-4", "address", "flush", "dev", SECOND_CLIENT_IF, name=SECOND_NAMESPACE)
+        namespace("ip", "-4", "route", "flush", "dev", SECOND_CLIENT_IF, name=SECOND_NAMESPACE)
         second_payload = json.dumps({"courseId": "namespace-course", "classId": "namespace-session",
-                                     "userId": "namespace-student-2", "ip": second_ip,
+                                     "userId": "namespace-student-2", "ip": second_ip6,
                                      "timestamp": int(time.time() * 1000)}).encode()
         second_signature = hmac.new(secret.encode(), second_payload, hashlib.sha256).hexdigest()
         second_request = urllib.request.Request(f"http://{address}:7878/bind", second_payload,
                                                 {"X-CheckHen-Signature": second_signature})
         with urllib.request.urlopen(second_request, timeout=5) as response:
             second_binding = json.load(response)
-        if second_binding != {"ip": second_ip, "mac": second_mac.lower()}:
-            raise RuntimeError("Second client binding did not match its lease")
-        namespace("curl", "-4", "--noproxy", "*", "--max-time", "12", "-fsSI",
-                  "https://example.com")
-        namespace("curl", "-4", "--noproxy", "*", "--max-time", "12", "-fsSI",
-                  "https://example.com", name=SECOND_NAMESPACE)
+        if second_binding != {"ip": second_ip6, "mac": second_mac.lower()}:
+            raise RuntimeError("IPv6-only client binding did not match its neighbor MAC")
+        if second_mac.lower() not in run("nft", "list", "set", "ip6", "checkhen6", "authorized6").stdout:
+            raise RuntimeError("The IPv6-only client's MAC was not authorized")
+        original_agent = json.loads((STATE / "state.json").read_text())["processes"]["agent"]
+        os.kill(original_agent, signal.SIGTERM)
+        time.sleep(1)
+        bindings_path = STATE / "bindings.json"
+        saved_bindings = json.loads(bindings_path.read_text())
+        saved_bindings["172.16.77.250"] = {"mac": "02:00:00:00:00:99", "userId": "stale",
+                                             "courseId": "namespace-course", "classId": "namespace-session"}
+        bindings_path.write_text(json.dumps(saved_bindings))
+        restarted_agent = subprocess.Popen([sys.executable, str(ROOT / "network/laptop/agent.py"),
+                                            str(config_path)], stdout=subprocess.DEVNULL,
+                                           stderr=subprocess.DEVNULL)
+        for _ in range(30):
+            if restarted_agent.poll() is not None:
+                raise RuntimeError("Portal agent failed to restart")
+            try:
+                with socket.create_connection((address, 7878), timeout=1):
+                    break
+            except OSError:
+                time.sleep(0.1)
+        else:
+            raise RuntimeError("Restarted portal agent did not listen")
+        if "172.16.77.250" in json.loads(bindings_path.read_text()):
+            raise RuntimeError("Agent restart retained a stale binding")
+        authorized4 = run("nft", "list", "set", "ip", "checkhen", "authorized4").stdout
+        if lease_ip not in authorized4 or "172.16.77.250" in authorized4:
+            raise RuntimeError("Agent restart did not reconcile the IPv4 nft set")
+        if json.loads(namespace("ip", "-j", "-4", "address", "show", "dev", SECOND_CLIENT_IF,
+                                name=SECOND_NAMESPACE).stdout)[0].get("addr_info"):
+            raise RuntimeError("IPv6-only client still has an IPv4 address")
+        private6_before = drop_count("ip6", "checkhen6", "private6")
+        private6 = namespace("curl", "-6", "--noproxy", "*", "--max-time", "3", "-fsSI",
+                             "http://[fd00::1]", name=SECOND_NAMESPACE, check=False)
+        if private6.returncode == 0 or drop_count("ip6", "checkhen6", "private6") <= private6_before:
+            raise RuntimeError("An authorized client bypassed the private IPv6 block")
+        if run("ip", "-6", "route", "get", "2606:4700:4700::1111", check=False).returncode == 0:
+            namespace("curl", "-6", "--noproxy", "*", "--max-time", "12", "-fsSI",
+                      "https://example.com", name=SECOND_NAMESPACE)
+        revoke_payload = json.dumps({"courseId": "namespace-course", "classId": "namespace-session",
+                                     "userId": "namespace-student", "ip": lease_ip,
+                                     "timestamp": int(time.time() * 1000)}).encode()
+        revoke_signature = hmac.new(secret.encode(), revoke_payload, hashlib.sha256).hexdigest()
+        with urllib.request.urlopen(urllib.request.Request(f"http://{address}:7878/revoke", revoke_payload,
+                {"X-CheckHen-Signature": revoke_signature}), timeout=5) as response:
+            if response.status != 200:
+                raise RuntimeError("Agent revoke failed")
+        revoked = namespace("curl", "-4", "--noproxy", "*", "--max-time", "4", "-fsSI",
+                            "https://example.com", check=False)
+        if revoked.returncode == 0:
+            raise RuntimeError("A revoked client retained IPv4 uplink")
+        if mac.lower() in run("nft", "list", "set", "ip6", "checkhen6", "authorized6").stdout:
+            raise RuntimeError("A revoked client retained IPv6 authorization")
+        restarted_agent.terminate()
+        restarted_agent.wait(timeout=5)
+        restarted_agent = None
         run(sys.executable, str(ROOT / "network/laptop/classroom.py"), "stop")
         started = False
         run(sys.executable, str(ROOT / "network/laptop/classroom.py"), "start", str(config_path))
@@ -232,8 +341,14 @@ def main() -> None:
             raise RuntimeError("Rebinding after restart did not match the lease")
         namespace("curl", "-4", "--noproxy", "*", "--max-time", "12", "-fsSI",
                   "https://example.com")
-        print("PASS: two DHCP clients, agent isolation, IPv6 block, signed binds, uplink, and second class cycle")
+        print("PASS: dual-stack and IPv6-only SLAAC clients, unbound isolation, revoke, reassociation, private blocks, and second class cycle")
     finally:
+        if restarted_agent and restarted_agent.poll() is None:
+            restarted_agent.terminate()
+            try:
+                restarted_agent.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                restarted_agent.kill()
         if proxy:
             proxy.terminate()
             try:

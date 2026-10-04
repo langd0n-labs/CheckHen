@@ -24,12 +24,10 @@ it('rejects attendance when the AP agent is not configured', async () => {
   expect(global.fetch).not.toHaveBeenCalled();
 });
 
-it('rejects a request outside the AP subnet when the agent denies it', async () => {
-  (global.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 403 });
+it('rejects a request outside the AP subnet before contacting the agent', async () => {
   await expect(bindDevice(request('192.0.2.20'), scope, user))
     .rejects.toMatchObject({ status: 403 });
-  expect(global.fetch).toHaveBeenCalledWith('http://127.0.0.1:7878/bind',
-    expect.objectContaining({ body: expect.stringContaining('192.0.2.20') }));
+  expect(global.fetch).not.toHaveBeenCalled();
 });
 
 it('rejects a missing proxy client address before contacting the agent', async () => {
@@ -42,6 +40,17 @@ it('rejects a forged or invalid proxy address', async () => {
   await expect(bindDevice(request('172.16.77.20, 192.0.2.1'), scope, user))
     .rejects.toMatchObject({ status: 403 });
   expect(global.fetch).not.toHaveBeenCalled();
+});
+
+it('accepts an AP SLAAC address and rejects an unrelated IPv6 address', async () => {
+  (global.fetch as jest.Mock).mockResolvedValue({ ok: true, json: async () => ({
+    ip: 'fd9b:2f69:8c44::20', mac: '02:00:00:00:00:20',
+  }) });
+  await expect(bindDevice(request('fd9b:2f69:8c44::20'), scope, user))
+    .resolves.toMatchObject({ ip: 'fd9b:2f69:8c44::20' });
+  await expect(bindDevice(request('2001:db8::20'), scope, user))
+    .rejects.toMatchObject({ status: 403 });
+  expect(global.fetch).toHaveBeenCalledTimes(1);
 });
 
 it('maps an agent failure to 503', async () => {

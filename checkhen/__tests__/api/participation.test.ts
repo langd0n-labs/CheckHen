@@ -10,7 +10,7 @@ import startup from '@/pages/api/student/startup';
 import fetchAllChat from '@/pages/api/student/fetch-all-chat';
 import fetchLastChat from '@/pages/api/student/fetch-last-chat';
 import endClass from '@/pages/api/admin/end-class-early';
-import { revokeCurrentDevice, revokeSessionDevices, revokeStudentDevices } from '@/lib/portal-binding';
+import { bindDevice, revokeCurrentDevice, revokeDevice, revokeSessionDevices, revokeStudentDevices } from '@/lib/portal-binding';
 import paceSignal from '@/pages/api/student/send-pace-signal';
 import acknowledge from '@/pages/api/admin/ack-hand-raise';
 import fetchCheckIns from '@/pages/api/admin/fetch-check-ins';
@@ -19,7 +19,11 @@ jest.mock('@/lib/request-scope', () => ({ requireScope: jest.fn(), isInstructor:
 jest.mock('@/lib/event-store', () => ({ appendEvent: jest.fn(), readState: jest.fn() }));
 jest.mock('@/lib/prisma', () => ({ prisma: { user: { findUnique: jest.fn(), findMany: jest.fn() } } }));
 jest.mock('@/lib/anonymousNames', () => ({ generateUniqueAnonymousName: jest.fn() }));
-jest.mock('@/lib/portal-binding', () => ({ bindDevice: jest.fn().mockResolvedValue(null), revokeDevice: jest.fn(), revokeCurrentDevice: jest.fn(), revokeStudentDevices: jest.fn(), revokeSessionDevices: jest.fn() }));
+jest.mock('@/lib/portal-binding', () => ({
+  PortalBindingError: class PortalBindingError extends Error { status = 503; },
+  bindDevice: jest.fn().mockResolvedValue(null), revokeDevice: jest.fn(),
+  revokeCurrentDevice: jest.fn(), revokeStudentDevices: jest.fn(), revokeSessionDevices: jest.fn(),
+}));
 
 const user = { id: 'student', email: 'student@bu.edu' };
 const selected = { id: 'session-a', courseId: 'course-a', name: 'Class A', createdAt: new Date(), duration: 60 };
@@ -36,6 +40,8 @@ const invoke = async (handler: typeof checkIn, method: 'GET' | 'POST', body: Rec
 };
 beforeEach(() => {
   jest.clearAllMocks();
+  (bindDevice as jest.Mock).mockResolvedValue(null);
+  (revokeDevice as jest.Mock).mockResolvedValue(undefined);
   (requireScope as jest.Mock).mockResolvedValue({ scope, user, selected, admin: false });
   (readState as jest.Mock).mockResolvedValue(empty());
   (appendEvent as jest.Mock).mockResolvedValue({ id: 'event-1', createdAt: new Date() });
@@ -69,6 +75,26 @@ describe('event-backed check-in', () => {
     expect((await invoke(checkIn, 'POST'))._getStatusCode()).toBe(200);
     expect(appendEvent).not.toHaveBeenCalled();
   });
+  it('keeps an existing binding when check-in is repeated', async () => {
+    (readState as jest.Mock).mockResolvedValue({ ...checkedIn(), attendance: [{
+      ...checkedIn().attendance[0], devices: [{ ip: '172.16.77.20', mac: '02:00:00:00:00:20' }],
+    }] });
+    (bindDevice as jest.Mock).mockResolvedValue({ ip: '172.16.77.20', mac: '02:00:00:00:00:20' });
+    expect((await invoke(checkIn, 'POST'))._getStatusCode()).toBe(200);
+    expect(appendEvent).not.toHaveBeenCalled();
+    expect(revokeDevice).not.toHaveBeenCalled();
+  });
+  it('preserves an append failure when cleanup of a new binding also fails', async () => {
+    (readState as jest.Mock).mockResolvedValue({ ...checkedIn(), attendance: [{
+      ...checkedIn().attendance[0], devices: [{ ip: '172.16.77.20', mac: '02:00:00:00:00:20' }],
+    }] });
+    (bindDevice as jest.Mock).mockResolvedValue({ ip: '172.16.77.21', mac: '02:00:00:00:00:21' });
+    const original = new Error('append failed');
+    (appendEvent as jest.Mock).mockRejectedValue(original);
+    (revokeDevice as jest.Mock).mockRejectedValue(new Error('cleanup failed'));
+    await expect(invoke(checkIn, 'POST')).rejects.toBe(original);
+    expect(revokeDevice).toHaveBeenCalledWith({ ip: '172.16.77.21', mac: '02:00:00:00:00:21' }, scope, user);
+  });
   it('records a new check-in after checkout and retains the name', async () => {
     const state = checkedIn();
     state.attendance[0].isPresent = false;
@@ -84,7 +110,10 @@ describe('event-backed check-in', () => {
   });
   it('leaves attendance present when a second device checks out', async () => {
     (readState as jest.Mock).mockResolvedValue({ ...checkedIn(), attendance: [{
-      ...checkedIn().attendance[0], deviceIp: '172.16.77.20',
+      ...checkedIn().attendance[0], deviceIp: '172.16.77.20', devices: [
+        { ip: '172.16.77.20', mac: '02:00:00:00:00:20' },
+        { ip: '172.16.77.21', mac: '02:00:00:00:00:21' },
+      ],
     }] });
     const { req, res } = createMocks({ method: 'POST', query: scope,
       headers: { 'x-real-ip': '172.16.77.21' } });
@@ -92,7 +121,9 @@ describe('event-backed check-in', () => {
     expect(res._getStatusCode()).toBe(200);
     expect(revokeCurrentDevice).toHaveBeenCalledWith(req, scope, user);
     expect(revokeStudentDevices).not.toHaveBeenCalled();
-    expect(appendEvent).not.toHaveBeenCalled();
+    expect(appendEvent).toHaveBeenCalledWith(prisma, expect.objectContaining({
+      kind: 'DEVICE_UNBOUND', payload: { deviceIp: '172.16.77.21' },
+    }));
   });
   it('revokes session devices before ending class', async () => {
     expect((await invoke(endClass, 'POST'))._getStatusCode()).toBe(200);

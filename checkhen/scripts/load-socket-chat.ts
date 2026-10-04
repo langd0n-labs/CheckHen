@@ -115,11 +115,6 @@ async function main() {
       },
     });
     const writeMs = performance.now() - started;
-    sockets[0].emit('chat-message-sent', {
-      classId: session.id,
-      courseId: course.id,
-      id: message.id,
-    });
     await Promise.race([
       notification,
       new Promise<never>((_, reject) =>

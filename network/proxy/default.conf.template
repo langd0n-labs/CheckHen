@@ -1,11 +1,13 @@
 server {
     listen ${AP_ADDRESS}:80;
+    listen [${AP_IPV6_ADDRESS}]:80;
     server_name _;
     return 302 https://${AP_HOSTNAME}/join;
 }
 
 server {
     listen ${AP_ADDRESS}:443 ssl;
+    listen [${AP_IPV6_ADDRESS}]:443 ssl;
     server_name ${AP_HOSTNAME};
     ssl_certificate /certs/live/${AP_HOSTNAME}/fullchain.pem;
     ssl_certificate_key /certs/live/${AP_HOSTNAME}/privkey.pem;

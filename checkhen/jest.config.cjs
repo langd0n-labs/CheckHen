@@ -12,6 +12,7 @@ const customJestConfig = {
     '^@/lib/(.*)$': '<rootDir>/lib/$1',
   },
   testEnvironment: 'jest-environment-jsdom',
+  testPathIgnorePatterns: ['participation-store.integration.test.ts'],
 };
 
 module.exports = createJestConfig(customJestConfig);

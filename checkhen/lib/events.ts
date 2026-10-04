@@ -2,7 +2,7 @@
 export type EventKind =
   | 'CHECK_IN' | 'CHECK_OUT' | 'HAND_RAISED' | 'HAND_LOWERED'
   | 'HAND_ACKNOWLEDGED' | 'HAND_RATED' | 'PACE_SIGNAL' | 'PACE_RESET'
-  | 'CHAT_MESSAGE' | 'SESSION_ENDED' | 'DEVICE_BOUND' | 'UNDO';
+  | 'CHAT_MESSAGE' | 'SESSION_ENDED' | 'DEVICE_BOUND' | 'DEVICE_UNBOUND' | 'UNDO';
 
 export type ParticipationEvent = {
   id: string;
@@ -44,7 +44,7 @@ export function effectiveEvents(events: ParticipationEvent[], scope: EventScope)
 }
 
 export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
-  const attendance = new Map<string, { id: string; userId: string; classId: string; anonymousName: string; deviceIp: string | null; createdAt: Date; checkOutTime: Date | null; isPresent: boolean }>();
+  const attendance = new Map<string, { id: string; userId: string; classId: string; anonymousName: string; deviceIp: string | null; devices: { ip: string; mac: string }[]; createdAt: Date; checkOutTime: Date | null; isPresent: boolean }>();
   const hands = new Map<string, { id: string; userId: string; classId: string; createdAt: Date; isAcknowledged: boolean; isRated: boolean; hasValue: boolean }>();
   const pace = new Map<string, { id: string; userId: string; classId: string; signalType: string; createdAt: Date }>();
   const messages: { id: string; userId: string; classId: string; message: string; anonymousName: string; createdAt: Date }[] = [];
@@ -60,7 +60,22 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
     const id = originalId(event);
     if (event.kind === 'CHECK_IN' && userId) {
       const previous = attendance.get(userId);
-      attendance.set(userId, { id, userId, classId, anonymousName: String(payload.anonymousName), deviceIp: typeof payload.deviceIp === 'string' ? payload.deviceIp : null, createdAt: previous?.createdAt ?? createdAt, checkOutTime: null, isPresent: true });
+      const deviceIp = typeof payload.deviceIp === 'string' ? payload.deviceIp : null;
+      const devices = deviceIp && typeof payload.deviceMac === 'string' ? [{ ip: deviceIp, mac: payload.deviceMac }] : [];
+      attendance.set(userId, { id, userId, classId, anonymousName: previous?.isPresent ? previous.anonymousName : String(payload.anonymousName), deviceIp, devices, createdAt: previous?.createdAt ?? createdAt, checkOutTime: null, isPresent: true });
+    } else if (event.kind === 'DEVICE_BOUND' && userId) {
+      const entry = attendance.get(userId);
+      if (entry?.isPresent && typeof payload.deviceIp === 'string' && typeof payload.deviceMac === 'string') {
+        const devices = entry.devices.filter(device => device.ip !== payload.deviceIp);
+        devices.push({ ip: payload.deviceIp, mac: payload.deviceMac });
+        attendance.set(userId, { ...entry, devices });
+      }
+    } else if (event.kind === 'DEVICE_UNBOUND' && userId) {
+      const entry = attendance.get(userId);
+      if (entry) {
+        const mac = entry.devices.find(device => device.ip === payload.deviceIp)?.mac;
+        attendance.set(userId, { ...entry, devices: entry.devices.filter(device => mac ? device.mac !== mac : device.ip !== payload.deviceIp) });
+      }
     } else if (event.kind === 'CHECK_OUT' && userId) {
       const entry = attendance.get(userId);
       if (entry) attendance.set(userId, { ...entry, isPresent: false, checkOutTime: createdAt });

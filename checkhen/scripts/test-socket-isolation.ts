@@ -37,12 +37,20 @@ async function main() {
     let bEvents = 0;
     first.on('fetch-messages', () => { aEvents += 1; });
     second.on('fetch-messages', () => { bEvents += 1; });
+    let resetEvents = 0;
+    second.on('pace-signals-reset', () => { resetEvents += 1; });
     first.emit('chat-message-sent', { classId: b.id, courseId: courseB.id });
-    await new Promise(resolve => setTimeout(resolve, 100));
+    first.emit('pace-signals-reset', { classId: b.id, courseId: courseB.id });
+    await new Promise(resolve => setTimeout(resolve, 1200));
     assert.equal(aEvents, 0);
     assert.equal(bEvents, 0);
-    first.emit('chat-message-sent', { classId: a.id, courseId: courseA.id });
-    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.equal(resetEvents, 0);
+    await db.participationEvent.create({ data: { courseId: courseA.id, classId: a.id,
+      userId: user.id, actorId: user.id, kind: 'CHAT_MESSAGE',
+      payload: { message: 'Persisted', anonymousName: 'Swift Panda' } } });
+    for (let retry = 0; retry < 30 && aEvents === 0; retry += 1) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
     assert.equal(aEvents, 1);
     assert.equal(bEvents, 0);
     const attacker = io(url, { transports: ['websocket'], auth: { ticket: ticket(courseA.id, b.id) }, reconnection: false });
@@ -63,7 +71,7 @@ async function main() {
     });
     inactive.disconnect();
     assert.equal(rosterDenied, true);
-    console.log('PASS: live socket rooms reject cross-course broadcasts, mismatched tickets, and inactive rosters');
+    console.log('PASS: sockets broadcast only persisted events and reject forged relays, mismatched tickets, and inactive rosters');
   } finally {
     first.disconnect();
     second.disconnect();

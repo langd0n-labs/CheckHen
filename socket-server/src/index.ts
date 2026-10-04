@@ -7,7 +7,7 @@ const prisma = new PrismaClient(); // Initialize Prisma client for database oper
 
 const io = new Server(Number(process.env.PORT || 6060), {
   cors: {
-    origin: "*", // Allow all origins for CORS
+    origin: process.env.NEXTAUTH_URL || "http://localhost:3000",
   },
 });
 
@@ -48,6 +48,17 @@ io.use(async (socket, next) => {
 
 // Auto-start scheduled classes every minute
 cron.schedule("* * * * *", async () => {
+  const secret = process.env.AUTH_SECRET;
+  if (secret) {
+    const body = JSON.stringify({ timestamp: Date.now() });
+    const signature = createHmac('sha256', secret).update(body).digest('hex');
+    try {
+      await fetch(process.env.APP_INTERNAL_URL || 'http://app:3000/api/internal/expire-sessions', {
+        method: 'POST', body, headers: { 'Content-Type': 'application/json',
+          'X-CheckHen-Signature': signature }, signal: AbortSignal.timeout(10000),
+      });
+    } catch (error) { console.error('Session expiry request failed', error); }
+  }
   const now = new Date();
   const dayOfWeek = now.getDay();
   const hhmm = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
@@ -79,20 +90,38 @@ cron.schedule("* * * * *", async () => {
   }
 });
 
-// Join only after scope and roster validation; never trust a broadcast room from the payload.
+// Join only after scope and roster validation. Client messages cannot request broadcasts.
 io.on("connection", socket => {
   const room = roomKey(socket.data.courseId, socket.data.classId);
   socket.join(room);
-  const events: Record<string, string> = {
-    "user-hand-update": "user-hand-update",
-    "user-hand-acked": "check-raised-hands",
-    "chat-message-sent": "fetch-messages",
-    "pace-signal-sent": "pace-signal-update",
-    "pace-signals-reset": "pace-signals-reset",
-  };
-  socket.onAny((event, payload) => {
-    if (!events[event] || payload?.classId !== socket.data.classId ||
-        (payload.courseId && payload.courseId !== socket.data.courseId)) return;
-    io.to(room).emit(events[event], payload);
-  });
 });
+
+const notifications: Record<string, string> = {
+  HAND_RAISED: "user-hand-update", HAND_LOWERED: "user-hand-update",
+  HAND_ACKNOWLEDGED: "check-raised-hands", HAND_RATED: "check-raised-hands",
+  CHAT_MESSAGE: "fetch-messages", PACE_SIGNAL: "pace-signal-update",
+  PACE_RESET: "pace-signals-reset",
+};
+let cursor = new Date();
+let cursorId = "";
+let polling = false;
+setInterval(async () => {
+  if (polling) return;
+  polling = true;
+  try {
+    const events = await prisma.participationEvent.findMany({
+      where: { OR: [{ createdAt: { gt: cursor } }, { createdAt: cursor, id: { gt: cursorId } }] },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: 500,
+    });
+    for (const event of events) {
+      cursor = event.createdAt;
+      cursorId = event.id;
+      const notification = notifications[event.kind];
+      if (notification) io.to(roomKey(event.courseId, event.classId)).emit(notification, { classId: event.classId });
+    }
+  } catch (error) {
+    console.error("Socket event polling failed", error);
+  } finally {
+    polling = false;
+  }
+}, 1000);

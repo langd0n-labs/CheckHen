@@ -4,6 +4,7 @@ import hmac
 from http.server import HTTPServer
 import ipaddress
 import json
+import subprocess
 from pathlib import Path
 import tempfile
 import threading
@@ -15,20 +16,29 @@ import urllib.request
 
 import agent
 
+REAL_NFT = agent.nft
+REAL_NFT6 = agent.nft6
+
 
 class AgentTests(unittest.TestCase):
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
-        for name, path in (("BINDINGS", "bindings.json"), ("LEASES", "leases")):
+        for name, path in (("BINDINGS", "bindings.json"), ("LEASES", "leases"),
+                           ("PENDING", "pending-checkouts.json")):
             mock = patch.object(agent, name, Path(directory.name) / path)
             mock.start()
             self.addCleanup(mock.stop)
         nft = patch.object(agent, "nft")
         self.nft = nft.start()
         self.addCleanup(nft.stop)
+        nft6 = patch.object(agent, "nft6")
+        self.nft6 = nft6.start()
+        self.addCleanup(nft6.stop)
         agent.Handler.secret = "test-secret-" * 4
         agent.Handler.subnet = ipaddress.IPv4Network("172.16.77.0/24")
+        agent.Handler.ipv6_subnet = ipaddress.IPv6Network("fd9b:2f69:8c44::/64")
+        agent.Handler.interface = "wlan-test"
         self.lease("02:00:00:00:00:20")
 
     def lease(self, mac):
@@ -87,7 +97,7 @@ class AgentTests(unittest.TestCase):
                                          "courseId": "course", "classId": "class"}})
         with patch.object(agent.subprocess, "run") as run:
             agent.reconcile_bindings()
-        run.assert_called_once()
+        self.assertEqual(run.call_count, 2)
         self.nft.assert_called_once_with("add", "172.16.77.20", "02:00:00:00:00:20")
         self.assertEqual(list(json.loads(agent.BINDINGS.read_text())), ["172.16.77.20"])
 
@@ -97,21 +107,88 @@ class AgentTests(unittest.TestCase):
         self.nft.assert_any_call("delete", "172.16.77.20", "02:00:00:00:00:20")
         self.assertEqual(json.loads(agent.BINDINGS.read_text()), {})
 
-    def test_expired_lease_and_departed_station_are_pruned(self):
+    def test_departure_keeps_binding_until_lease_expires(self):
         self.assertEqual(self.request("bind"), 200)
         with patch.object(agent, "station_macs", return_value=set()):
             agent.prune_bindings("wlan-test")
-        self.assertEqual(json.loads(agent.BINDINGS.read_text()), {})
-        self.assertEqual(self.request("bind"), 200)
+        self.assertIn("172.16.77.20", json.loads(agent.BINDINGS.read_text()))
         agent.LEASES.write_text("")
         agent.prune_bindings(None)
         self.assertEqual(json.loads(agent.BINDINGS.read_text()), {})
+        self.assertEqual(json.loads(agent.PENDING.read_text()), [{
+            "userId": "student", "courseId": "course", "classId": "class"}])
+
+    def test_expired_binding_notifies_app_with_signed_checkout(self):
+        self.assertEqual(self.request("bind"), 200)
+        agent.LEASES.write_text("")
+        agent.prune_bindings(None)
+        response = type("Response", (), {"status": 200, "__enter__": lambda self: self,
+                                          "__exit__": lambda self, *_args: None})()
+        with patch.object(agent.urllib.request, "urlopen", return_value=response) as send:
+            agent.flush_checkout_notifications(agent.Handler.secret, "http://127.0.0.1:3000/api/internal/portal-expired", {})
+        request = send.call_args.args[0]
+        expected = hmac.new(agent.Handler.secret.encode(), request.data, hashlib.sha256).hexdigest()
+        self.assertEqual(request.get_header("X-checkhen-signature"), expected)
+        self.assertEqual(json.loads(agent.PENDING.read_text()), [])
 
     def test_station_dump_parsing(self):
         output = type("Result", (), {"returncode": 0,
                 "stdout": "Station 02:00:00:00:00:20 (on wlan0)\n\tinactive time: 1 ms\n"})()
         with patch.object(agent.subprocess, "run", return_value=output):
             self.assertEqual(agent.station_macs("wlan0"), {"02:00:00:00:00:20"})
+
+    def test_same_mac_bind_readds_missing_nft_element(self):
+        self.assertEqual(self.request("bind"), 200)
+        self.assertEqual(self.request("bind"), 200)
+        self.assertEqual(self.nft.call_count, 2)
+        self.nft.assert_called_with("add", "172.16.77.20", "02:00:00:00:00:20")
+
+    def test_ipv6_temporary_address_binds_by_neighbor_mac(self):
+        data = {"courseId": "course", "classId": "class", "userId": "student",
+                "ip": "fd9b:2f69:8c44::20", "timestamp": int(time.time() * 1000)}
+        with patch.object(agent, "neighbor_mac", return_value="02:00:00:00:00:20"):
+            self.assertEqual(self.request("bind", data), 200)
+        self.nft6.assert_called_with("add", "02:00:00:00:00:20")
+        self.nft.assert_called_with("add", "172.16.77.20", "02:00:00:00:00:20")
+        self.assertIn("fd9b:2f69:8c44::20", agent.read_bindings())
+        self.assertEqual(self.request("revoke", data), 200)
+        self.nft6.assert_called_with("delete", "02:00:00:00:00:20")
+        self.assertEqual(agent.read_bindings(), {})
+
+    def test_failed_rekey_does_not_leave_stale_binding(self):
+        self.assertEqual(self.request("bind"), 200)
+        self.lease("02:00:00:00:00:21")
+        self.nft.side_effect = [None, subprocess.CalledProcessError(1, "nft")]
+        self.assertEqual(self.request("bind"), 503)
+        self.assertEqual(json.loads(agent.BINDINGS.read_text()), {})
+        self.nft.side_effect = None
+        self.assertEqual(self.request("bind"), 200)
+
+    def test_missing_element_delete_is_safe(self):
+        self.assertEqual(self.request("bind"), 200)
+        self.assertEqual(self.request("revoke"), 200)
+        self.assertEqual(json.loads(agent.BINDINGS.read_text()), {})
+
+    def test_nft_delete_uses_missing_element_safe_destroy(self):
+        with patch.object(agent.subprocess, "run") as run:
+            REAL_NFT("delete", "172.16.77.20", "02:00:00:00:00:20")
+            REAL_NFT6("delete", "02:00:00:00:00:20")
+        self.assertIn("destroy element ip checkhen authorized4", run.call_args_list[0].kwargs["input"])
+        self.assertIn("destroy element ip6 checkhen6 authorized6", run.call_args_list[1].kwargs["input"])
+
+    def test_corrupt_bindings_file_is_quarantined(self):
+        agent.BINDINGS.write_text("{bad json")
+        self.assertEqual(agent.read_bindings(), {})
+        self.assertTrue(agent.BINDINGS.with_suffix(".corrupt").exists())
+
+    def test_prune_continues_after_one_failed_delete(self):
+        self.assertEqual(self.request("bind"), 200)
+        agent.save({**agent.read_bindings(), "172.16.77.21": {
+            "mac": "02:00:00:00:00:21", "userId": "other", "courseId": "course", "classId": "class"}})
+        agent.LEASES.write_text("")
+        self.nft.side_effect = [subprocess.CalledProcessError(1, "nft"), None]
+        agent.prune_bindings(None)
+        self.assertEqual(list(agent.read_bindings()), ["172.16.77.20"])
 
 
 if __name__ == "__main__":

@@ -65,8 +65,8 @@ export default function JoinPage() {
     if (status === 'authenticated') {
       // Wait for both the check-in check and class fetch before showing the page
       Promise.all([
-        fetch('/api/student/fetch-check-in').then((res) => {
-          if (res.ok) router.push('/');
+        fetch('/api/student/fetch-check-in').then(async (res) => {
+          if (res.ok && (await fetch('/api/student/check-in', { method: 'POST' })).ok) router.push('/');
         }),
         fetchActiveClasses(),
       ]).finally(() => setLoading(false));

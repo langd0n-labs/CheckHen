@@ -18,6 +18,8 @@ services:
       ADMIN_EMAILS: ${ADMIN_EMAILS:-}
       PORTAL_AGENT_URL: ${PORTAL_AGENT_URL:-}
       PORTAL_CONTROL_SECRET: ${PORTAL_CONTROL_SECRET:-}
+      AP_SUBNET: ${AP_SUBNET:-172.16.77.0/24}
+      AP_IPV6_PREFIX: ${AP_IPV6_PREFIX:-fd9b:2f69:8c44::/64}
     depends_on:
       db:
         condition: service_healthy
@@ -47,6 +49,8 @@ services:
     environment:
       PORT: 6060
       AUTH_SECRET: ${AUTH_SECRET:?Run the setup command}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      APP_INTERNAL_URL: http://app:3000/api/internal/expire-sessions
       DATABASE_URL: postgresql://checkhen:${POSTGRES_PASSWORD:?Run the setup command}@db:5432/checkhen
     depends_on:
       app:
@@ -65,6 +69,8 @@ services:
       UPLINK_INTERFACE: ${UPLINK_INTERFACE:-}
       AP_SUBNET: ${AP_SUBNET:-172.16.77.0/24}
       AP_ADDRESS: ${AP_ADDRESS:-172.16.77.1}
+      AP_IPV6_PREFIX: ${AP_IPV6_PREFIX:-fd9b:2f69:8c44::/64}
+      AP_IPV6_ADDRESS: ${AP_IPV6_ADDRESS:-fd9b:2f69:8c44::1}
       AP_HOSTNAME: ${AP_HOSTNAME:-checkhen.rfkill.dev}
       AP_SSID: ${AP_SSID:-CheckHen}
       AP_PASSPHRASE: ${AP_PASSPHRASE:-}
@@ -95,6 +101,7 @@ services:
     restart: on-failure
     environment:
       AP_ADDRESS: ${AP_ADDRESS:-172.16.77.1}
+      AP_IPV6_ADDRESS: ${AP_IPV6_ADDRESS:-fd9b:2f69:8c44::1}
       AP_HOSTNAME: ${AP_HOSTNAME:-checkhen.rfkill.dev}
     volumes:
       - ./.build-cache/letsencrypt/config:/certs:ro,z

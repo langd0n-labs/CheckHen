@@ -34,6 +34,15 @@ it('orders equal timestamps by ID, independent of input order', () => {
   expect(foldEvents(events.reverse(), scope).attendance[0].isPresent).toBe(false);
 });
 
+it('replaces a student’s earlier pace signal with the latest one', () => {
+  const state = foldEvents([
+    event('01', 'PACE_SIGNAL', { signalType: 'slow_down' }),
+    event('02', 'PACE_SIGNAL', { signalType: 'ready_to_move_on' }),
+  ], scope);
+  expect(state.pace).toHaveLength(1);
+  expect(state.pace[0]).toMatchObject({ id: '02', signalType: 'ready_to_move_on' });
+});
+
 it('keeps one attendance record when a second device binds', () => {
   const first = event('01', 'CHECK_IN', {
     anonymousName: 'Swift Panda', deviceIp: '172.16.77.20', deviceMac: '02:00:00:00:00:20',
@@ -41,7 +50,7 @@ it('keeps one attendance record when a second device binds', () => {
   const second = event('02', 'DEVICE_BOUND', {
     deviceIp: '172.16.77.21', deviceMac: '02:00:00:00:00:21',
   });
-  expect(foldEvents([first, second], scope).attendance).toEqual(foldEvents([first], scope).attendance);
+  expect(foldEvents([first, second], scope).attendance[0].devices).toHaveLength(2);
   expect(foldEvents([first, second], scope).attendance[0].deviceIp).toBe('172.16.77.20');
 });
 

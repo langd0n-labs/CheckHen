@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { EventKind, EventScope, ParticipationEvent, foldEvents } from './events';
+import { generateUniqueAnonymousName } from './anonymousNames';
 
 const kinds: EventKind[] = [
   'CHECK_IN', 'CHECK_OUT', 'HAND_RAISED', 'HAND_LOWERED', 'HAND_ACKNOWLEDGED',
-  'HAND_RATED', 'PACE_SIGNAL', 'PACE_RESET', 'CHAT_MESSAGE', 'SESSION_ENDED', 'DEVICE_BOUND', 'UNDO',
+  'HAND_RATED', 'PACE_SIGNAL', 'PACE_RESET', 'CHAT_MESSAGE', 'SESSION_ENDED', 'DEVICE_BOUND', 'DEVICE_UNBOUND', 'UNDO',
 ];
 type AppendInput = EventScope & {
   actorId: string;
@@ -23,6 +24,7 @@ export function validatePayload(kind: EventKind, payload: Record<string, unknown
   };
   if (kind === 'CHECK_IN') requiredString('anonymousName');
   if (kind === 'DEVICE_BOUND') { requiredString('deviceIp'); requiredString('deviceMac'); }
+  if (kind === 'DEVICE_UNBOUND') requiredString('deviceIp');
   if (kind === 'CHAT_MESSAGE') { requiredString('message'); requiredString('anonymousName'); }
   if (['HAND_LOWERED', 'HAND_ACKNOWLEDGED', 'HAND_RATED'].includes(kind)) requiredString('handRaiseId');
   if (kind === 'HAND_RATED' && typeof payload.hasValue !== 'boolean') throw new Error('Invalid rating');
@@ -53,6 +55,30 @@ export async function appendEvent(db: PrismaClient, input: AppendInput) {
       SELECT "id" FROM "Class" WHERE "id" = ${input.classId} AND "courseId" = ${input.courseId} FOR UPDATE
     `;
     if (!sessions.length) throw new Error('Unknown course/session');
+    let kind = input.kind;
+    let payload = input.payload ?? {};
+    if (kind === 'CHECK_IN' && input.userId) {
+      const current = foldEvents((await tx.participationEvent.findMany({ where: {
+        courseId: input.courseId, classId: input.classId },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      })).map(asEvent), input);
+      const present = current.attendance.find(entry => entry.userId === input.userId && entry.isPresent);
+      if (present) {
+        if (typeof payload.deviceIp === 'string' && typeof payload.deviceMac === 'string') {
+          kind = 'DEVICE_BOUND';
+          payload = { deviceIp: payload.deviceIp, deviceMac: payload.deviceMac };
+        } else {
+          const existing = await tx.participationEvent.findFirst({ where: {
+            courseId: input.courseId, classId: input.classId, userId: input.userId, kind: 'CHECK_IN',
+          }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
+          if (existing) return asEvent(existing);
+        }
+      } else if (current.attendance.some(entry => entry.isPresent && entry.anonymousName === payload.anonymousName)) {
+        payload = { ...payload, anonymousName: generateUniqueAnonymousName(
+          current.attendance.filter(entry => entry.isPresent).map(entry => entry.anonymousName)) };
+      }
+      validatePayload(kind, payload);
+    }
     if (input.userId) {
       const member = await tx.rosterEntry.findUnique({
         where: { courseId_userId: { courseId: input.courseId, userId: input.userId } },
@@ -64,10 +90,10 @@ export async function appendEvent(db: PrismaClient, input: AppendInput) {
         where: { id: input.supersedesId, courseId: input.courseId, classId: input.classId },
       });
       if (!previous) throw new Error('Unknown superseded event');
-      if (input.kind !== 'UNDO' && (input.kind !== previous.kind || input.userId !== previous.userId)) {
+      if (kind !== 'UNDO' && (kind !== previous.kind || input.userId !== previous.userId)) {
         throw new Error('A correction must preserve event kind and student');
       }
-    } else if (input.kind === 'UNDO') {
+    } else if (kind === 'UNDO') {
       throw new Error('Undo requires a target event');
     }
     const latest = await tx.participationEvent.findFirst({
@@ -78,8 +104,8 @@ export async function appendEvent(db: PrismaClient, input: AppendInput) {
     return asEvent(await tx.participationEvent.create({
       data: {
         id: randomUUID(), courseId: input.courseId, classId: input.classId,
-        userId: input.userId ?? null, actorId: input.actorId, kind: input.kind,
-        payload: (input.payload ?? {}) as Prisma.InputJsonObject, createdAt,
+        userId: input.userId ?? null, actorId: input.actorId, kind,
+        payload: payload as Prisma.InputJsonObject, createdAt,
         supersedesId: input.supersedesId ?? null,
       },
     }));

@@ -5,6 +5,7 @@ import { appendEvent, readState } from './event-store';
 import { generateUniqueAnonymousName } from './anonymousNames';
 import type { EventKind } from './events';
 import { bindDevice, PortalBindingError, revokeCurrentDevice, revokeDevice, revokeSessionDevices, revokeStudentDevices } from './portal-binding';
+import type { DeviceBinding } from './portal-binding';
 
 const writes = new Set(['check-in', 'check-out', 'toggle-vhr', 'send-chat', 'send-pace-signal',
   'ack-hand-raise', 'rate-hand-raise', 'reset-pace-signals', 'end-class-early']);
@@ -39,7 +40,7 @@ export function participationHandler(action: string, adminOnly = false) {
       return res.status(400).json({ message: 'Not currently checked in to this class' });
     }
     if (action === 'check-in') {
-      let binding = null;
+      let binding: DeviceBinding | null = null;
       try {
         binding = await bindDevice(req, scope, user);
         if (!checkIn?.isPresent) {
@@ -47,17 +48,26 @@ export function participationHandler(action: string, adminOnly = false) {
             generateUniqueAnonymousName(state.attendance.map(entry => entry.anonymousName));
           await append('CHECK_IN', { anonymousName, ...(binding ? { deviceIp: binding.ip, deviceMac: binding.mac } : {}) });
         } else if (binding) {
-          await append('DEVICE_BOUND', { deviceIp: binding.ip, deviceMac: binding.mac });
+          const bound = binding;
+          if (!checkIn.devices?.some(device => device.ip === bound.ip && device.mac === bound.mac)) {
+            await append('DEVICE_BOUND', { deviceIp: bound.ip, deviceMac: bound.mac });
+          }
         }
       } catch (error) {
-        if (binding) await revokeDevice(binding, scope, user);
+        const bound = binding;
+        if (bound && !checkIn?.devices?.some(device => device.ip === bound.ip && device.mac === bound.mac)) {
+          try { await revokeDevice(binding, scope, user); } catch { /* Preserve the append failure. */ }
+        }
         if (error instanceof PortalBindingError) return res.status(error.status).json({ message: error.message });
         throw error;
       }
       return res.json({ message: 'Checked in' });
     }
     if (action === 'check-out') {
-      const secondary = checkIn?.deviceIp && req.headers['x-real-ip'] !== checkIn.deviceIp;
+      const currentIp = req.headers['x-real-ip'];
+      const primaryMac = checkIn?.devices?.find(device => device.ip === checkIn.deviceIp)?.mac;
+      const currentMac = checkIn?.devices?.find(device => device.ip === currentIp)?.mac;
+      const secondary = !!(checkIn?.devices?.length && currentMac && primaryMac && currentMac !== primaryMac);
       try {
         if (secondary) await revokeCurrentDevice(req, scope, user);
         else await revokeStudentDevices(scope, user);
@@ -65,6 +75,7 @@ export function participationHandler(action: string, adminOnly = false) {
         if (error instanceof PortalBindingError) return res.status(error.status).json({ message: error.message });
         throw error;
       }
+      if (secondary && typeof currentIp === 'string') await append('DEVICE_UNBOUND', { deviceIp: currentIp });
       if (!secondary && checkIn?.isPresent) await append('CHECK_OUT');
       return res.json({ message: 'Checked out' });
     }
