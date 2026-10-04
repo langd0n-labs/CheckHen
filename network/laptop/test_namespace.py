@@ -42,6 +42,32 @@ def set_accept_ra(interface: str, name: str) -> None:
     namespace("sh", "-c", f"printf 2 > /proc/sys/net/ipv6/conf/{interface}/accept_ra", name=name)
 
 
+def client_ipv6_route(operation: str, name: str, interface: str, target: str, gateway: str) -> None:
+    namespace("ip", "-6", "route", operation, f"{target}/128", "via", gateway, "dev", interface,
+              name=name, check=operation != "delete")
+
+
+def install_client_test_routes(target: str, private_target: str, gateway: str,
+                               added: list[tuple[str, str, str]]) -> None:
+    routes = ((NAMESPACE, CLIENT_IF, target), (SECOND_NAMESPACE, SECOND_CLIENT_IF, target),
+              (SECOND_NAMESPACE, SECOND_CLIENT_IF, private_target))
+    for name, interface, destination in routes:
+        client_ipv6_route("replace", name, interface, destination, gateway)
+        added.append((name, interface, destination))
+
+
+def ipv6_counter_failure(label: str, name: str, curl: subprocess.CompletedProcess) -> RuntimeError:
+    routes = namespace("ip", "-6", "route", name=name, check=False)
+    addresses = namespace("ip", "-6", "address", name=name, check=False)
+    counters = run("nft", "-a", "list", "chain", "ip6", "checkhen6", "forward", check=False)
+    return RuntimeError(
+        f"{label} in {name}\n"
+        f"client IPv6 routes: {routes.stdout or routes.stderr}\n"
+        f"client IPv6 addresses: {addresses.stdout or addresses.stderr}\n"
+        f"curl exit {curl.returncode}: {curl.stderr}\n"
+        f"ip6 forward counters: {counters.stdout or counters.stderr}")
+
+
 def drop_count(family: str, table: str, set_name: str) -> int:
     rules = json.loads(run("nft", "-j", "list", "chain", family, table, "forward").stdout)["nftables"]
     for item in rules:
@@ -94,7 +120,10 @@ def main() -> None:
     proxy = None
     restarted_agent = None
     test_ipv6_route_added = False
+    private6_route_added = False
+    client_routes_added: list[tuple[str, str, str]] = []
     test_ipv6_target = "2606:4700:4700::1111"
+    private6_target = "fd00::1"
     uplink_ipv6 = run("ip", "-6", "route", "get", test_ipv6_target, check=False).returncode == 0
     try:
         run("ip", "netns", "add", NAMESPACE)
@@ -137,9 +166,11 @@ def main() -> None:
             raise RuntimeError("Class start did not enable IPv6 forwarding")
         if not uplink_ipv6:
             # A narrow route forces packets through the forward hook even when
-            # the host has no IPv6 uplink. Remove it before the plain-curl check.
+            # the host has no IPv6 uplink. Clients get narrow routes after SLAAC.
             run("ip", "-6", "route", "add", f"{test_ipv6_target}/128", "dev", settings["UPLINK_INTERFACE"])
             test_ipv6_route_added = True
+            run("ip", "-6", "route", "add", f"{private6_target}/128", "dev", settings["UPLINK_INTERFACE"])
+            private6_route_added = True
         template = (ROOT / "network/proxy/default.conf.template").read_text()
         rendered = subprocess.run(["envsubst", "${AP_ADDRESS} ${AP_IPV6_ADDRESS} ${AP_HOSTNAME}"],
                                   input=template, text=True, capture_output=True, check=True,
@@ -193,6 +224,8 @@ def main() -> None:
             raise RuntimeError(f"SLAAC did not configure {name}")
         first_ip6 = slaac(NAMESPACE, CLIENT_IF)
         second_ip6 = slaac(SECOND_NAMESPACE, SECOND_CLIENT_IF)
+        if test_ipv6_route_added:
+            install_client_test_routes(test_ipv6_target, private6_target, address6, client_routes_added)
         for family, peer in (("-4", second_ip), ("-6", second_ip6)):
             direct = namespace("ping", family, "-c", "1", "-W", "2", peer, check=False)
             if direct.returncode == 0:
@@ -231,7 +264,7 @@ def main() -> None:
             blocked6 = namespace("curl", "-6", "--noproxy", "*", "--max-time", "3", "-fsSI",
                                  f"http://[{test_ipv6_target}]", name=name, check=False)
             if blocked6.returncode == 0 or ipv6_block_count() <= before6:
-                raise RuntimeError("The IPv6 forward block did not stop the unbound client")
+                raise ipv6_counter_failure("The IPv6 forward block did not stop the unbound client", name, blocked6)
         for label, candidate_ip, timestamp, valid_signature in (
             ("forged signature", lease_ip, int(time.time() * 1000), False),
             ("expired timestamp", lease_ip, 1, True),
@@ -273,7 +306,7 @@ def main() -> None:
             if blocked_second.returncode == 0:
                 raise RuntimeError("The unbound client gained uplink while another client was bound")
             if before6 is not None and ipv6_block_count() <= before6:
-                raise RuntimeError("The IPv6 forward block did not stop the unbound client")
+                raise ipv6_counter_failure("The IPv6 forward block did not stop the unbound client", name, blocked_second)
         private_before = drop_count("ip", "checkhen", "private4")
         private = namespace("curl", "-4", "--noproxy", "*", "--max-time", "3", "-fsSI",
                             "http://192.168.1.1", check=False)
@@ -300,10 +333,11 @@ def main() -> None:
         if second_mac.lower() not in run("nft", "list", "set", "ip6", "checkhen6", "authorized6").stdout:
             raise RuntimeError("The IPv6-only client's MAC was not authorized")
         authorized6_before = drop_count("ip6", "checkhen6", "authorized6")
-        namespace("curl", "-6", "--noproxy", "*", "--max-time", "3", "-fsSI",
-                  f"http://[{test_ipv6_target}]", name=SECOND_NAMESPACE, check=False)
+        accepted6 = namespace("curl", "-6", "--noproxy", "*", "--max-time", "3", "-fsSI",
+                              f"http://[{test_ipv6_target}]", name=SECOND_NAMESPACE, check=False)
         if drop_count("ip6", "checkhen6", "authorized6") <= authorized6_before:
-            raise RuntimeError("The IPv6 forward accept rule did not match the bound client")
+            raise ipv6_counter_failure("The IPv6 forward accept rule did not match the bound client",
+                                       SECOND_NAMESPACE, accepted6)
         original_agent = json.loads((STATE / "state.json").read_text())["processes"]["agent"]
         os.kill(original_agent, signal.SIGTERM)
         time.sleep(1)
@@ -337,17 +371,24 @@ def main() -> None:
         private6 = namespace("curl", "-6", "--noproxy", "*", "--max-time", "3", "-fsSI",
                              "http://[fd00::1]", name=SECOND_NAMESPACE, check=False)
         if private6.returncode == 0 or drop_count("ip6", "checkhen6", "private6") <= private6_before:
-            raise RuntimeError("An authorized client bypassed the private IPv6 block")
+            raise ipv6_counter_failure("An authorized client bypassed the private IPv6 block",
+                                       SECOND_NAMESPACE, private6)
         if uplink_ipv6:
             namespace("curl", "-6", "--noproxy", "*", "--max-time", "12", "-fsSI",
                       "https://example.com", name=SECOND_NAMESPACE)
         if test_ipv6_route_added:
+            for name, interface, target in client_routes_added:
+                if target == test_ipv6_target:
+                    client_ipv6_route("delete", name, interface, target, address6)
             run("ip", "-6", "route", "delete", f"{test_ipv6_target}/128", "dev", settings["UPLINK_INTERFACE"])
             test_ipv6_route_added = False
             namespace("curl", "--noproxy", "*", "--max-time", "12", "-fsSI",
                       "https://example.com")
             run("ip", "-6", "route", "add", f"{test_ipv6_target}/128", "dev", settings["UPLINK_INTERFACE"])
             test_ipv6_route_added = True
+            for name, interface, target in client_routes_added:
+                if target == test_ipv6_target:
+                    client_ipv6_route("replace", name, interface, target, address6)
         revoke_payload = json.dumps({"courseId": "namespace-course", "classId": "namespace-session",
                                      "userId": "namespace-student", "ip": lease_ip,
                                      "timestamp": int(time.time() * 1000)}).encode()
@@ -363,10 +404,11 @@ def main() -> None:
         if mac.lower() in run("nft", "list", "set", "ip6", "checkhen6", "authorized6").stdout:
             raise RuntimeError("A revoked client retained IPv6 authorization")
         blocked6_before = ipv6_block_count()
-        namespace("curl", "-6", "--noproxy", "*", "--max-time", "3", "-fsSI",
-                  f"http://[{test_ipv6_target}]", check=False)
+        revoked6 = namespace("curl", "-6", "--noproxy", "*", "--max-time", "3", "-fsSI",
+                             f"http://[{test_ipv6_target}]", check=False)
         if ipv6_block_count() <= blocked6_before:
-            raise RuntimeError("The IPv6 forward block did not stop the revoked client")
+            raise ipv6_counter_failure("The IPv6 forward block did not stop the revoked client",
+                                       NAMESPACE, revoked6)
         restarted_agent.terminate()
         restarted_agent.wait(timeout=5)
         restarted_agent = None
@@ -392,8 +434,13 @@ def main() -> None:
                   "https://example.com")
         print("PASS: dual-stack and IPv6-only SLAAC clients, unbound isolation, revoke, link flap, private blocks, and second class cycle")
     finally:
+        for name, interface, target in reversed(client_routes_added):
+            client_ipv6_route("delete", name, interface, target, address6)
         if test_ipv6_route_added:
             run("ip", "-6", "route", "delete", f"{test_ipv6_target}/128", "dev", settings["UPLINK_INTERFACE"],
+                check=False)
+        if private6_route_added:
+            run("ip", "-6", "route", "delete", f"{private6_target}/128", "dev", settings["UPLINK_INTERFACE"],
                 check=False)
         if restarted_agent and restarted_agent.poll() is None:
             restarted_agent.terminate()

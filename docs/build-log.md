@@ -429,3 +429,12 @@ The first x1 namespace run at `bb9d65f` stopped while setting a client
 the value through `/proc` inside each namespace. The network image checks
 every executable used by the namespace test and classroom layer during its
 build. The namespace test still needs an operator rerun.
+
+The next x1 run at `ddc5672` reached the IPv6 block check, where no packet
+reached the forward chain. The host's narrow test route did not guarantee a
+route inside either client namespace. The test now installs narrow client
+routes to the public test target via the AP address when the host has no IPv6
+uplink, plus a route for the private IPv6 block check. It removes them during
+cleanup and prints client routes, addresses, curl errors, and forward counters
+if an IPv6 counter check fails. The failed run did not capture client routes,
+so its exact cause remains unconfirmed pending the operator rerun.
