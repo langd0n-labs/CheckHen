@@ -147,11 +147,12 @@ reports two expected `console` warnings in the load-test CLI and no errors.
 
 x1 inventory without root: Fedora Linux 44; built-in Wi-Fi uplink is present;
 Podman 5.8.7 with Compose, dnsmasq 2.92 with nftset support, nft, iw, ip,
-and dhclient are installed. System hostapd and nginx and the USB AP adapter
-are not yet present. `sudo -n` requires
-an operator password. The Bitwarden project and all three named keys were
+and dhclient are installed. System hostapd, nginx, and the USB AP adapter
+are not yet present. `sudo -n` requires an operator password. The Bitwarden
+project and all three named keys were
 checked for access without printing values. No x1 root or hardware result has
 been reported yet.
+
 The pushed draft commit `3354298` was cloned on x1. A local Certbot venv was
 installed, the ignored app `.env` received OAuth credentials through the
 Bitwarden runner, and Certbot successfully issued a DNS-01 certificate for
@@ -161,8 +162,9 @@ start passed: database healthy, app healthy, socket running, and the loopback
 `/api/ping` returned HTTP 200 with `Pong!`. The certificate and ignored `.env`
 exist, no temporary Cloudflare token file remains, the checkout has no
 untracked environment file, and x1 currently has no route overlapping
-172.16.77.0/24. The live start guard still needs the root run with an AP
-interface.
+172.16.77.0/24. The generated x1 dnsmasq configuration passes
+`dnsmasq --test` without root. The live start guard still needs the root run
+with an AP interface.
 
 Hardware coverage still open: one AP-capable USB radio, a few real client
 devices, live Google/BU redirect hosts and locked pre-auth allowlist, restored
