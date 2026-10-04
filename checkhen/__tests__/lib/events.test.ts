@@ -42,6 +42,7 @@ it('keeps one attendance record when a second device binds', () => {
     deviceIp: '172.16.77.21', deviceMac: '02:00:00:00:00:21',
   });
   expect(foldEvents([first, second], scope).attendance).toEqual(foldEvents([first], scope).attendance);
+  expect(foldEvents([first, second], scope).attendance[0].deviceIp).toBe('172.16.77.20');
 });
 
 it('rejects forward, missing, and cross-course supersession targets', () => {

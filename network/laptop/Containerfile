@@ -1,5 +1,5 @@
 FROM registry.fedoraproject.org/fedora:44
-RUN dnf -y install python3 iproute nftables dnsmasq hostapd NetworkManager firewalld iw dhcp-client curl nginx gettext-envsubst && dnf clean all
+RUN dnf -y install python3 iproute iputils nftables dnsmasq hostapd NetworkManager firewalld iw dhcp-client curl nginx gettext-envsubst && dnf clean all
 WORKDIR /opt/checkhen
 COPY network/laptop/ /opt/checkhen/network/laptop/
 COPY network/proxy/default.conf.template /opt/checkhen/network/proxy/default.conf.template

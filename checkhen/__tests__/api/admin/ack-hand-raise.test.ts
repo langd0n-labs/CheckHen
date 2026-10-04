@@ -17,8 +17,8 @@ const state = {
   messages: [],
   endedAt: null,
 };
-const invoke = async (method: 'GET' | 'POST' = 'POST') => {
-  (readState as jest.Mock).mockResolvedValue(state);
+const invoke = async (method: 'GET' | 'POST' = 'POST', currentState = state) => {
+  (readState as jest.Mock).mockResolvedValue(currentState);
   const { req, res } = createMocks({ method, body: { email: 'student@bu.edu' }, query: scope });
   await handler(req as any, res as any);
   return res;
@@ -34,6 +34,10 @@ beforeEach(() => {
 });
 describe('POST /api/admin/ack-hand-raise', () => {
   it('rejects wrong methods', async () => expect((await invoke('GET'))._getStatusCode()).toBe(405));
+  it('returns 401 without a session', async () => {
+    (requireScope as jest.Mock).mockImplementation(async (_req, res) => { res.status(401).json({ message: 'Unauthorized' }); return null; });
+    expect((await invoke())._getStatusCode()).toBe(401);
+  });
   it('propagates a 403 from scope authorization', async () => {
     (requireScope as jest.Mock).mockImplementation(async (_req, res) => {
       res.status(403).json({ message: 'Instructor access required' });
@@ -54,5 +58,21 @@ describe('POST /api/admin/ack-hand-raise', () => {
         payload: { handRaiseId: 'hand-1' },
       })
     );
+  });
+  it('returns 404 when email is missing', async () => {
+    const { req, res } = createMocks({ method: 'POST', body: {}, query: scope });
+    (readState as jest.Mock).mockResolvedValue(state);
+    (prisma.user.findUnique as jest.Mock).mockResolvedValue(null);
+    await handler(req as any, res as any);
+    expect(res._getStatusCode()).toBe(404);
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { email: '' } });
+  });
+  it('looks up the requested student email', async () => {
+    await invoke();
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { email: 'student@bu.edu' } });
+  });
+  it('returns 404 when no unacknowledged hand exists', async () => {
+    expect((await invoke('POST', { ...state, hands: [] }))._getStatusCode()).toBe(404);
+    expect(appendEvent).not.toHaveBeenCalled();
   });
 });

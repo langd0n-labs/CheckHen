@@ -263,10 +263,10 @@ check-in.
 | Acceptance check | Result |
 | --- | --- |
 | Check-in from outside the AP subnet fails | PASS in unit tests: the agent rejects an address outside its configured subnet; the app maps the agent's 403 to a failed check-in. A missing agent configuration also fails closed. Live AP testing remains part of the deferred M2 operator check. |
-| A second device does not change attendance | PASS: the check-in route records `DEVICE_BOUND` rather than another `CHECK_IN`, and the event fold retains one identical attendance record. |
+| A second device does not change attendance | PASS: the check-in route records `DEVICE_BOUND` rather than another `CHECK_IN`; the event fold retains one attendance record and its primary device. A second device's checkout revokes only that binding and appends no `CHECK_OUT`. |
 
-Verification: 16 Jest suites and 133 tests pass; TypeScript typecheck passes;
-the two Python agent tests pass. The M2 live AP and Google sign-in checks remain
+Initial M3 verification: 16 Jest suites and 133 tests passed; TypeScript
+typecheck and two Python agent tests passed. The M2 live AP and Google sign-in checks remain
 deferred until the operator has the adapter.
 
 ## Resume
@@ -278,3 +278,40 @@ by the operator until the USB adapter arrives. When it does, use
 `docs/operator-checks.md` and record each result here. Docker acceptance
 remains deferred at the operator's request. M3 software checks are complete;
 live AP validation remains pending with M2.
+
+## M0–M2 independent review follow-up
+
+The independent M0–M2 review report identified seven findings.
+Finding 3 was fixed in the first M3 commit. Findings 1, 2, 4, and 5 are
+addressed in this follow-up: the agent reconciles saved bindings with live
+leases and nftables after restart; a new class discards old bindings; checkout,
+session end, lease expiry, and AP station departure revoke matching devices;
+the AP drops IPv6 input and forwarding,
+isolates wireless stations, and blocks private IPv4 uplink destinations; student
+chat responses omit the stable `userId`.
+
+The route suites now include per-route 401 checks, no-active-check-in cases,
+the missing-email case, attendance response fields and name derivation, and
+instructor exclusion. The following old cases are represented by changed
+behavior rather than restored verbatim:
+
+| Old case | Reason |
+| --- | --- |
+| Missing class returned 500 | Scope selection now returns 404; check-in and shared scope tests cover this path. |
+| Ended class returned 500 for chat or attendance | Chat and check-in now return 400; instructor attendance can read ended sessions. |
+| Missing database user in the pace route returned 404 | `requireScope` now resolves the signed-in user before the participation handler. |
+| Pace update deleted the previous row | Pace changes append events; deleting a recorded event violates the M1 log. |
+| Attendance query excluded admin emails in SQL | Attendance is folded from events; a response-level instructor exclusion test replaces the removed query assertion. |
+| Check-in name generator excluded null names | Folded attendance names are required strings; the null legacy fallback happens during migration. |
+
+New tests cover signed agent requests, expiry, subnet and lease denial, changed
+MAC, revoke scope, session revocation, and agent restart with a stale
+`bindings.json`. Portal client tests cover header validation, fail-closed
+configuration, timeout, and response mapping. The namespace procedure now
+tests two clients, agent and IPv6 isolation, negative binding requests, and a
+second class cycle. It requires the deferred root-capable x1 run. The three
+PostgreSQL scripts have one repeatable command in `scripts/test-postgres.sh`;
+that command also needs a local PostgreSQL server and has not run here.
+Follow-up verification: 16 Jest suites and 159 tests, TypeScript typecheck,
+and 12 Python unit tests pass. The namespace script compiles but has not run
+on a root-capable host.

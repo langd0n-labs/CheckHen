@@ -64,12 +64,55 @@ def ap_client_ip(value: str, subnet: ipaddress.IPv4Network) -> str:
     return str(address)
 
 
+def read_bindings() -> dict[str, dict]:
+    return json.loads(BINDINGS.read_text()) if BINDINGS.exists() else {}
+
+
+def reconcile_bindings() -> None:
+    # The agent may restart while nftables survives. Rebuild the set from live leases.
+    subprocess.run(["nft", "flush", "set", "ip", "checkhen", "authorized4"],
+                   check=True, capture_output=True)
+    current = {}
+    for ip, binding in read_bindings().items():
+        if lease_mac(ip) == binding.get("mac"):
+            nft("add", ip, binding["mac"])
+            current[ip] = binding
+    save(current)
+
+
+def station_macs(interface: str) -> set[str] | None:
+    result = subprocess.run(["iw", "dev", interface, "station", "dump"],
+                            text=True, capture_output=True)
+    if result.returncode:
+        return None
+    return {line.split()[1].lower() for line in result.stdout.splitlines()
+            if line.startswith("Station ") and len(line.split()) >= 2}
+
+
+def prune_bindings(interface: str | None) -> None:
+    stations = station_macs(interface) if interface else None
+    bindings = read_bindings()
+    for ip, binding in list(bindings.items()):
+        if lease_mac(ip) != binding.get("mac") or (stations is not None and binding.get("mac") not in stations):
+            nft("delete", ip, binding["mac"])
+            del bindings[ip]
+            save(bindings)
+
+
+def revoke_matching(bindings: dict[str, dict], scope: dict, keys: tuple[str, ...]) -> None:
+    for ip, binding in list(bindings.items()):
+        if all(binding.get(key) == scope[key] for key in keys):
+            nft("delete", ip, binding["mac"])
+            del bindings[ip]
+            save(bindings)
+
+
 class Handler(BaseHTTPRequestHandler):
     secret = ""
     subnet = ipaddress.IPv4Network("172.16.77.0/24")
 
     def do_POST(self) -> None:
-        if self.path not in {"/bind", "/revoke"}:
+        if self.path not in {"/bind", "/revoke", "/revoke-student", "/revoke-session"}:
             self.send_error(404)
             return
         try:
@@ -83,12 +126,13 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(raw)
             if abs(time.time() * 1000 - data["timestamp"]) > 30000:
                 raise PermissionError("Expired request")
-            ip = ap_client_ip(data["ip"], self.subnet)
-            if not all(isinstance(data.get(key), str) and data[key]
-                       for key in ("userId", "courseId", "classId")):
+            keys = ("courseId", "classId") if self.path == "/revoke-session" else ("userId", "courseId", "classId")
+            if not all(isinstance(data.get(key), str) and data[key] for key in keys):
                 raise ValueError("Missing scope")
-            bindings = json.loads(BINDINGS.read_text()) if BINDINGS.exists() else {}
+            ip = ap_client_ip(data["ip"], self.subnet) if self.path in {"/bind", "/revoke"} else None
+            bindings = read_bindings()
             if self.path == "/bind":
+                assert ip is not None
                 mac = lease_mac(ip)
                 if not mac:
                     raise PermissionError("No active DHCP lease")
@@ -100,7 +144,8 @@ class Handler(BaseHTTPRequestHandler):
                 bindings[ip] = {"mac": mac, "userId": data["userId"],
                                 "courseId": data["courseId"], "classId": data["classId"]}
                 save(bindings)
-            else:
+            elif self.path == "/revoke":
+                assert ip is not None
                 previous = bindings.get(ip)
                 if not previous or any(previous[key] != data[key]
                                        for key in ("userId", "courseId", "classId")):
@@ -109,6 +154,9 @@ class Handler(BaseHTTPRequestHandler):
                 nft("delete", ip, mac)
                 del bindings[ip]
                 save(bindings)
+            else:
+                revoke_matching(bindings, data, keys)
+                mac = None
             body = json.dumps({"ip": ip, "mac": mac}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -132,7 +180,16 @@ def main() -> None:
     Handler.secret = settings["PORTAL_CONTROL_SECRET"]
     Handler.subnet = ipaddress.IPv4Network(settings.get("AP_SUBNET", "172.16.77.0/24"))
     address = settings.get("AP_ADDRESS", "172.16.77.1")
-    HTTPServer((address, 7878), Handler).serve_forever()
+    reconcile_bindings()
+    interface = None if settings.get("AP_TEST_MODE") == "1" else settings["AP_INTERFACE"]
+    server = HTTPServer((address, 7878), Handler)
+    server.timeout = 5
+    while True:
+        server.handle_request()
+        try:
+            prune_bindings(interface)
+        except (OSError, subprocess.CalledProcessError):
+            print("Portal binding cleanup failed; retrying", file=sys.stderr)
 
 
 if __name__ == "__main__":

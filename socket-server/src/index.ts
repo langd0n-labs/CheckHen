@@ -5,7 +5,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 const prisma = new PrismaClient(); // Initialize Prisma client for database operations
 
-const io = new Server(6060, {
+const io = new Server(Number(process.env.PORT || 6060), {
   cors: {
     origin: "*", // Allow all origins for CORS
   },

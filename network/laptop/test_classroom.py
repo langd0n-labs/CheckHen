@@ -2,13 +2,27 @@
 import ipaddress
 import json
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
+from pathlib import Path
 
 import classroom
 
 
 class RouteGuardTests(unittest.TestCase):
+    def test_ap_blocks_ipv6_peer_access_and_private_uplink_destinations(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(classroom, "STATE", Path(directory)):
+            classroom.write_configs({"AP_INTERFACE": "chbr0", "UPLINK_INTERFACE": "eth0",
+                                     "AP_SSID": "CheckHen", "AP_PASSPHRASE": "password123"},
+                                    ipaddress.IPv4Network("172.16.77.0/24"),
+                                    ipaddress.IPv4Address("172.16.77.1"))
+            rules = (Path(directory) / "firewall.nft").read_text()
+            self.assertIn("table ip6 checkhen6", rules)
+            self.assertIn('iifname "chbr0" drop', rules)
+            self.assertIn('iifname "chbr0" ip daddr @private4 drop', rules)
+            self.assertIn("ap_isolate=1", (Path(directory) / "hostapd.conf").read_text())
+
     def test_rejects_overlapping_host_route(self):
         routes = [{"dst": "default", "dev": "wlan0"},
                   {"dst": "172.16.77.128/25", "dev": "tun0"}]

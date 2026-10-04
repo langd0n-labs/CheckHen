@@ -103,6 +103,7 @@ def write_configs(settings: dict[str, str], subnet: ipaddress.IPv4Network,
     (STATE / "firewall.nft").write_text(f'''table ip checkhen {{
   set authorized4 {{ type ipv4_addr . ether_addr; }}
   set preauth4 {{ type ipv4_addr; flags timeout; timeout 5m; }}
+  set private4 {{ type ipv4_addr; flags interval; elements = {{ 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4 }}; }}
   chain input {{
     type filter hook input priority -5; policy accept;
     iifname "{ap}" udp dport 67 accept
@@ -113,6 +114,7 @@ def write_configs(settings: dict[str, str], subnet: ipaddress.IPv4Network,
   chain forward {{
     type filter hook forward priority -5; policy accept;
     oifname "{ap}" ct state established,related accept
+    iifname "{ap}" ip daddr @private4 drop
     iifname "{ap}" ip saddr . ether saddr @authorized4 oifname "{uplink}" accept
 {open_rule}    iifname "{ap}" ip daddr @preauth4 oifname "{uplink}" tcp dport 443 accept
     iifname "{ap}" drop
@@ -125,6 +127,10 @@ def write_configs(settings: dict[str, str], subnet: ipaddress.IPv4Network,
     oifname "{uplink}" ip saddr {subnet} masquerade
   }}
 }}
+table ip6 checkhen6 {{
+  chain input {{ type filter hook input priority -5; policy accept; iifname "{ap}" drop; }}
+  chain forward {{ type filter hook forward priority -5; policy accept; iifname "{ap}" drop; }}
+}}
 ''')
     hostapd = f'''interface={ap}
 driver=nl80211
@@ -135,6 +141,7 @@ country_code={settings.get("AP_COUNTRY_CODE", "US")}
 wpa=2
 wpa_key_mgmt=WPA-PSK
 rsn_pairwise=CCMP
+ap_isolate=1
 wpa_passphrase={settings["AP_PASSPHRASE"]}
 '''
     (STATE / "hostapd.conf").write_text(hostapd)
@@ -186,8 +193,12 @@ def start(config_path: Path | None = None) -> None:
         raise RuntimeError("AP subnet overlaps an existing host route: " + ", ".join(conflicts))
     if subprocess.run(["nft", "list", "table", "ip", "checkhen"], capture_output=True).returncode == 0:
         raise RuntimeError("An unmanaged CheckHen nftables table already exists")
+    if subprocess.run(["nft", "list", "table", "ip6", "checkhen6"], capture_output=True).returncode == 0:
+        raise RuntimeError("An unmanaged CheckHen IPv6 nftables table already exists")
     STATE.mkdir(mode=0o711, exist_ok=True)
     os.chmod(STATE, 0o711)
+    # A new class starts with an empty authorized set, even if the old lease persists.
+    (STATE / "bindings.json").unlink(missing_ok=True)
     dns_user = pwd.getpwnam("dnsmasq")
     dns_dir = STATE / "dnsmasq"
     dns_dir.mkdir(mode=0o700, exist_ok=True)
@@ -288,6 +299,7 @@ def stop() -> None:
                 pass
     if state.get("firewall"):
         restore("nftables", "nft", "delete", "table", "ip", "checkhen")
+        restore("IPv6 nftables", "nft", "delete", "table", "ip6", "checkhen6")
     if state.get("zone_changed"):
         restore("firewalld trusted zone", "firewall-cmd", "--zone=trusted", "--remove-interface", state["ap"])
         if state.get("old_zone"):

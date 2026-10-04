@@ -44,7 +44,7 @@ export function effectiveEvents(events: ParticipationEvent[], scope: EventScope)
 }
 
 export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
-  const attendance = new Map<string, { id: string; userId: string; classId: string; anonymousName: string; createdAt: Date; checkOutTime: Date | null; isPresent: boolean }>();
+  const attendance = new Map<string, { id: string; userId: string; classId: string; anonymousName: string; deviceIp: string | null; createdAt: Date; checkOutTime: Date | null; isPresent: boolean }>();
   const hands = new Map<string, { id: string; userId: string; classId: string; createdAt: Date; isAcknowledged: boolean; isRated: boolean; hasValue: boolean }>();
   const pace = new Map<string, { id: string; userId: string; classId: string; signalType: string; createdAt: Date }>();
   const messages: { id: string; userId: string; classId: string; message: string; anonymousName: string; createdAt: Date }[] = [];
@@ -60,7 +60,7 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
     const id = originalId(event);
     if (event.kind === 'CHECK_IN' && userId) {
       const previous = attendance.get(userId);
-      attendance.set(userId, { id, userId, classId, anonymousName: String(payload.anonymousName), createdAt: previous?.createdAt ?? createdAt, checkOutTime: null, isPresent: true });
+      attendance.set(userId, { id, userId, classId, anonymousName: String(payload.anonymousName), deviceIp: typeof payload.deviceIp === 'string' ? payload.deviceIp : null, createdAt: previous?.createdAt ?? createdAt, checkOutTime: null, isPresent: true });
     } else if (event.kind === 'CHECK_OUT' && userId) {
       const entry = attendance.get(userId);
       if (entry) attendance.set(userId, { ...entry, isPresent: false, checkOutTime: createdAt });

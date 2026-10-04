@@ -26,9 +26,9 @@ function clientAddress(req: NextApiRequest): string {
 }
 
 async function callAgent(
-  action: 'bind' | 'revoke',
+  action: 'bind' | 'revoke' | 'revoke-student' | 'revoke-session',
   body: Record<string, unknown>
-): Promise<DeviceBinding> {
+): Promise<DeviceBinding | null> {
   const url = process.env.PORTAL_AGENT_URL;
   const secret = process.env.PORTAL_CONTROL_SECRET;
   if (!url || !secret) {
@@ -53,6 +53,7 @@ async function callAgent(
       response.status === 403 ? 403 : 503
     );
   }
+  if (action === 'revoke-student' || action === 'revoke-session') return null;
   const result = await response.json();
   if (typeof result?.ip !== 'string' || typeof result?.mac !== 'string') {
     throw new PortalBindingError('Invalid portal agent response', 503);
@@ -68,7 +69,7 @@ export async function bindDevice(
   if (!process.env.PORTAL_AGENT_URL || !process.env.PORTAL_CONTROL_SECRET) {
     throw new PortalBindingError('Portal agent is not configured', 503);
   }
-  return callAgent('bind', { ...scope, userId: user.id, ip: clientAddress(req) });
+  return (await callAgent('bind', { ...scope, userId: user.id, ip: clientAddress(req) }))!;
 }
 
 export async function revokeDevice(
@@ -80,4 +81,16 @@ export async function revokeDevice(
     return;
   }
   await callAgent('revoke', { ...scope, userId: user.id, ip: binding.ip });
+}
+
+export async function revokeCurrentDevice(req: NextApiRequest, scope: Scope, user: Identity): Promise<void> {
+  await callAgent('revoke', { ...scope, userId: user.id, ip: clientAddress(req) });
+}
+
+export async function revokeStudentDevices(scope: Scope, user: Identity): Promise<void> {
+  await callAgent('revoke-student', { ...scope, userId: user.id });
+}
+
+export async function revokeSessionDevices(scope: Scope): Promise<void> {
+  await callAgent('revoke-session', scope);
 }

@@ -39,9 +39,9 @@ const state = {
   messages: [],
   endedAt: null,
 };
-const invoke = async (method: 'GET' | 'POST' = 'GET') => {
-  (readState as jest.Mock).mockResolvedValue(state);
-  (prisma.user.findMany as jest.Mock).mockResolvedValue([student, secondStudent]);
+const invoke = async (method: 'GET' | 'POST' = 'GET', currentState = state, users = [student, secondStudent]) => {
+  (readState as jest.Mock).mockResolvedValue(currentState);
+  (prisma.user.findMany as jest.Mock).mockResolvedValue(users);
   const { req, res } = createMocks({ method, query: scope });
   await handler(req as any, res as any);
   return res;
@@ -54,6 +54,10 @@ beforeEach(() => {
 describe('GET /api/admin/fetch-check-ins', () => {
   it('rejects wrong methods', async () =>
     expect((await invoke('POST'))._getStatusCode()).toBe(405));
+  it('returns 401 without a session', async () => {
+    (requireScope as jest.Mock).mockImplementation(async (_req, res) => { res.status(401).json({ message: 'Unauthorized' }); return null; });
+    expect((await invoke())._getStatusCode()).toBe(401);
+  });
   it('propagates a 403 from scope authorization', async () => {
     (requireScope as jest.Mock).mockImplementation(async (_req, res) => {
       res.status(403).json({ message: 'Instructor access required' });
@@ -79,5 +83,23 @@ describe('GET /api/admin/fetch-check-ins', () => {
       }),
     ]);
     expect(readState).toHaveBeenCalledWith(prisma, scope);
+  });
+  it('returns an empty array for no attendance', async () => {
+    const res = await invoke('GET', { ...state, attendance: [] });
+    expect(JSON.parse(res._getJSONData().message)).toEqual([]);
+  });
+  it('includes the expected fields and derives name from email', async () => {
+    const res = await invoke('GET', state, [{ id: 'student', email: 'jsmith@bu.edu' }, secondStudent]);
+    const entry = JSON.parse(res._getJSONData().message)[0];
+    for (const key of ['id', 'email', 'name', 'anonymousName', 'joinTime', 'handRaiseCount', 'userId', 'user']) {
+      expect(entry).toHaveProperty(key);
+    }
+    expect(entry.name).toBe('jsmith');
+  });
+  it('excludes instructor attendance from the result', async () => {
+    (isInstructor as jest.Mock).mockImplementation((email: string) => email === student.email);
+    const res = await invoke();
+    expect(JSON.parse(res._getJSONData().message)).toHaveLength(1);
+    expect(JSON.parse(res._getJSONData().message)[0].email).toBe(secondStudent.email);
   });
 });

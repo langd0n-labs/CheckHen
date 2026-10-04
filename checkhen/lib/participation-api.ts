@@ -4,10 +4,15 @@ import { isInstructor, requireScope } from './request-scope';
 import { appendEvent, readState } from './event-store';
 import { generateUniqueAnonymousName } from './anonymousNames';
 import type { EventKind } from './events';
-import { bindDevice, PortalBindingError, revokeDevice } from './portal-binding';
+import { bindDevice, PortalBindingError, revokeCurrentDevice, revokeDevice, revokeSessionDevices, revokeStudentDevices } from './portal-binding';
 
 const writes = new Set(['check-in', 'check-out', 'toggle-vhr', 'send-chat', 'send-pace-signal',
   'ack-hand-raise', 'rate-hand-raise', 'reset-pace-signals', 'end-class-early']);
+
+function publicMessage<T extends { userId: string }>(message: T): Omit<T, 'userId'> {
+  const { userId: _userId, ...visible } = message;
+  return visible;
+}
 
 export function participationHandler(action: string, adminOnly = false) {
   return async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -29,7 +34,7 @@ export function participationHandler(action: string, adminOnly = false) {
     const append = (kind: EventKind, payload: Record<string, unknown> = {}, userId: string | null = user.id) =>
       appendEvent(prisma, { ...scope, actorId: user.id, userId, kind, payload });
     const json = (value: unknown) => res.status(200).json({ message: JSON.stringify(value) });
-    if (writes.has(action) && !active) return res.status(400).json({ message: 'No active class' });
+    if (writes.has(action) && !active && action !== 'check-out') return res.status(400).json({ message: 'No active class' });
     if (!adminOnly && writes.has(action) && !['check-in', 'check-out'].includes(action) && !checkIn?.isPresent) {
       return res.status(400).json({ message: 'Not currently checked in to this class' });
     }
@@ -52,7 +57,15 @@ export function participationHandler(action: string, adminOnly = false) {
       return res.json({ message: 'Checked in' });
     }
     if (action === 'check-out') {
-      if (checkIn?.isPresent) await append('CHECK_OUT');
+      const secondary = checkIn?.deviceIp && req.headers['x-real-ip'] !== checkIn.deviceIp;
+      try {
+        if (secondary) await revokeCurrentDevice(req, scope, user);
+        else await revokeStudentDevices(scope, user);
+      } catch (error) {
+        if (error instanceof PortalBindingError) return res.status(error.status).json({ message: error.message });
+        throw error;
+      }
+      if (!secondary && checkIn?.isPresent) await append('CHECK_OUT');
       return res.json({ message: 'Checked out' });
     }
     if (action === 'toggle-vhr') {
@@ -71,13 +84,19 @@ export function participationHandler(action: string, adminOnly = false) {
         return res.status(400).json({ message: 'Invalid message' });
       }
       const event = await append('CHAT_MESSAGE', { message, anonymousName: checkIn!.anonymousName });
-      return json({ id: event.id, userId: user.id, createdAt: event.createdAt, message, anonymousName: checkIn!.anonymousName });
+      return json({ id: event.id, createdAt: event.createdAt, message, anonymousName: checkIn!.anonymousName });
     }
     if (action === 'reset-pace-signals') {
       await append('PACE_RESET', {}, null);
       return res.json({ message: 'Pace signals reset' });
     }
     if (action === 'end-class-early') {
+      try {
+        await revokeSessionDevices(scope);
+      } catch (error) {
+        if (error instanceof PortalBindingError) return res.status(error.status).json({ message: error.message });
+        throw error;
+      }
       const event = await append('SESSION_ENDED', {}, null);
       return json({ ...selected, endedAt: event.createdAt });
     }
@@ -106,13 +125,13 @@ export function participationHandler(action: string, adminOnly = false) {
         isCheckedIn: active && !!checkIn?.isPresent,
         classId: selected.id, className: selected.name, classColor: selected.color,
         anonymousName: checkIn?.anonymousName ?? null, handRaised: !!ownHand,
-        paceSignals: counts, messages: checkIn ? state.messages.slice(-100) : [],
+        paceSignals: counts, messages: checkIn ? state.messages.slice(-100).map(publicMessage) : [],
       });
     }
     if (!adminOnly && !checkIn) return res.status(403).json({ message: 'Not checked in' });
     if (action === 'fetch-all-chat' || action === 'fetch-last-chat') {
       const messages = state.messages.slice(action === 'fetch-last-chat' ? -1 : adminOnly ? -state.messages.length : -25);
-      if (!adminOnly) return json(messages);
+      if (!adminOnly) return json(messages.map(publicMessage));
       const users = await prisma.user.findMany({ where: { id: { in: messages.map(m => m.userId) } } });
       return json(messages.map(message => {
         const author = users.find(entry => entry.id === message.userId);

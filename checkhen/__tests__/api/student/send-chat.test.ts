@@ -35,6 +35,14 @@ beforeEach(() => {
 describe('POST /api/student/send-chat', () => {
   it('rejects wrong methods', async () =>
     expect((await invoke({}, checkedIn(), 'GET'))._getStatusCode()).toBe(405));
+  it('returns 401 without a session', async () => {
+    (requireScope as jest.Mock).mockImplementation(async (_req, res) => { res.status(401).json({ message: 'Unauthorized' }); return null; });
+    expect((await invoke({ message: 'hello' }))._getStatusCode()).toBe(401);
+  });
+  it('rejects a student without an active check-in', async () => {
+    expect((await invoke({ message: 'hello' }, { ...checkedIn(), attendance: [] }))._getStatusCode()).toBe(400);
+    expect(appendEvent).not.toHaveBeenCalled();
+  });
   it.each([{}, { message: '' }, { message: '   ' }, { message: 'x'.repeat(1001) }])(
     'rejects invalid messages',
     async (body) => {
@@ -60,5 +68,7 @@ describe('POST /api/student/send-chat', () => {
         payload: { message, anonymousName: 'Swift Panda' },
       })
     );
+    expect(JSON.parse(res._getJSONData().message)).toMatchObject({ message, anonymousName: 'Swift Panda' });
+    expect(JSON.parse(res._getJSONData().message)).not.toHaveProperty('userId');
   });
 });

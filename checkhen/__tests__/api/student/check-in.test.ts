@@ -13,6 +13,9 @@ jest.mock('@/lib/prisma', () => ({ prisma: {} }));
 jest.mock('@/lib/portal-binding', () => ({
   bindDevice: jest.fn(),
   revokeDevice: jest.fn(),
+  revokeCurrentDevice: jest.fn(),
+  revokeStudentDevices: jest.fn(),
+  revokeSessionDevices: jest.fn(),
   PortalBindingError: class PortalBindingError extends Error {
     constructor(
       message: string,
@@ -51,6 +54,15 @@ beforeEach(() => {
 
 describe('POST /api/student/check-in', () => {
   it('rejects wrong methods', async () => expect((await invoke('GET'))._getStatusCode()).toBe(405));
+  it('returns 401 without a session', async () => {
+    (requireScope as jest.Mock).mockImplementation(async (_req, res) => { res.status(401).json({ message: 'Unauthorized' }); return null; });
+    expect((await invoke('POST'))._getStatusCode()).toBe(401);
+    expect(bindDevice).not.toHaveBeenCalled();
+  });
+  it('returns 404 without a selected class', async () => {
+    (requireScope as jest.Mock).mockImplementation(async (_req, res) => { res.status(404).json({ message: 'No class' }); return null; });
+    expect((await invoke('POST'))._getStatusCode()).toBe(404);
+  });
   it('rejects an ended session without recording a check-in event', async () => {
     expect((await invoke('POST', { ...empty(), endedAt: new Date() }))._getStatusCode()).toBe(400);
     expect(appendEvent).not.toHaveBeenCalled();
@@ -116,6 +128,16 @@ describe('POST /api/student/check-in', () => {
     (bindDevice as jest.Mock).mockRejectedValue(new PortalBindingError('AP lease not found', 403));
     const res = await invoke('POST');
     expect(res._getStatusCode()).toBe(403);
+    expect(appendEvent).not.toHaveBeenCalled();
+  });
+  it('returns 403 when the agent rejects an outside-subnet client', async () => {
+    (bindDevice as jest.Mock).mockRejectedValue(new PortalBindingError('Outside AP subnet', 403));
+    expect((await invoke('POST'))._getStatusCode()).toBe(403);
+    expect(appendEvent).not.toHaveBeenCalled();
+  });
+  it('returns 503 when the portal agent is unavailable', async () => {
+    (bindDevice as jest.Mock).mockRejectedValue(new PortalBindingError('Portal agent unavailable', 503));
+    expect((await invoke('POST'))._getStatusCode()).toBe(503);
     expect(appendEvent).not.toHaveBeenCalled();
   });
   it('reverses a network bind when the event append fails', async () => {

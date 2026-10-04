@@ -4,7 +4,13 @@ import { appendEvent, readState } from '@/lib/event-store';
 import { prisma } from '@/lib/prisma';
 import { generateUniqueAnonymousName } from '@/lib/anonymousNames';
 import checkIn from '@/pages/api/student/check-in';
+import checkOut from '@/pages/api/student/check-out';
 import sendChat from '@/pages/api/student/send-chat';
+import startup from '@/pages/api/student/startup';
+import fetchAllChat from '@/pages/api/student/fetch-all-chat';
+import fetchLastChat from '@/pages/api/student/fetch-last-chat';
+import endClass from '@/pages/api/admin/end-class-early';
+import { revokeCurrentDevice, revokeSessionDevices, revokeStudentDevices } from '@/lib/portal-binding';
 import paceSignal from '@/pages/api/student/send-pace-signal';
 import acknowledge from '@/pages/api/admin/ack-hand-raise';
 import fetchCheckIns from '@/pages/api/admin/fetch-check-ins';
@@ -13,7 +19,7 @@ jest.mock('@/lib/request-scope', () => ({ requireScope: jest.fn(), isInstructor:
 jest.mock('@/lib/event-store', () => ({ appendEvent: jest.fn(), readState: jest.fn() }));
 jest.mock('@/lib/prisma', () => ({ prisma: { user: { findUnique: jest.fn(), findMany: jest.fn() } } }));
 jest.mock('@/lib/anonymousNames', () => ({ generateUniqueAnonymousName: jest.fn() }));
-jest.mock('@/lib/portal-binding', () => ({ bindDevice: jest.fn().mockResolvedValue(null), revokeDevice: jest.fn() }));
+jest.mock('@/lib/portal-binding', () => ({ bindDevice: jest.fn().mockResolvedValue(null), revokeDevice: jest.fn(), revokeCurrentDevice: jest.fn(), revokeStudentDevices: jest.fn(), revokeSessionDevices: jest.fn() }));
 
 const user = { id: 'student', email: 'student@bu.edu' };
 const selected = { id: 'session-a', courseId: 'course-a', name: 'Class A', createdAt: new Date(), duration: 60 };
@@ -70,9 +76,44 @@ describe('event-backed check-in', () => {
     await invoke(checkIn, 'POST');
     expect(appendEvent).toHaveBeenCalledWith(prisma, expect.objectContaining({ kind: 'CHECK_IN', payload: { anonymousName: 'Swift Panda' } }));
   });
+  it('revokes all student devices before checkout', async () => {
+    (readState as jest.Mock).mockResolvedValue(checkedIn());
+    expect((await invoke(checkOut, 'POST'))._getStatusCode()).toBe(200);
+    expect(revokeStudentDevices).toHaveBeenCalledWith(scope, user);
+    expect(appendEvent).toHaveBeenCalledWith(prisma, expect.objectContaining({ kind: 'CHECK_OUT' }));
+  });
+  it('leaves attendance present when a second device checks out', async () => {
+    (readState as jest.Mock).mockResolvedValue({ ...checkedIn(), attendance: [{
+      ...checkedIn().attendance[0], deviceIp: '172.16.77.20',
+    }] });
+    const { req, res } = createMocks({ method: 'POST', query: scope,
+      headers: { 'x-real-ip': '172.16.77.21' } });
+    await checkOut(req as any, res as any);
+    expect(res._getStatusCode()).toBe(200);
+    expect(revokeCurrentDevice).toHaveBeenCalledWith(req, scope, user);
+    expect(revokeStudentDevices).not.toHaveBeenCalled();
+    expect(appendEvent).not.toHaveBeenCalled();
+  });
+  it('revokes session devices before ending class', async () => {
+    expect((await invoke(endClass, 'POST'))._getStatusCode()).toBe(200);
+    expect(revokeSessionDevices).toHaveBeenCalledWith(scope);
+    expect(appendEvent).toHaveBeenCalledWith(prisma, expect.objectContaining({ kind: 'SESSION_ENDED' }));
+  });
 });
 
 describe('event-backed chat and pace', () => {
+  it('does not expose stable user IDs in student chat responses', async () => {
+    const message = { id: 'message-1', userId: 'student', classId: scope.classId,
+      message: 'Hello', anonymousName: 'Swift Panda', createdAt: new Date() };
+    (readState as jest.Mock).mockResolvedValue({ ...checkedIn(), messages: [message] });
+    for (const route of [startup, fetchAllChat, fetchLastChat]) {
+      const res = await invoke(route as typeof checkIn, 'GET');
+      const payload = res._getJSONData();
+      const messages = route === startup ? payload.messages : JSON.parse(payload.message);
+      expect(messages[0]).not.toHaveProperty('userId');
+      expect(messages[0]).toMatchObject({ message: 'Hello', anonymousName: 'Swift Panda' });
+    }
+  });
   it.each(['', '   ', 'x'.repeat(1001)])('rejects an invalid chat body', async message => {
     (readState as jest.Mock).mockResolvedValue(checkedIn());
     expect((await invoke(sendChat, 'POST', { message }))._getStatusCode()).toBe(400);

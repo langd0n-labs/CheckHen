@@ -1,4 +1,4 @@
-import { bindDevice, PortalBindingError } from '@/lib/portal-binding';
+import { bindDevice, PortalBindingError, revokeCurrentDevice, revokeSessionDevices, revokeStudentDevices } from '@/lib/portal-binding';
 
 const scope = { courseId: 'course-a', classId: 'class-a' };
 const user = { id: 'student-a' };
@@ -36,4 +36,44 @@ it('rejects a missing proxy client address before contacting the agent', async (
   await expect(bindDevice(request(''), scope, user))
     .rejects.toBeInstanceOf(PortalBindingError);
   expect(global.fetch).not.toHaveBeenCalled();
+});
+
+it('rejects a forged or invalid proxy address', async () => {
+  await expect(bindDevice(request('172.16.77.20, 192.0.2.1'), scope, user))
+    .rejects.toMatchObject({ status: 403 });
+  expect(global.fetch).not.toHaveBeenCalled();
+});
+
+it('maps an agent failure to 503', async () => {
+  (global.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 500 });
+  await expect(bindDevice(request('172.16.77.20'), scope, user))
+    .rejects.toMatchObject({ status: 503 });
+});
+
+it('sends a timed request and maps a timeout to 503', async () => {
+  (global.fetch as jest.Mock).mockRejectedValue(new Error('Timeout'));
+  await expect(bindDevice(request('172.16.77.20'), scope, user))
+    .rejects.toMatchObject({ status: 503 });
+  expect(AbortSignal.timeout).toHaveBeenCalledWith(3000);
+});
+
+it('sends signed bulk revocations for checkout and session end', async () => {
+  (global.fetch as jest.Mock).mockResolvedValue({ ok: true });
+  await revokeStudentDevices(scope, user);
+  await revokeSessionDevices(scope);
+  expect((global.fetch as jest.Mock).mock.calls.map(call => call[0])).toEqual([
+    'http://127.0.0.1:7878/revoke-student', 'http://127.0.0.1:7878/revoke-session',
+  ]);
+  for (const [, options] of (global.fetch as jest.Mock).mock.calls) {
+    expect(options.headers['X-CheckHen-Signature']).toMatch(/^[0-9a-f]{64}$/);
+  }
+});
+
+it('revokes only the requesting second device', async () => {
+  (global.fetch as jest.Mock).mockResolvedValue({ ok: true, json: async () => ({
+    ip: '172.16.77.21', mac: '02:00:00:00:00:21',
+  }) });
+  await revokeCurrentDevice(request('172.16.77.21'), scope, user);
+  expect(global.fetch).toHaveBeenCalledWith('http://127.0.0.1:7878/revoke',
+    expect.objectContaining({ body: expect.stringContaining('172.16.77.21') }));
 });

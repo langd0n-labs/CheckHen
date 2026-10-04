@@ -17,8 +17,8 @@ const state = {
   messages: [],
   endedAt: null,
 };
-const invoke = async (body: Record<string, unknown>, method: 'GET' | 'POST' = 'POST') => {
-  (readState as jest.Mock).mockResolvedValue(state);
+const invoke = async (body: Record<string, unknown>, method: 'GET' | 'POST' = 'POST', currentState = state) => {
+  (readState as jest.Mock).mockResolvedValue(currentState);
   const { req, res } = createMocks({ method, body, query: scope });
   await handler(req as any, res as any);
   return res;
@@ -31,6 +31,14 @@ beforeEach(() => {
 describe('POST /api/student/send-pace-signal', () => {
   it('rejects wrong methods', async () =>
     expect((await invoke({}, 'GET'))._getStatusCode()).toBe(405));
+  it('returns 401 without a session', async () => {
+    (requireScope as jest.Mock).mockImplementation(async (_req, res) => { res.status(401).json({ message: 'Unauthorized' }); return null; });
+    expect((await invoke({ signalType: 'slow_down' }))._getStatusCode()).toBe(401);
+  });
+  it('rejects a student without an active check-in', async () => {
+    expect((await invoke({ signalType: 'slow_down' }, 'POST', { ...state, attendance: [] }))._getStatusCode()).toBe(400);
+    expect(appendEvent).not.toHaveBeenCalled();
+  });
   it.each([{}, { signalType: '' }, { signalType: 'speed_up' }])(
     'rejects missing or invalid signal types',
     async (body) => {
@@ -48,5 +56,11 @@ describe('POST /api/student/send-pace-signal', () => {
         payload: { signalType: 'slow_down' },
       })
     );
+  });
+  it('records a ready-to-move-on signal', async () => {
+    expect((await invoke({ signalType: 'ready_to_move_on' }))._getStatusCode()).toBe(200);
+    expect(appendEvent).toHaveBeenCalledWith(prisma, expect.objectContaining({
+      kind: 'PACE_SIGNAL', payload: { signalType: 'ready_to_move_on' },
+    }));
   });
 });

@@ -3,6 +3,20 @@
 Send the platform, command, pass/fail result, and any error text back to the build
 session. Do not send environment files, tokens, database records, or passwords.
 
+## Disposable PostgreSQL integration checks
+
+With PostgreSQL and `psql` available locally, run the event-store, legacy-import,
+and socket-isolation checks together:
+
+```bash
+CHECKHEN_TEST_PG_ADMIN_URL='postgresql://USER:PASSWORD@127.0.0.1:5432/postgres' bash scripts/test-postgres.sh
+```
+
+The command drops and recreates only `checkhen_test` and
+`checkhen_legacy_test` on localhost. Use disposable credentials. It installs
+the pinned Yarn dependencies, applies migrations, seeds the legacy fixture,
+starts a test socket server on port 6061, and runs all three scripts.
+
 ## M0: macOS and Windows application startup
 
 Prerequisites: Git, Python 3, Podman Desktop, and its Compose provider.
@@ -91,8 +105,8 @@ bash scripts/container-tools.sh admin
 ```
 
 For the automated namespace check, the USB adapter is not needed. Enter the
-instructor username locally when prompted. This test creates a temporary veth
-pair and namespace, uses the network container for DHCP and firewall rules,
+instructor username locally when prompted. This test creates two temporary
+veth pairs, namespaces, and a bridge; it uses the network container for DHCP and firewall rules,
 checks the same Nginx template as the app proxy, and restores host settings:
 
 ```sh
