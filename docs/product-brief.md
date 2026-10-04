@@ -263,6 +263,18 @@ application layer.
   this target in testing.
 - Put the shared network rules (allowlist, nftables sets, captive-portal
   behavior) in one place that both profiles use.
+- Support IPv4 and IPv6 (dual-stack). Do not build an IPv4-only or an
+  IPv6-only network.
+  - Give clients IPv6 addresses by SLAAC from a ULA prefix. Do not depend on
+    DHCPv6, because Android does not support it.
+  - Authorize IPv6 traffic per device MAC. Clients rotate temporary IPv6
+    addresses, so an IPv6 address does not identify a device.
+  - Apply the same rules to both families: no uplink before binding, no access
+    to the host or to private ranges, and client isolation. Exam mode
+    allowlists cover both families.
+  - If the uplink has no IPv6, IPv4 access must still work.
+  - Test a dual-stack client, an IPv6-only client, and an unbound client on
+    each family.
 
 Delete the Raspberry Pi path (`pi-setup/`) after profile A replaces it. Keep its
 working parts, such as the NAT rules, where the profiles reuse them.
