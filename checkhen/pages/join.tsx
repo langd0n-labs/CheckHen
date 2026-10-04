@@ -1,4 +1,4 @@
-import { selectScope, selectedScope } from '@/lib/scoped-fetch';
+import { selectScope } from '@/lib/scoped-fetch';
 import { scopedFetch as fetch } from '@/lib/scoped-fetch';
 import { useEffect, useState } from 'react';
 import { useSession, signIn } from 'next-auth/react';
@@ -20,6 +20,8 @@ import { notifications } from '@mantine/notifications';
 
 type ActiveClass = {
   id: string;
+  courseId: string;
+  active: boolean;
   name: string;
   createdAt: string;
   duration: number;
@@ -44,19 +46,19 @@ export default function JoinPage() {
 
   // Fetch active classes
   const fetchActiveClasses = async () => {
-    const response = await fetch('/api/fetch-latest-class');
-    if (!response.ok) {
+    const coursesResponse = await fetch('/api/courses');
+    if (!coursesResponse.ok) {
       setActiveClasses([]);
       return;
     }
-    const data = await response.json();
-    const cls = JSON.parse(data.message);
-    const endDate = new Date(new Date(cls.createdAt).getTime() + cls.duration * 60000);
-    if (endDate < new Date()) {
-      setActiveClasses([]);
-    } else {
-      setActiveClasses([cls]);
-    }
+    const { courses } = await coursesResponse.json();
+    const results = await Promise.all(courses.map(async (course: { id: string }) => {
+      const response = await fetch(`/api/sessions?courseId=${encodeURIComponent(course.id)}`);
+      if (!response.ok) return [];
+      const { sessions } = await response.json();
+      return sessions.filter((cls: ActiveClass) => cls.active);
+    }));
+    setActiveClasses(results.flat());
   };
 
   useEffect(() => {
@@ -75,9 +77,9 @@ export default function JoinPage() {
     }
   }, [status]);
 
-  const handleJoin = async (classId: string) => {
-    setJoiningId(classId);
-    selectScope({ ...selectedScope(), classId });
+  const handleJoin = async (cls: ActiveClass) => {
+    setJoiningId(cls.id);
+    selectScope({ courseId: cls.courseId, classId: cls.id });
     const response = await fetch('/api/student/check-in', { method: 'POST' });
     if (response.ok) {
       router.push('/');
@@ -283,7 +285,7 @@ export default function JoinPage() {
                     fullWidth
                     size="md"
                     loading={joiningId === cls.id}
-                    onClick={() => handleJoin(cls.id)}
+                    onClick={() => handleJoin(cls)}
                     style={cls.color ? { backgroundColor: cls.color } : undefined}
                   >
                     Join Session

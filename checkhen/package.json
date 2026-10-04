@@ -21,7 +21,8 @@
     "storybook:build": "storybook build",
     "migrate:dev": "dotenv -e .env.local -- prisma migrate dev",
     "seed": "dotenv -e .env.local -- tsx scripts/seed-test-data.ts",
-    "seed:clean": "dotenv -e .env.local -- tsx scripts/clear-test-data.ts"
+    "seed:clean": "dotenv -e .env.local -- tsx scripts/clear-test-data.ts",
+    "load:socket-chat": "tsx scripts/load-socket-chat.ts"
   },
   "dependencies": {
     "@babel/runtime": "^7.28.4",

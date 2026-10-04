@@ -2,7 +2,7 @@
 export type EventKind =
   | 'CHECK_IN' | 'CHECK_OUT' | 'HAND_RAISED' | 'HAND_LOWERED'
   | 'HAND_ACKNOWLEDGED' | 'HAND_RATED' | 'PACE_SIGNAL' | 'PACE_RESET'
-  | 'CHAT_MESSAGE' | 'SESSION_ENDED' | 'UNDO';
+  | 'CHAT_MESSAGE' | 'SESSION_ENDED' | 'DEVICE_BOUND' | 'UNDO';
 
 export type ParticipationEvent = {
   id: string;

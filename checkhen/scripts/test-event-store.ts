@@ -35,7 +35,10 @@ async function main() {
   await appendEvent(db, { ...scopeA, actorId: student.id, kind: 'UNDO', supersedesId: undo.id });
   assert.equal((await readState(db, scopeA)).pace[0].signalType, 'ready_to_move_on');
   assert.equal((await readState(db, scopeB)).pace.length, 0);
-  assert.equal((await readEvents(db, scopeA)).length, 5);
+  await appendEvent(db, { ...scopeA, ...identity, kind: 'DEVICE_BOUND',
+    payload: { deviceIp: '172.16.77.20', deviceMac: '02:00:00:00:00:20' } });
+  assert.equal((await readState(db, scopeA)).attendance.length, 1);
+  assert.equal((await readEvents(db, scopeA)).length, 6);
   assert.deepEqual((await db.participationEvent.findUniqueOrThrow({ where: { id: original.id } })).payload, { signalType: 'slow_down' });
   await assert.rejects(appendEvent(db, { ...scopeB, actorId: student.id, kind: 'UNDO', supersedesId: original.id }));
   await assert.rejects(db.participationEvent.update({ where: { id: original.id }, data: { kind: 'CHECK_OUT' } }));
@@ -44,6 +47,6 @@ async function main() {
   const concurrent = await Promise.all(Array.from({ length: 12 }, () =>
     appendEvent(db, { ...scopeA, ...identity, kind: 'HAND_RAISED' })));
   assert.equal(new Set(concurrent.map(e => e.createdAt.getTime())).size, 12);
-  console.log('PASS: parallel course isolation, correction/undo folding, original facts retained, database immutability, concurrent append ordering');
+  console.log('PASS: parallel course isolation, correction/undo folding, device binding, original facts retained, database immutability, concurrent append ordering');
 }
 main().finally(() => db.$disconnect());

@@ -16,6 +16,8 @@ services:
       AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET:-}
       NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
       ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      PORTAL_AGENT_URL: ${PORTAL_AGENT_URL:-}
+      PORTAL_CONTROL_SECRET: ${PORTAL_CONTROL_SECRET:-}
     depends_on:
       db:
         condition: service_healthy

@@ -1,6 +1,7 @@
 import { createMocks } from 'node-mocks-http';
 import { generateUniqueAnonymousName } from '@/lib/anonymousNames';
 import { appendEvent, readState } from '@/lib/event-store';
+import { bindDevice, PortalBindingError, revokeDevice } from '@/lib/portal-binding';
 import { prisma } from '@/lib/prisma';
 import { requireScope } from '@/lib/request-scope';
 import handler from '@/pages/api/student/check-in';
@@ -9,6 +10,18 @@ jest.mock('@/lib/request-scope', () => ({ requireScope: jest.fn() }));
 jest.mock('@/lib/event-store', () => ({ appendEvent: jest.fn(), readState: jest.fn() }));
 jest.mock('@/lib/anonymousNames', () => ({ generateUniqueAnonymousName: jest.fn() }));
 jest.mock('@/lib/prisma', () => ({ prisma: {} }));
+jest.mock('@/lib/portal-binding', () => ({
+  bindDevice: jest.fn(),
+  revokeDevice: jest.fn(),
+  PortalBindingError: class PortalBindingError extends Error {
+    constructor(
+      message: string,
+      public status: number
+    ) {
+      super(message);
+    }
+  },
+}));
 
 const user = { id: 'student', email: 'student@bu.edu' };
 const selected = { id: 'session-a', courseId: 'course-a', createdAt: new Date(), duration: 60 };
@@ -32,6 +45,8 @@ beforeEach(() => {
   (requireScope as jest.Mock).mockResolvedValue({ scope, user, selected, admin: false });
   (appendEvent as jest.Mock).mockResolvedValue({ id: 'event-1', createdAt: new Date() });
   (generateUniqueAnonymousName as jest.Mock).mockReturnValue('Calm Otter');
+  (bindDevice as jest.Mock).mockResolvedValue(null);
+  (revokeDevice as jest.Mock).mockResolvedValue(undefined);
 });
 
 describe('POST /api/student/check-in', () => {
@@ -64,5 +79,53 @@ describe('POST /api/student/check-in', () => {
     });
     expect(res._getStatusCode()).toBe(200);
     expect(appendEvent).not.toHaveBeenCalled();
+  });
+  it('records the lease IP and MAC after portal authorization', async () => {
+    (bindDevice as jest.Mock).mockResolvedValue({ ip: '172.16.77.20', mac: '02:00:00:00:00:20' });
+    const res = await invoke('POST');
+    expect(res._getStatusCode()).toBe(200);
+    expect(appendEvent).toHaveBeenCalledWith(
+      prisma,
+      expect.objectContaining({
+        kind: 'CHECK_IN',
+        payload: {
+          anonymousName: 'Calm Otter',
+          deviceIp: '172.16.77.20',
+          deviceMac: '02:00:00:00:00:20',
+        },
+      })
+    );
+  });
+  it('binds a second device without changing attendance', async () => {
+    (bindDevice as jest.Mock).mockResolvedValue({ ip: '172.16.77.21', mac: '02:00:00:00:00:21' });
+    const res = await invoke('POST', {
+      ...empty(),
+      attendance: [{ userId: user.id, anonymousName: 'Swift Panda', isPresent: true }],
+    });
+    expect(res._getStatusCode()).toBe(200);
+    expect(appendEvent).toHaveBeenCalledWith(
+      prisma,
+      expect.objectContaining({
+        kind: 'DEVICE_BOUND',
+        payload: { deviceIp: '172.16.77.21', deviceMac: '02:00:00:00:00:21' },
+      })
+    );
+    expect(appendEvent).toHaveBeenCalledTimes(1);
+  });
+  it('rejects a client without an AP lease', async () => {
+    (bindDevice as jest.Mock).mockRejectedValue(new PortalBindingError('AP lease not found', 403));
+    const res = await invoke('POST');
+    expect(res._getStatusCode()).toBe(403);
+    expect(appendEvent).not.toHaveBeenCalled();
+  });
+  it('reverses a network bind when the event append fails', async () => {
+    (bindDevice as jest.Mock).mockResolvedValue({ ip: '172.16.77.20', mac: '02:00:00:00:00:20' });
+    (appendEvent as jest.Mock).mockRejectedValue(new Error('Database unavailable'));
+    await expect(invoke('POST')).rejects.toThrow('Database unavailable');
+    expect(revokeDevice).toHaveBeenCalledWith(
+      { ip: '172.16.77.20', mac: '02:00:00:00:00:20' },
+      scope,
+      user
+    );
   });
 });

@@ -7,11 +7,21 @@ Branch: build/m0-m2. Scope: M0, M1, M2 only.
 - 2026-10-03: Use Podman for this build session. Defer Docker testing.
 - 2026-10-03: A configurable test hostname may use fishjump.com, rfkill.dev,
   or rfkill.com. Test hostname: checkhen.rfkill.dev.
-- Live Google OAuth testing is deferred until credentials are available.
-  Automated checks use simulated identities. Use Let's Encrypt DNS-01 for TLS.
-- 2026-10-03: Cloudflare hosts rfkill.dev. Use Certbot dns-cloudflare with a
-  Zone:DNS:Edit token restricted to rfkill.dev, read from an ignored environment
-  file as CLOUDFLARE_API_TOKEN.
+- 2026-10-03: Google OAuth credentials are available in Bitwarden Secrets
+  Manager project `fishjump` as `CHECKHEN_GOOGLE_CLIENT_ID` and
+  `CHECKHEN_GOOGLE_CLIENT_SECRET`. Use `~/bin/agent-credential run --project
+  fishjump -- COMMAND` for build and test commands. Never print credentials,
+  pass them as command arguments, or write them to tracked files. The app reads
+  its own ignored environment file. Use Let's Encrypt DNS-01 for TLS.
+- The Google Web application client uses origin `https://checkhen.rfkill.dev`,
+  callback `https://checkhen.rfkill.dev/api/auth/callback/google`, and scopes
+  `openid`, `email`, and `profile`. Only `bu.edu` accounts may sign in. BU's
+  Google flow redirects to BU single sign-on; capture the actual live redirect
+  chain on x1 and allow exactly those domains before sign-in.
+- 2026-10-03: Cloudflare hosts rfkill.dev. Use Certbot dns-cloudflare with the
+  Zone:DNS:Edit token restricted to rfkill.dev. Its source is now Bitwarden
+  Secrets Manager key `BUZZ_CLOUDFLARE_DNS_TOKEN`, accessed only through the
+  credential runner; the earlier local-token-file instruction is superseded.
 - 2026-10-03: Default AP subnet is 172.16.77.0/24; AP address is 172.16.77.1.
   Make both configurable. Refuse startup when the AP subnet overlaps an existing
   host route. Do not use campus 10.x, container pools 172.17.0.0/16 through
@@ -19,6 +29,13 @@ Branch: build/m0-m2. Scope: M0, M1, M2 only.
 - 2026-10-03: Operator approved assigning all existing sessions to one Imported
   course, preserving the original records.
 - Send decision requests to Telegram alerts as well as the build session.
+- 2026-10-03: Nimbus has no Wi-Fi radio. The operator runs checks requiring
+  root, the USB adapter, or real clients on x1 using exact checkout and test
+  commands supplied by the build agent. The build agent may use `ssh x1` for
+  checks that do not require root. M2 targets one
+  working adapter, a few real devices, and the simulated 150-client load test;
+  record hardware coverage gaps. Stop and consult the operator before building
+  around an incorrect brief requirement, unreasonable check, or simpler design.
 - 2026-10-03: Preserve existing test suites. If a change breaks a test, update
   it for the new design. Ask before deleting or replacing a suite. This rule
   is also in `OPS.md`.
@@ -104,12 +121,60 @@ the route contract suite exercises the real non-instructor 403 path.
 
 ## M2 — laptop network profile, class mode
 
-Not started. Portal binding, simulated uplink, 150-client latency, and physical
-adapter checks are pending. No adapter has been validated for 150 stations.
+Working draft in progress. Profile A uses native host scripts: the laptop's
+radio, NetworkManager, and nftables remain directly visible, and `class-mode.sh`
+starts and stops the app and network services together. The namespace check
+uses a signed test identity through the same DHCP-lease binding helper; live
+Google-to-BU sign-in is a separate browser check on x1. A namespace has no
+interactive institutional SSO browser. This is the simpler design permitted
+by the brief for the Linux laptop profile.
+
+| Acceptance check | Result |
+| --- | --- |
+| Captive portal signs a student in with Google and binds IP and MAC | PARTIAL: the Auth.js callback requires a verified `bu.edu` Workspace identity, and check-in calls a signed local helper that reads the DHCP lease, grants the IP/MAC pair, and appends the binding to the event log. Four OAuth-domain cases and four portal check-in cases pass; a fresh PostgreSQL migration and event-store integration test accept `DEVICE_BOUND`. Waiting for the live x1 Google→BU redirect trace, a real sign-in, and adapter/client check. |
+| Simulated clients sign in and use the uplink | WAITING FOR OPERATOR ROOT CHECK on x1: `network/laptop/test_namespace.py` covers DHCP address and route assignment, portal DNS, captive redirect, pre-auth block, signed test-identity IP/MAC bind, and post-bind uplink. Python syntax and three route-guard tests pass on Nimbus; the root namespace run cannot execute there. Procedure: `docs/operator-checks.md`. |
+| 150 concurrent socket clients, median chat latency < 1 second | PASS on Nimbus, isolated disposable Podman database and socket service: 150 connected, 150 received, 0 failures, 16.8 ms median from event-write start to socket notification, 5.3 ms event write. The isolated stack and volume were removed after the run. This measures socket fanout after one direct event-log write; it does not simulate 150 simultaneous chat submissions. |
+
+The default AP subnet is configurable and the start command checks every
+existing IPv4 host route for overlap before starting services. The class-mode
+script also runs that check before starting the app. Unit tests cover an
+overlapping route, a nonoverlapping VPN route, and reserved ranges. The live
+x1 route check is pending.
+Final local draft checks: 15 Jest suites and 129 tests pass; TypeScript,
+targeted ESLint and Prettier, Python compilation and route-guard tests, and
+`git diff --check` pass. The production app image builds. Targeted ESLint
+reports two expected `console` warnings in the load-test CLI and no errors.
+
+x1 inventory without root: Fedora Linux 44; built-in Wi-Fi uplink is present;
+Podman 5.8.7 with Compose, dnsmasq 2.92 with nftset support, nft, iw, ip,
+and dhclient are installed. Hostapd,
+nginx, Certbot, and the USB AP adapter are not yet present. `sudo -n` requires
+an operator password. The Bitwarden project and all three named keys were
+checked for access without printing values. No x1 root or hardware result has
+been reported yet.
+
+Hardware coverage still open: one AP-capable USB radio, a few real client
+devices, live Google/BU redirect hosts and locked pre-auth allowlist, restored
+network state after stop, and any 150-station radio-association capacity. The
+150-socket test does not establish that a single radio can host 150 stations.
+Profile A adapter choice and tested USB ID will be recorded after the x1 run.
+Independent Codex bulk review found a database trigger that rejected the new
+`DEVICE_BOUND` event. A forward migration now expands the trigger; all 17
+migrations applied to a fresh PostgreSQL database, and the event-store
+integration test appended the device event while preserving attendance and
+event-log immutability. The reviewer also identified the
+namespace test's manual DHCP address assignment; the test now requires DHCP to
+configure the address and default route itself. The reviewer confirmed that
+the load result is socket fanout coverage only, as stated in the table.
+Native macOS AP networking with Internet Sharing and `pf` is outside scope;
+no evidence establishes 150-client capacity for it. Windows Mobile Hotspot's
+brief-stated 8-client limit makes it unsuitable for the target.
 
 ## Resume
 
-M0 is committed (`86eabe9`); M1 is committed (`e7fdfab`). The operator was
-notified in the build session and Telegram alerts. The post-M1 test repair is
-complete; pause before M2 for further operator guidance. Docker acceptance
-remains deferred at the operator's request. Do not start M3.
+M0 is committed (`86eabe9`); M1 is committed (`e7fdfab`). The post-M1 test
+repair is committed (`51b78b4`). Continue M2 by reviewing and pushing the
+draft, then using the x1 checkout and operator root/hardware procedure in
+`docs/operator-checks.md`. Record each reported result here. Docker acceptance
+remains deferred at the operator's request.
+Do not start M3.

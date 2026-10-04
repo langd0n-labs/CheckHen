@@ -4,6 +4,7 @@ import { isInstructor, requireScope } from './request-scope';
 import { appendEvent, readState } from './event-store';
 import { generateUniqueAnonymousName } from './anonymousNames';
 import type { EventKind } from './events';
+import { bindDevice, PortalBindingError, revokeDevice } from './portal-binding';
 
 const writes = new Set(['check-in', 'check-out', 'toggle-vhr', 'send-chat', 'send-pace-signal',
   'ack-hand-raise', 'rate-hand-raise', 'reset-pace-signals', 'end-class-early']);
@@ -33,10 +34,20 @@ export function participationHandler(action: string, adminOnly = false) {
       return res.status(400).json({ message: 'Not currently checked in to this class' });
     }
     if (action === 'check-in') {
-      if (!checkIn?.isPresent) {
-        const anonymousName = checkIn?.anonymousName ??
-          generateUniqueAnonymousName(state.attendance.map(entry => entry.anonymousName));
-        await append('CHECK_IN', { anonymousName });
+      let binding = null;
+      try {
+        binding = await bindDevice(req, scope, user);
+        if (!checkIn?.isPresent) {
+          const anonymousName = checkIn?.anonymousName ??
+            generateUniqueAnonymousName(state.attendance.map(entry => entry.anonymousName));
+          await append('CHECK_IN', { anonymousName, ...(binding ? { deviceIp: binding.ip, deviceMac: binding.mac } : {}) });
+        } else if (binding) {
+          await append('DEVICE_BOUND', { deviceIp: binding.ip, deviceMac: binding.mac });
+        }
+      } catch (error) {
+        if (binding) await revokeDevice(binding, scope, user);
+        if (error instanceof PortalBindingError) return res.status(error.status).json({ message: error.message });
+        throw error;
       }
       return res.json({ message: 'Checked in' });
     }

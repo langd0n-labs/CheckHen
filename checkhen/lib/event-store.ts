@@ -4,7 +4,7 @@ import { EventKind, EventScope, ParticipationEvent, foldEvents } from './events'
 
 const kinds: EventKind[] = [
   'CHECK_IN', 'CHECK_OUT', 'HAND_RAISED', 'HAND_LOWERED', 'HAND_ACKNOWLEDGED',
-  'HAND_RATED', 'PACE_SIGNAL', 'PACE_RESET', 'CHAT_MESSAGE', 'SESSION_ENDED', 'UNDO',
+  'HAND_RATED', 'PACE_SIGNAL', 'PACE_RESET', 'CHAT_MESSAGE', 'SESSION_ENDED', 'DEVICE_BOUND', 'UNDO',
 ];
 type AppendInput = EventScope & {
   actorId: string;
@@ -22,6 +22,7 @@ export function validatePayload(kind: EventKind, payload: Record<string, unknown
     }
   };
   if (kind === 'CHECK_IN') requiredString('anonymousName');
+  if (kind === 'DEVICE_BOUND') { requiredString('deviceIp'); requiredString('deviceMac'); }
   if (kind === 'CHAT_MESSAGE') { requiredString('message'); requiredString('anonymousName'); }
   if (['HAND_LOWERED', 'HAND_ACKNOWLEDGED', 'HAND_RATED'].includes(kind)) requiredString('handRaiseId');
   if (kind === 'HAND_RATED' && typeof payload.hasValue !== 'boolean') throw new Error('Invalid rating');

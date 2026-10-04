@@ -12,6 +12,7 @@ if not env.exists():
     text = (root / ".env.example").read_text()
     text = text.replace("POSTGRES_PASSWORD=\n", f"POSTGRES_PASSWORD={secrets.token_hex(24)}\n")
     text = text.replace("AUTH_SECRET=\n", f"AUTH_SECRET={secrets.token_hex(32)}\n")
+    text = text.replace("PORTAL_CONTROL_SECRET=\n", f"PORTAL_CONTROL_SECRET={secrets.token_hex(32)}\n")
     fd = os.open(env, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w") as file:
         file.write(text)

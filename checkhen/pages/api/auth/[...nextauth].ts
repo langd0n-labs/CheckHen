@@ -8,21 +8,32 @@ export const authOptions = {
       clientId: process.env.AUTH_GOOGLE_ID || '',
       clientSecret: process.env.AUTH_GOOGLE_SECRET || '',
       authorization: {
-        params: { prompt: 'select_account' },
+        params: {
+          prompt: 'select_account',
+          scope: 'openid email profile',
+          hd: process.env.NEXT_PUBLIC_EMAIL_DOMAIN || 'bu.edu',
+        },
       },
     }),
   ],
   callbacks: {
-    async signIn({ user }: any) {
-      if (!user.email) return false;
-      // Allow BU domain
-      const allowedDomain = `@${process.env.NEXT_PUBLIC_EMAIL_DOMAIN}`;
-      const testEmails = process.env.ALLOWED_TEST_EMAILS?.split(',').map((e) => e.trim()) || [];
-      const allowed = user.email.endsWith(allowedDomain) || testEmails.includes(user.email);
-      if (!allowed) return false;
+    async signIn({ user, profile }: any) {
+      if (!user.email) {
+        return false;
+      }
+      const domain = (process.env.NEXT_PUBLIC_EMAIL_DOMAIN || 'bu.edu').toLowerCase();
+      const allowed =
+        user.email.toLowerCase().endsWith(`@${domain}`) &&
+        profile?.email_verified === true &&
+        profile?.hd?.toLowerCase() === domain;
+      if (!allowed) {
+        return false;
+      }
 
-      const adminEmails = process.env.ADMIN_EMAILS?.split(',')
-        .map((e) => `${e.trim()}@${process.env.NEXT_PUBLIC_EMAIL_DOMAIN}`) || [];
+      const adminEmails =
+        process.env.ADMIN_EMAILS?.split(',').map(
+          (e) => `${e.trim()}@${process.env.NEXT_PUBLIC_EMAIL_DOMAIN}`
+        ) || [];
 
       // On first sign-in seed profile picture from Google; on subsequent sign-ins preserve any custom upload
       await prisma.user.upsert({
@@ -39,8 +50,10 @@ export const authOptions = {
     async jwt({ token, user }: any) {
       // Embed isAdmin into the JWT at sign-in so it's available on every request
       if (user?.email) {
-        const adminEmails = process.env.ADMIN_EMAILS?.split(',')
-          .map((e) => `${e.trim()}@${process.env.NEXT_PUBLIC_EMAIL_DOMAIN}`) || [];
+        const adminEmails =
+          process.env.ADMIN_EMAILS?.split(',').map(
+            (e) => `${e.trim()}@${process.env.NEXT_PUBLIC_EMAIL_DOMAIN}`
+          ) || [];
         token.isAdmin = adminEmails.includes(user.email);
       }
       return token;
@@ -48,7 +61,7 @@ export const authOptions = {
     async session({ session, token }: any) {
       if (session.user && token.email) {
         session.user.email = token.email as string;
-        session.user.isAdmin = token.isAdmin as boolean ?? false;
+        session.user.isAdmin = (token.isAdmin as boolean) ?? false;
       }
       return session;
     },

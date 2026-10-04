@@ -1,18 +1,5 @@
-CREATE OR REPLACE FUNCTION checkhen_event_immutable() RETURNS trigger
-LANGUAGE plpgsql AS $$
-BEGIN
-  RAISE EXCEPTION 'Participation events are append-only' USING ERRCODE = '23514';
-END;
-$$;
-
-CREATE TRIGGER participation_event_no_update_delete
-BEFORE UPDATE OR DELETE ON "ParticipationEvent"
-FOR EACH ROW EXECUTE FUNCTION checkhen_event_immutable();
-
-CREATE TRIGGER participation_event_no_truncate
-BEFORE TRUNCATE ON "ParticipationEvent"
-FOR EACH STATEMENT EXECUTE FUNCTION checkhen_event_immutable();
-
+-- Expand the event-kind guard for device binding after the M1 migration.
+-- Replace the trigger function in place; the existing triggers continue to use it.
 CREATE OR REPLACE FUNCTION checkhen_event_order() RETURNS trigger
 LANGUAGE plpgsql AS $$
 DECLARE target "ParticipationEvent";
@@ -34,7 +21,3 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
-CREATE TRIGGER participation_event_order
-BEFORE INSERT ON "ParticipationEvent"
-FOR EACH ROW EXECUTE FUNCTION checkhen_event_order();
