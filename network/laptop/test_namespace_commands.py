@@ -7,6 +7,12 @@ import test_namespace
 
 
 class NamespaceCommandTests(unittest.TestCase):
+    def test_ipv6_forward_probe_uses_a_port_outside_the_captive_redirect(self):
+        self.assertEqual(test_namespace.ipv6_forward_probe("2606:4700:4700::1111"),
+                         "http://[2606:4700:4700::1111]:8080")
+        self.assertEqual(test_namespace.ipv6_forward_probe("fd00::1"),
+                         "http://[fd00::1]:8080")
+
     def test_accept_ra_uses_a_shell_available_in_the_network_image(self):
         with patch.object(test_namespace, "namespace") as namespace:
             test_namespace.set_accept_ra("chpeer0", "checkhen-m2")

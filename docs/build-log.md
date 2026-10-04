@@ -438,3 +438,10 @@ uplink, plus a route for the private IPv6 block check. It removes them during
 cleanup and prints client routes, addresses, curl errors, and forward counters
 if an IPv6 counter check fails. The failed run did not capture client routes,
 so its exact cause remains unconfirmed pending the operator rerun.
+
+The x1 run at `5514d6e` showed that both clients had IPv6 routes, but the
+unbound port-80 probe returned successfully with all IPv6 forward counters
+unchanged. The firewall redirects port 80 to the local captive portal in
+prerouting. Forward-chain probes now use port 8080; a separate unbound IPv6
+port-80 check requires the portal redirect. The IPv4 private-address counter
+probe also uses port 8080. The operator rerun remains pending.

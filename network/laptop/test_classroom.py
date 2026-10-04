@@ -63,6 +63,7 @@ class RouteGuardTests(unittest.TestCase):
             for private in ("::ffff:0:0/96", "64:ff9b::/96", "2001::/32", "2002::/16"):
                 self.assertIn(private, rules)
             self.assertIn('iifname "chbr0" ip6 daddr @private6 counter drop', rules)
+            self.assertIn('iifname "chbr0" tcp dport 80 dnat to fd9b:2f69:8c44::1', rules)
             self.assertIn('iifname "chbr0" drop', rules)
             self.assertIn('iifname "chbr0" ip daddr @private4 counter drop', rules)
             self.assertIn("enable-ra", (Path(directory) / "dnsmasq.conf").read_text())

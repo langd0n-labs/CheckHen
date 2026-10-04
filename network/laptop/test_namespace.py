@@ -68,6 +68,11 @@ def ipv6_counter_failure(label: str, name: str, curl: subprocess.CompletedProces
         f"ip6 forward counters: {counters.stdout or counters.stderr}")
 
 
+def ipv6_forward_probe(target: str) -> str:
+    # Port 80 is redirected to the local captive portal before the forward hook.
+    return f"http://[{target}]:8080"
+
+
 def drop_count(family: str, table: str, set_name: str) -> int:
     rules = json.loads(run("nft", "-j", "list", "chain", family, table, "forward").stdout)["nftables"]
     for item in rules:
@@ -247,6 +252,12 @@ def main() -> None:
                              "-o", "/dev/null", "-w", "%{http_code}", "http://example.com")
         if redirect.stdout != "302":
             raise RuntimeError("An unauthenticated HTTP request did not reach the captive portal")
+        redirect6 = namespace("curl", "-6", "--noproxy", "*", "--max-time", "8", "-ksS",
+                              "-o", "/dev/null", "-w", "%{http_code}",
+                              f"http://[{test_ipv6_target}]", check=False)
+        if redirect6.returncode != 0 or redirect6.stdout != "302":
+            raise RuntimeError(f"An unauthenticated IPv6 HTTP request did not reach the captive portal: "
+                               f"curl exit {redirect6.returncode}, status {redirect6.stdout}, error {redirect6.stderr}")
         blocked = namespace("curl", "-4", "--noproxy", "*", "--max-time", "4", "-fsSI",
                             "https://example.com", check=False)
         if blocked.returncode == 0:
@@ -262,7 +273,7 @@ def main() -> None:
         for name in (NAMESPACE, SECOND_NAMESPACE):
             before6 = ipv6_block_count()
             blocked6 = namespace("curl", "-6", "--noproxy", "*", "--max-time", "3", "-fsSI",
-                                 f"http://[{test_ipv6_target}]", name=name, check=False)
+                                 ipv6_forward_probe(test_ipv6_target), name=name, check=False)
             if blocked6.returncode == 0 or ipv6_block_count() <= before6:
                 raise ipv6_counter_failure("The IPv6 forward block did not stop the unbound client", name, blocked6)
         for label, candidate_ip, timestamp, valid_signature in (
@@ -301,7 +312,7 @@ def main() -> None:
         for family, name in (("-4", SECOND_NAMESPACE), ("-6", SECOND_NAMESPACE)):
             before6 = ipv6_block_count() if family == "-6" else None
             blocked_second = namespace("curl", family, "--noproxy", "*", "--max-time", "3", "-fsSI",
-                                       f"http://[{test_ipv6_target}]" if family == "-6" else
+                                       ipv6_forward_probe(test_ipv6_target) if family == "-6" else
                                        "https://example.com", name=name, check=False)
             if blocked_second.returncode == 0:
                 raise RuntimeError("The unbound client gained uplink while another client was bound")
@@ -309,7 +320,7 @@ def main() -> None:
                 raise ipv6_counter_failure("The IPv6 forward block did not stop the unbound client", name, blocked_second)
         private_before = drop_count("ip", "checkhen", "private4")
         private = namespace("curl", "-4", "--noproxy", "*", "--max-time", "3", "-fsSI",
-                            "http://192.168.1.1", check=False)
+                            "http://192.168.1.1:8080", check=False)
         if private.returncode == 0 or drop_count("ip", "checkhen", "private4") <= private_before:
             raise RuntimeError("An authorized client bypassed the private IPv4 block")
         namespace("ip", "link", "set", CLIENT_IF, "down")
@@ -334,7 +345,7 @@ def main() -> None:
             raise RuntimeError("The IPv6-only client's MAC was not authorized")
         authorized6_before = drop_count("ip6", "checkhen6", "authorized6")
         accepted6 = namespace("curl", "-6", "--noproxy", "*", "--max-time", "3", "-fsSI",
-                              f"http://[{test_ipv6_target}]", name=SECOND_NAMESPACE, check=False)
+                              ipv6_forward_probe(test_ipv6_target), name=SECOND_NAMESPACE, check=False)
         if drop_count("ip6", "checkhen6", "authorized6") <= authorized6_before:
             raise ipv6_counter_failure("The IPv6 forward accept rule did not match the bound client",
                                        SECOND_NAMESPACE, accepted6)
@@ -369,7 +380,7 @@ def main() -> None:
             raise RuntimeError("IPv6-only client still has an IPv4 address")
         private6_before = drop_count("ip6", "checkhen6", "private6")
         private6 = namespace("curl", "-6", "--noproxy", "*", "--max-time", "3", "-fsSI",
-                             "http://[fd00::1]", name=SECOND_NAMESPACE, check=False)
+                             ipv6_forward_probe(private6_target), name=SECOND_NAMESPACE, check=False)
         if private6.returncode == 0 or drop_count("ip6", "checkhen6", "private6") <= private6_before:
             raise ipv6_counter_failure("An authorized client bypassed the private IPv6 block",
                                        SECOND_NAMESPACE, private6)
@@ -405,7 +416,7 @@ def main() -> None:
             raise RuntimeError("A revoked client retained IPv6 authorization")
         blocked6_before = ipv6_block_count()
         revoked6 = namespace("curl", "-6", "--noproxy", "*", "--max-time", "3", "-fsSI",
-                             f"http://[{test_ipv6_target}]", check=False)
+                             ipv6_forward_probe(test_ipv6_target), check=False)
         if ipv6_block_count() <= blocked6_before:
             raise ipv6_counter_failure("The IPv6 forward block did not stop the revoked client",
                                        NAMESPACE, revoked6)
