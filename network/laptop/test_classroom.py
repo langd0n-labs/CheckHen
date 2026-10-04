@@ -1,6 +1,7 @@
 """Checks for the route guard that runs before any host network change."""
 import ipaddress
 import json
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -28,6 +29,16 @@ class RouteGuardTests(unittest.TestCase):
                                 for block in classroom.RESERVED))
         self.assertFalse(any(ipaddress.IPv4Network("172.16.77.0/24").overlaps(block)
                              for block in classroom.RESERVED))
+
+    def test_preflight_refuses_conflicting_route(self):
+        with (patch.object(sys, "argv", ["classroom.py", "check"]),
+              patch.object(classroom, "read_env", return_value={}),
+              patch.object(classroom, "validate", return_value=(
+                  ipaddress.IPv4Network("172.16.77.0/24"),
+                  ipaddress.IPv4Address("172.16.77.1"))),
+              patch.object(classroom, "conflicting_routes", return_value=["172.16.77.0/24 on wg0"])):
+            with self.assertRaisesRegex(SystemExit, "overlaps an existing host route"):
+                classroom.main()
 
 
 if __name__ == "__main__":

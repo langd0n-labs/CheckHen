@@ -51,5 +51,59 @@ services:
     depends_on:
       app:
         condition: service_healthy
+  laptop-network:
+    profiles: [laptop]
+    image: localhost/checkhen-laptop-network:latest
+    build:
+      context: .
+      dockerfile: network/laptop/Containerfile
+    privileged: true
+    network_mode: host
+    environment:
+      DBUS_SYSTEM_BUS_ADDRESS: unix:path=/run/dbus/system_bus_socket
+      AP_INTERFACE: ${AP_INTERFACE:-}
+      UPLINK_INTERFACE: ${UPLINK_INTERFACE:-}
+      AP_SUBNET: ${AP_SUBNET:-172.16.77.0/24}
+      AP_ADDRESS: ${AP_ADDRESS:-172.16.77.1}
+      AP_HOSTNAME: ${AP_HOSTNAME:-checkhen.rfkill.dev}
+      AP_SSID: ${AP_SSID:-CheckHen}
+      AP_PASSPHRASE: ${AP_PASSPHRASE:-}
+      AP_COUNTRY_CODE: ${AP_COUNTRY_CODE:-US}
+      AP_HW_MODE: ${AP_HW_MODE:-g}
+      AP_CHANNEL: ${AP_CHANNEL:-6}
+      PREAUTH_DOMAINS: ${PREAUTH_DOMAINS:-}
+      PREAUTH_DISCOVERY: ${PREAUTH_DISCOVERY:-0}
+      PORTAL_CONTROL_SECRET: ${PORTAL_CONTROL_SECRET:-}
+      APP_BIND_ADDRESS: ${APP_BIND_ADDRESS:-127.0.0.1}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+    volumes:
+      - ./.build-cache/laptop-state:/run/checkhen:z
+      - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket
+      - /sys:/sys:ro
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import os,pathlib,socket; assert pathlib.Path('/run/checkhen/state.json').is_file(); s=socket.create_connection((os.environ['AP_ADDRESS'],7878),2); s.close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    stop_grace_period: 30s
+  proxy:
+    profiles: [laptop]
+    build:
+      context: .
+      dockerfile: network/proxy/Containerfile
+    network_mode: host
+    restart: on-failure
+    environment:
+      AP_ADDRESS: ${AP_ADDRESS:-172.16.77.1}
+      AP_HOSTNAME: ${AP_HOSTNAME:-checkhen.rfkill.dev}
+    volumes:
+      - ./.build-cache/letsencrypt/config:/certs:ro,z
+    depends_on:
+      laptop-network:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+      socket:
+        condition: service_started
 volumes:
   pgdata:

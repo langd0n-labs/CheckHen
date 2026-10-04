@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Start and stop the Linux laptop AP without changing the uplink configuration."""
+"""Manage the host AP from the privileged, host-network Podman container."""
 import ipaddress
 import json
 import os
@@ -13,7 +13,7 @@ import subprocess
 import sys
 import time
 
-from settings import ROOT, read_env
+from settings import read_env
 
 
 STATE = Path("/run/checkhen")
@@ -59,16 +59,12 @@ def validate(settings: dict[str, str]) -> tuple[ipaddress.IPv4Network, ipaddress
     hostname = settings.get("AP_HOSTNAME", "checkhen.rfkill.dev")
     if settings.get("NEXTAUTH_URL") != f"https://{hostname}":
         raise ValueError("NEXTAUTH_URL must use the AP HTTPS hostname")
-    for name in ("CERT_FULLCHAIN", "CERT_PRIVKEY"):
-        path = Path(settings.get(name, ""))
-        if not path.is_file() or not path.is_absolute() or not re.fullmatch(r"[\w./-]+", str(path)):
-            raise ValueError(f"Set {name} to an existing absolute certificate path")
-    programs = ["ip", "nft", "dnsmasq", "nginx"]
+    programs = ["ip", "nft", "dnsmasq"]
     if settings.get("AP_TEST_MODE") != "1":
         programs.extend(["hostapd", "nmcli"])
     for program in programs:
         if not shutil.which(program):
-            raise ValueError(f"Install {program} before starting class mode")
+            raise ValueError(f"Network image is missing {program}")
     return subnet, address
 
 
@@ -161,37 +157,6 @@ wpa_passphrase={settings["AP_PASSPHRASE"]}
     dns.extend(f"dhcp-range={first},{last},12h" for first, last in ranges)
     dns.extend(f"nftset=/{name}/4#ip#checkhen#preauth4" for name in domain_names)
     (STATE / "dnsmasq.conf").write_text("\n".join(dns) + "\n")
-    host = settings.get("AP_HOSTNAME", "checkhen.rfkill.dev")
-    (STATE / "nginx.conf").write_text(f'''worker_processes 1;
-pid {STATE / 'nginx.pid'};
-error_log {STATE / 'nginx-error.log'};
-events {{ worker_connections 1024; }}
-http {{
-  access_log {STATE / 'nginx-access.log'};
-  server {{ listen {ip}:80; server_name _; return 302 https://{host}/join; }}
-  server {{
-    listen {ip}:443 ssl;
-    server_name {host};
-    ssl_certificate {settings['CERT_FULLCHAIN']};
-    ssl_certificate_key {settings['CERT_PRIVKEY']};
-    location /socket.io/ {{
-      proxy_pass http://127.0.0.1:6060;
-      proxy_http_version 1.1;
-      proxy_set_header Upgrade $http_upgrade;
-      proxy_set_header Connection "upgrade";
-      proxy_set_header Host $host;
-      proxy_read_timeout 120s;
-    }}
-    location / {{
-      proxy_pass http://127.0.0.1:3000;
-      proxy_set_header Host $host;
-      proxy_set_header X-Real-IP $remote_addr;
-      proxy_set_header X-Forwarded-For $remote_addr;
-      proxy_set_header X-Forwarded-Proto https;
-    }}
-  }}
-}}
-''')
 
 
 def save_state(state: dict) -> None:
@@ -209,9 +174,9 @@ def spawn(state: dict, name: str, args: list[str]) -> None:
         raise RuntimeError(f"{name} failed to start; inspect {STATE / (name + '.log')}")
 
 
-def start(config_path: Path = ROOT / ".env") -> None:
+def start(config_path: Path | None = None) -> None:
     if os.geteuid() != 0:
-        raise RuntimeError("Start the network layer with sudo")
+        raise RuntimeError("Start the network layer in a rootful container")
     if STATE_FILE.exists():
         raise RuntimeError("Class mode already started; stop it before restarting")
     settings = read_env(config_path)
@@ -245,7 +210,8 @@ def start(config_path: Path = ROOT / ".env") -> None:
              "link_up": "UP" in json.loads(run("ip", "-j", "link", "show", "dev",
                                                  settings["AP_INTERFACE"]).stdout)[0]["flags"],
              "forward": Path("/proc/sys/net/ipv4/ip_forward").read_text().strip(),
-             "processes": {}, "firewall": False, "address_added": False,
+             "processes": {}, "pid_namespace": os.stat("/proc/self/ns/pid").st_ino,
+             "firewall": False, "address_added": False,
              "firewalld": firewalld, "old_zone": old_zone, "zone_changed": False}
     save_state(state)
     try:
@@ -263,7 +229,6 @@ def start(config_path: Path = ROOT / ".env") -> None:
             state["zone_changed"] = True
             save_state(state)
         Path("/proc/sys/net/ipv4/ip_forward").write_text("1\n")
-        run("nginx", "-t", "-c", str(STATE / "nginx.conf"), "-p", str(STATE))
         spawn(state, "dnsmasq", ["dnsmasq", "--no-daemon", f"--conf-file={STATE / 'dnsmasq.conf'}"])
         seeded: set[str] = set()
         for name in domains(settings):
@@ -273,10 +238,10 @@ def start(config_path: Path = ROOT / ".env") -> None:
                     if value not in seeded:
                         run("nft", "add", "element", "ip", "checkhen", "preauth4", "{", value, "}")
                         seeded.add(value)
-        spawn(state, "nginx", ["nginx", "-c", str(STATE / "nginx.conf"), "-p", str(STATE),
-                                "-g", "daemon off;"])
-        spawn(state, "agent", [sys.executable, str(Path(__file__).with_name("agent.py")),
-                                str(config_path)])
+        agent_args = [sys.executable, str(Path(__file__).with_name("agent.py"))]
+        if config_path:
+            agent_args.append(str(config_path))
+        spawn(state, "agent", agent_args)
         if not test_mode:
             spawn(state, "hostapd", ["hostapd", str(STATE / "hostapd.conf")])
         print(f"Class mode started on {state['ap']} ({address}/{subnet.prefixlen})")
@@ -287,7 +252,7 @@ def start(config_path: Path = ROOT / ".env") -> None:
 
 def stop() -> None:
     if os.geteuid() != 0:
-        raise RuntimeError("Stop the network layer with sudo")
+        raise RuntimeError("Stop the network layer in a rootful container")
     if not STATE_FILE.exists():
         print("Class mode is not running")
         return
@@ -298,7 +263,10 @@ def stop() -> None:
             run(*command)
         except (OSError, subprocess.CalledProcessError):
             errors.append(label)
-    for name in ("hostapd", "agent", "nginx", "dnsmasq"):
+    same_pid_namespace = state.get("pid_namespace") == os.stat("/proc/self/ns/pid").st_ino
+    for name in ("hostapd", "agent", "dnsmasq"):
+        if not same_pid_namespace:
+            break
         pid = state["processes"].get(name)
         if not pid:
             continue
@@ -310,6 +278,8 @@ def stop() -> None:
                 pass
     time.sleep(1)
     for name, pid in state["processes"].items():
+        if not same_pid_namespace:
+            break
         command_line = Path(f"/proc/{pid}/cmdline")
         if command_line.exists() and name.encode() in command_line.read_bytes():
             try:
@@ -340,18 +310,43 @@ def stop() -> None:
     print("Class mode stopped; the saved host network settings were restored")
 
 
+def serve(config_path: Path | None = None) -> None:
+    stopping = False
+
+    def request_stop(_number: int, _frame: object) -> None:
+        nonlocal stopping
+        stopping = True
+
+    signal.signal(signal.SIGTERM, request_stop)
+    signal.signal(signal.SIGINT, request_stop)
+    start(config_path)
+    try:
+        while not stopping:
+            for name, pid in json.loads(STATE_FILE.read_text())["processes"].items():
+                if not Path(f"/proc/{pid}").exists():
+                    raise RuntimeError(f"{name} exited; stopping class mode")
+            time.sleep(1)
+    finally:
+        stop()
+
+
 def main() -> None:
-    if len(sys.argv) not in {2, 3} or sys.argv[1] not in {"start", "stop", "check"}:
-        raise SystemExit("Usage: sudo python3 network/laptop/classroom.py start|stop|check [config-file]")
-    config_path = Path(sys.argv[2]) if len(sys.argv) == 3 else ROOT / ".env"
+    if len(sys.argv) not in {2, 3} or sys.argv[1] not in {"start", "stop", "check", "serve"}:
+        raise SystemExit("Usage: classroom.py start|stop|check|serve [config-file]")
+    config_path = Path(sys.argv[2]) if len(sys.argv) == 3 else None
     try:
         if sys.argv[1] == "start":
             start(config_path)
+        elif sys.argv[1] == "serve":
+            serve(config_path)
         elif sys.argv[1] == "stop":
             stop()
         else:
             subnet, address = validate(read_env(config_path))
-            print(f"AP {address}/{subnet.prefixlen}; conflicting routes: {conflicting_routes(subnet)}")
+            conflicts = conflicting_routes(subnet)
+            if conflicts:
+                raise RuntimeError("AP subnet overlaps an existing host route: " + ", ".join(conflicts))
+            print(f"AP {address}/{subnet.prefixlen}; no conflicting host routes")
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
         raise SystemExit(f"CheckHen network: {error}") from error
 

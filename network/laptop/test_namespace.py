@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Exercise DHCP, captive redirect, lease binding, and NAT with one namespace."""
+"""Exercise DHCP, the shared proxy template, lease binding, and NAT."""
 import hashlib
 import hmac
 import ipaddress
 import json
 import os
 from pathlib import Path
+import socket
 import subprocess
 import sys
 import tempfile
@@ -52,6 +53,7 @@ def main() -> None:
     started = False
     created_namespace = False
     created_veth = False
+    proxy = None
     try:
         run("ip", "netns", "add", NAMESPACE)
         created_namespace = True
@@ -70,6 +72,27 @@ def main() -> None:
                 file.write(f"{key}={value}\n")
         run(sys.executable, str(ROOT / "network/laptop/classroom.py"), "start", str(config_path))
         started = True
+        template = (ROOT / "network/proxy/default.conf.template").read_text()
+        rendered = subprocess.run(["envsubst", "${AP_ADDRESS} ${AP_HOSTNAME}"],
+                                  input=template, text=True, capture_output=True, check=True,
+                                  env={**os.environ, "AP_ADDRESS": address,
+                                       "AP_HOSTNAME": settings.get("AP_HOSTNAME", "checkhen.rfkill.dev")}).stdout
+        server_config = Path("/tmp/checkhen-test-proxy-server.conf")
+        main_config = Path("/tmp/checkhen-test-proxy.conf")
+        server_config.write_text(rendered)
+        main_config.write_text(f"pid /tmp/checkhen-test-nginx.pid; error_log /tmp/checkhen-test-nginx.log; "
+                               f"events {{}} http {{ include {server_config}; }}\n")
+        run("nginx", "-t", "-c", str(main_config))
+        proxy = subprocess.Popen(["nginx", "-c", str(main_config), "-g", "daemon off;"],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        for _ in range(20):
+            try:
+                with socket.create_connection((address, 80), timeout=1):
+                    break
+            except OSError:
+                time.sleep(0.1)
+        else:
+            raise RuntimeError("Test proxy did not bind AP HTTP port")
         lease_file = "/tmp/checkhen-m2-dhclient.leases"
         pid_file = "/tmp/checkhen-m2-dhclient.pid"
         namespace("dhclient", "-4", "-1", "-v", "-lf", lease_file,
@@ -116,6 +139,15 @@ def main() -> None:
                   "https://example.com")
         print("PASS: DHCP lease, captive redirect, pre-sign-in block, signed IP/MAC bind, and uplink access")
     finally:
+        if proxy:
+            proxy.terminate()
+            try:
+                proxy.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proxy.kill()
+                proxy.wait(timeout=5)
+        for name in ("/tmp/checkhen-test-proxy.conf", "/tmp/checkhen-test-proxy-server.conf"):
+            Path(name).unlink(missing_ok=True)
         if created_namespace:
             namespace("dhclient", "-r", "-pf",
                       "/tmp/checkhen-m2-dhclient.pid", CLIENT_IF, check=False)

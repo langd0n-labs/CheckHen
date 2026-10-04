@@ -70,12 +70,12 @@ git checkout build/m0-m2
 git pull --ff-only origin build/m0-m2
 ```
 
-Install the two missing x1 services and make a local Certbot environment:
+The host needs Podman and its Compose provider. Network daemons, Nginx,
+Certbot, and setup utilities run in containers. In the existing x1 checkout,
+stop the earlier rootless app stack before switching to rootful class mode:
 
 ```sh
-sudo dnf install -y hostapd nginx dhcp-client
-python3 -m venv .build-cache/certbot
-.build-cache/certbot/bin/pip install certbot certbot-dns-cloudflare
+podman compose down
 ```
 
 Populate the ignored application environment from Bitwarden Secrets Manager.
@@ -85,24 +85,25 @@ file is removed when the command ends. Public A/AAAA records are not required
 for this test: AP DNS resolves `checkhen.rfkill.dev` to the local AP address.
 
 ```sh
-~/bin/agent-credential run --project fishjump -- python3 scripts/configure-credentials.py
-~/bin/agent-credential run --project fishjump -- python3 scripts/issue-cert.py
-python3 scripts/configure-admin.py
+bash scripts/container-tools.sh credentials
+bash scripts/container-tools.sh certificate
+bash scripts/container-tools.sh admin
 ```
 
 For the automated namespace check, the USB adapter is not needed. Enter the
 instructor username locally when prompted. This test creates a temporary veth
-pair and namespace, uses dnsmasq for DHCP, and restores host settings on exit:
+pair and namespace, uses the network container for DHCP and firewall rules,
+checks the same Nginx template as the app proxy, and restores host settings:
 
 ```sh
-sudo python3 network/laptop/test_namespace.py
+bash scripts/class-mode.sh namespace-test
 ```
 
 For the adapter check, attach the USB radio and run:
 
 ```sh
-python3 scripts/configure-ap.py
-python3 scripts/configure-preauth.py discover
+bash scripts/container-tools.sh ap
+bash scripts/container-tools.sh preauth discover
 bash scripts/class-mode.sh check
 bash scripts/class-mode.sh start
 ```
@@ -139,7 +140,7 @@ cookies, authorization codes, or request headers. With no other client on the
 AP, compare those hosts with the DNS query hostnames:
 
 ```sh
-sudo python3 network/laptop/show-domains.py
+bash scripts/class-mode.sh domains
 ```
 
 Send the hostnames and the sign-in result to the build session. The build agent

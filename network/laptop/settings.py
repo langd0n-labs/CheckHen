@@ -1,11 +1,15 @@
-"""Read the ignored project environment file without executing shell code."""
+"""Read local settings for setup tools or the container environment."""
+import os
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def read_env(path: Path = ROOT / ".env") -> dict[str, str]:
+def read_env(path: Path | None = None) -> dict[str, str]:
+    if path is None and not (ROOT / ".env").exists():
+        return dict(os.environ)
+    path = path or ROOT / ".env"
     values: dict[str, str] = {}
     for line in path.read_text().splitlines():
         line = line.strip()

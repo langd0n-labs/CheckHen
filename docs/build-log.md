@@ -121,23 +121,26 @@ the route contract suite exercises the real non-instructor 403 path.
 
 ## M2 — laptop network profile, class mode
 
-Working draft in progress. Profile A uses native host scripts: the laptop's
-radio, NetworkManager, and nftables remain directly visible, and `class-mode.sh`
-starts and stops the app and network services together. The namespace check
-uses a signed test identity through the same DHCP-lease binding helper; live
-Google-to-BU sign-in is a separate browser check on x1. A namespace has no
-interactive institutional SSO browser. This is the simpler design permitted
-by the brief for the Linux laptop profile.
+Working draft in progress. At the operator's request, Profile A now packages
+the AP, DHCP, DNS, firewall rules, and signed binding helper in one privileged,
+host-network Podman service. Nginx is a separate host-network service in the
+same Compose stack as the app, socket, and database. Rootful Podman Compose
+starts and stops class mode; its preflight rejects an AP subnet overlapping an
+existing host route before services start. The host needs Podman and a Compose
+provider, not host installations of these daemons. The one-off namespace test
+runs from the network image and starts Nginx there only to exercise the shared
+proxy template with a simulated AP client. A namespace uses a signed test
+identity; live Google-to-BU sign-in still needs a browser on x1.
 
 | Acceptance check | Result |
 | --- | --- |
 | Captive portal signs a student in with Google and binds IP and MAC | PARTIAL: the Auth.js callback requires a verified `bu.edu` Workspace identity, and check-in calls a signed local helper that reads the DHCP lease, grants the IP/MAC pair, and appends the binding to the event log. Four OAuth-domain cases and four portal check-in cases pass; a fresh PostgreSQL migration and event-store integration test accept `DEVICE_BOUND`. Waiting for the live x1 Google→BU redirect trace, a real sign-in, and adapter/client check. |
-| Simulated clients sign in and use the uplink | WAITING FOR OPERATOR ROOT CHECK on x1: `network/laptop/test_namespace.py` covers DHCP address and route assignment, portal DNS, captive redirect, pre-auth block, signed test-identity IP/MAC bind, and post-bind uplink. Python syntax and three route-guard tests pass on Nimbus; the root namespace run cannot execute there. Procedure: `docs/operator-checks.md`. |
+| Simulated clients sign in and use the uplink | WAITING FOR ROOT CHECK on x1: `bash scripts/class-mode.sh namespace-test` runs `network/laptop/test_namespace.py` inside the privileged network image. It covers DHCP address and route assignment, portal DNS, the shared Nginx captive redirect, pre-auth block, signed test-identity IP/MAC bind, and post-bind uplink. Python syntax and three route-guard tests pass on Nimbus; the root namespace run requires x1. Procedure: `docs/operator-checks.md`. |
 | 150 concurrent socket clients, median chat latency < 1 second | PASS on Nimbus, isolated disposable Podman database and socket service: 150 connected, 150 received, 0 failures, 16.8 ms median from event-write start to socket notification, 5.3 ms event write. The isolated stack and volume were removed after the run. This measures socket fanout after one direct event-log write; it does not simulate 150 simultaneous chat submissions. |
 
 The default AP subnet is configurable and the start command checks every
 existing IPv4 host route for overlap before starting services. The class-mode
-script also runs that check before starting the app. Unit tests cover an
+script runs that check before starting the app. Unit tests cover an
 overlapping route, a nonoverlapping VPN route, and reserved ranges. The live
 x1 route check is pending.
 Final local draft checks: 15 Jest suites and 129 tests pass; TypeScript,
@@ -147,13 +150,13 @@ reports two expected `console` warnings in the load-test CLI and no errors.
 
 x1 inventory without root: Fedora Linux 44; built-in Wi-Fi uplink is present;
 Podman 5.8.7 with Compose, dnsmasq 2.92 with nftset support, nft, iw, ip,
-and dhclient are installed. System hostapd, nginx, and the USB AP adapter
-are not yet present. `sudo -n` requires an operator password. The Bitwarden
+and dhclient are installed. System hostapd and nginx are no longer required;
+the USB AP adapter is not yet present. `sudo -n` requires an operator password. The Bitwarden
 project and all three named keys were
 checked for access without printing values. No x1 root or hardware result has
 been reported yet.
 
-The pushed draft commit `3354298` was cloned on x1. A local Certbot venv was
+The pushed draft commit `3354298` was cloned on x1. Before the container revision, a local Certbot venv was
 installed, the ignored app `.env` received OAuth credentials through the
 Bitwarden runner, and Certbot successfully issued a DNS-01 certificate for
 `checkhen.rfkill.dev` (expiry 2027-01-02). No public A/AAAA record was needed;
@@ -165,6 +168,39 @@ untracked environment file, and x1 currently has no route overlapping
 172.16.77.0/24. The generated x1 dnsmasq configuration passes
 `dnsmasq --test` without root. The live start guard still needs the root run
 with an AP interface.
+
+Container revision checks on Nimbus: the AP, proxy, and setup/Certbot images
+build successfully. The AP image contains hostapd, dnsmasq, nftables,
+NetworkManager and firewalld clients, plus test-only Nginx; the production
+proxy has its own image and Compose service. Test-only Nginx preserves the
+captive-redirect check in the isolated namespace test. The Compose laptop
+profile parses successfully. The privileged AP service receives only AP,
+pre-auth, binding, and URL settings; it does not receive the OAuth or database
+secrets. One-off AP checks use a mode-600 temporary env file with the same
+selected settings, then remove it. The proxy template passes `nginx -t` in an
+isolated container network with a disposable certificate, and that proxy
+returns HTTP 302 for an HTTP request. Host-network binding to the configured
+AP address still needs x1. Four route-guard tests
+pass both on Nimbus and inside the AP image, including a preflight rejection
+of an overlapping host route. Python compilation, shell syntax, and
+`git diff --check` pass. No host-script network runtime remains;
+`scripts/start.py` is the older M0 app-only development entry point and is
+not used by class mode. The setup commands run from a tools image. Rootful
+Compose start/stop, network restoration, namespace test, and adapter path
+are awaiting x1 checks.
+
+On x1, `agent-credential run --project fishjump -- podman info` succeeds
+without displaying credential values. This checks that the containerized
+credential and certificate setup commands can launch Podman through the
+required Bitwarden runner; those setup commands themselves have not been
+rerun on x1 after the container revision.
+
+Independent Claude personal review found one startup blocker: the AP service
+healthcheck contacted loopback although the signed binding helper listens on
+`AP_ADDRESS`. The healthcheck now uses `AP_ADDRESS`. The reviewer also flagged
+unnecessary OAuth and database secrets in the privileged AP environment;
+the environment was narrowed to AP and binding settings during review. No
+other defect was reported. The rootful healthcheck still needs an x1 run.
 
 Hardware coverage still open: one AP-capable USB radio, a few real client
 devices, live Google/BU redirect hosts and locked pre-auth allowlist, restored
@@ -186,8 +222,8 @@ brief-stated 8-client limit makes it unsuitable for the target.
 ## Resume
 
 M0 is committed (`86eabe9`); M1 is committed (`e7fdfab`). The post-M1 test
-repair is committed (`51b78b4`). Continue M2 by reviewing and pushing the
-draft, then using the x1 checkout and operator root/hardware procedure in
-`docs/operator-checks.md`. Record each reported result here. Docker acceptance
-remains deferred at the operator's request.
+repair is committed (`51b78b4`). Next, pull `build/m0-m2` on x1 and run the
+rootful namespace, adapter, and real-client checks in `docs/operator-checks.md`.
+Record each result here. Docker acceptance remains deferred at the operator's
+request.
 Do not start M3.

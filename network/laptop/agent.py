@@ -123,7 +123,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    settings = read_env(Path(sys.argv[1]))
+    settings = read_env(Path(sys.argv[1]) if len(sys.argv) > 1 else None)
     Handler.secret = settings["PORTAL_CONTROL_SECRET"]
     Handler.subnet = ipaddress.IPv4Network(settings.get("AP_SUBNET", "172.16.77.0/24"))
     address = settings.get("AP_ADDRESS", "172.16.77.1")
