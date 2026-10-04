@@ -9,7 +9,7 @@ import type { DeviceBinding } from './portal-binding';
 import { instructorChat, studentChat } from './chat-view';
 
 const writes = new Set(['check-in', 're-bind', 'check-out', 'toggle-vhr', 'send-chat', 'send-pace-signal',
-  'ack-hand-raise', 'rate-hand-raise', 'reset-pace-signals', 'end-class-early', 'hide-chat', 'mute-student']);
+  'ack-hand-raise', 'rate-hand-raise', 'reset-pace-signals', 'end-class-early', 'hide-chat', 'unhide-chat', 'mute-student']);
 
 export function participationHandler(action: string, adminOnly = false) {
   return async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -104,6 +104,13 @@ export function participationHandler(action: string, adminOnly = false) {
         kind: 'CHAT_HIDDEN', payload: { messageId: target.id }, supersedesId: target.id });
       return res.json({ message: 'Message hidden' });
     }
+    if (action === 'unhide-chat') {
+      const target = state.instructorMessages.find(message => message.id === req.body?.messageId && message.hidden);
+      if (!target?.hideEventId) return res.status(404).json({ message: 'Hidden message not found' });
+      await appendEvent(prisma, { ...scope, actorId: user.id, userId: target.userId,
+        kind: 'UNDO', payload: {}, supersedesId: target.hideEventId });
+      return res.json({ message: 'Message restored' });
+    }
     if (action === 'mute-student') {
       const targetId = req.body?.userId;
       if (typeof targetId !== 'string' || !state.attendance.some(entry => entry.userId === targetId)) {
@@ -156,7 +163,8 @@ export function participationHandler(action: string, adminOnly = false) {
     }
     if (!adminOnly && !checkIn) return res.status(403).json({ message: 'Not checked in' });
     if (action === 'fetch-all-chat' || action === 'fetch-last-chat') {
-      const messages = state.messages.slice(action === 'fetch-last-chat' ? -1 : adminOnly ? -state.messages.length : -25);
+      const source = adminOnly ? (state.instructorMessages ?? state.messages) : state.messages;
+      const messages = source.slice(action === 'fetch-last-chat' ? -1 : adminOnly ? -source.length : -25);
       if (!adminOnly) return json(studentChat(messages, user.id));
       const users = await prisma.user.findMany({ where: { id: { in: messages.map(m => m.userId) } } });
       return json(instructorChat(messages, users));

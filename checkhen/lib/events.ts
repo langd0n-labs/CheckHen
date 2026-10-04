@@ -49,6 +49,7 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
   const hands = new Map<string, { id: string; userId: string; classId: string; createdAt: Date; isAcknowledged: boolean; isRated: boolean; hasValue: boolean }>();
   const pace = new Map<string, { id: string; userId: string; classId: string; signalType: string; createdAt: Date }>();
   const messages = new Map<string, { id: string; userId: string; classId: string; message: string; anonymousName: string; createdAt: Date }>();
+  const hiddenMessages = new Map<string, { id: string; userId: string; classId: string; message: string; anonymousName: string; createdAt: Date; hidden: true; hideEventId: string }>();
   const mutedUsers = new Set<string>();
   let endedAt: Date | null = null;
   const byId = new Map(events.filter(e => e.courseId === scope.courseId && e.classId === scope.classId).map(e => [e.id, e]));
@@ -95,6 +96,10 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
     } else if (event.kind === 'CHAT_MESSAGE' && userId) {
       messages.set(id, { id: event.id, userId, classId, createdAt, message: String(payload.message), anonymousName: String(payload.anonymousName) });
     } else if (event.kind === 'CHAT_HIDDEN') {
+      const target = byId.get(event.supersedesId!)!;
+      hiddenMessages.set(id, { id: target.id, userId: target.userId!, classId: target.classId,
+        message: String(target.payload.message), anonymousName: String(target.payload.anonymousName),
+        createdAt: target.createdAt, hidden: true, hideEventId: event.id });
       messages.delete(id);
     } else if (event.kind === 'STUDENT_MUTED' && userId) {
       mutedUsers.add(userId);
@@ -105,5 +110,7 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
       }
     }
   }
-  return { attendance: Array.from(attendance.values()), hands: Array.from(hands.values()), pace: Array.from(pace.values()), messages: Array.from(messages.values()), mutedUsers: Array.from(mutedUsers), endedAt };
+  const instructorMessages = [...Array.from(messages.values(), message => ({ ...message, hidden: false, hideEventId: null as string | null })),
+    ...Array.from(hiddenMessages.values())].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  return { attendance: Array.from(attendance.values()), hands: Array.from(hands.values()), pace: Array.from(pace.values()), messages: Array.from(messages.values()), instructorMessages, mutedUsers: Array.from(mutedUsers), endedAt };
 }

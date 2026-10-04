@@ -252,6 +252,39 @@ def spawn(state: dict, name: str, args: list[str]) -> None:
         raise RuntimeError(f"{name} failed to start; inspect {STATE / (name + '.log')}")
 
 
+def ra_route_interfaces(uplink: str) -> dict[str, str]:
+    routes = json.loads(run("ip", "-6", "-j", "route", "show", "table", "all", "default").stdout)
+    interfaces = {uplink} | {route["dev"] for route in routes
+                              if route.get("protocol") == "ra" and route.get("dev")}
+    return {interface: Path(f"/proc/sys/net/ipv6/conf/{interface}/accept_ra").read_text().strip()
+            for interface in sorted(interfaces)}
+
+
+def enable_ipv6_forwarding(state: dict) -> None:
+    for interface in state["accept_ra6"]:
+        Path(f"/proc/sys/net/ipv6/conf/{interface}/accept_ra").write_text("2\n")
+    Path("/proc/sys/net/ipv6/conf/all/forwarding").write_text("1\n")
+
+
+def restore_ipv6_forwarding(state: dict, errors: list[str]) -> None:
+    if "forward6" in state:
+        forward6 = [("all", state["forward6"]), *state.get("forward6_interfaces", {}).items()]
+    else:
+        forward6 = [(state["ap"], state["ap_forward6"]), (state["uplink"], state["uplink_forward6"])]
+    for interface, value in forward6:
+        try:
+            Path(f"/proc/sys/net/ipv6/conf/{interface}/forwarding").write_text(value + "\n")
+        except OSError:
+            errors.append(f"{interface} IPv6 forwarding")
+    accept_ra = (state["accept_ra6"] if "accept_ra6" in state else
+                 {state["uplink"]: state["uplink_accept_ra"]})
+    for interface, value in accept_ra.items():
+        try:
+            Path(f"/proc/sys/net/ipv6/conf/{interface}/accept_ra").write_text(value + "\n")
+        except OSError:
+            errors.append(f"{interface} IPv6 router advertisements")
+
+
 def start(config_path: Path | None = None) -> None:
     if os.geteuid() != 0:
         raise RuntimeError("Start the network layer in a rootful container")
@@ -299,9 +332,12 @@ def start(config_path: Path | None = None) -> None:
              "link_up": "UP" in json.loads(run("ip", "-j", "link", "show", "dev",
                                                  settings["AP_INTERFACE"]).stdout)[0]["flags"],
              "forward": Path("/proc/sys/net/ipv4/ip_forward").read_text().strip(),
-             "ap_forward6": Path(f"/proc/sys/net/ipv6/conf/{settings['AP_INTERFACE']}/forwarding").read_text().strip(),
-             "uplink_forward6": Path(f"/proc/sys/net/ipv6/conf/{settings['UPLINK_INTERFACE']}/forwarding").read_text().strip(),
-             "uplink_accept_ra": Path(f"/proc/sys/net/ipv6/conf/{settings['UPLINK_INTERFACE']}/accept_ra").read_text().strip(),
+             "forward6": Path("/proc/sys/net/ipv6/conf/all/forwarding").read_text().strip(),
+             "forward6_interfaces": {
+                 path.parent.name: path.read_text().strip()
+                 for path in Path("/proc/sys/net/ipv6/conf").glob("*/forwarding")
+                 if path.parent.name != "all"},
+             "accept_ra6": ra_route_interfaces(settings["UPLINK_INTERFACE"]),
              "processes": {}, "pid_namespace": os.stat("/proc/self/ns/pid").st_ino,
              "firewall": False, "address_added": False, "address6_added": False,
              "firewalld": firewalld, "old_zone": old_zone, "zone_changed": False}
@@ -324,9 +360,7 @@ def start(config_path: Path | None = None) -> None:
             state["zone_changed"] = True
             save_state(state)
         Path("/proc/sys/net/ipv4/ip_forward").write_text("1\n")
-        Path(f"/proc/sys/net/ipv6/conf/{state['uplink']}/accept_ra").write_text("2\n")
-        Path(f"/proc/sys/net/ipv6/conf/{state['ap']}/forwarding").write_text("1\n")
-        Path(f"/proc/sys/net/ipv6/conf/{state['uplink']}/forwarding").write_text("1\n")
+        enable_ipv6_forwarding(state)
         spawn(state, "dnsmasq", ["dnsmasq", "--no-daemon", f"--conf-file={STATE / 'dnsmasq.conf'}"])
         seed_preauth(settings)
         agent_args = [sys.executable, str(Path(__file__).with_name("agent.py"))]
@@ -395,17 +429,7 @@ def stop() -> None:
         Path("/proc/sys/net/ipv4/ip_forward").write_text(state["forward"] + "\n")
     except OSError:
         errors.append("IP forwarding")
-    forward6 = ([("all", state["forward6"])] if "forward6" in state else
-                [(state["ap"], state["ap_forward6"]), (state["uplink"], state["uplink_forward6"])])
-    for interface, value in forward6:
-        try:
-            Path(f"/proc/sys/net/ipv6/conf/{interface}/forwarding").write_text(value + "\n")
-        except OSError:
-            errors.append(f"{interface} IPv6 forwarding")
-    try:
-        Path(f"/proc/sys/net/ipv6/conf/{state['uplink']}/accept_ra").write_text(state["uplink_accept_ra"] + "\n")
-    except OSError:
-        errors.append("Uplink IPv6 router advertisements")
+    restore_ipv6_forwarding(state, errors)
     if not state.get("link_up"):
         restore("AP link", "ip", "link", "set", state["ap"], "down")
     if state.get("managed", "").lower() in {"yes", "true"}:

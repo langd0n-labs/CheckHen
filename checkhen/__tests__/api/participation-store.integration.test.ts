@@ -12,6 +12,8 @@ import reBind from '@/pages/api/student/re-bind';
 import checkOut from '@/pages/api/student/check-out';
 import sendChat from '@/pages/api/student/send-chat';
 import hideChat from '@/pages/api/admin/hide-chat';
+import unhideChat from '@/pages/api/admin/unhide-chat';
+import fetchAllChat from '@/pages/api/admin/fetch-all-chat';
 import muteStudent from '@/pages/api/admin/mute-student';
 
 jest.mock('@/lib/request-scope', () => ({ requireScope: jest.fn() }));
@@ -126,6 +128,18 @@ integration('route → store → attendance fold', () => {
     const hide = (await readEvents(prisma, scope)).find(event => event.kind === 'CHAT_HIDDEN')!;
     expect(hide.supersedesId).toBe(message.id);
     expect((await readEvents(prisma, scope)).some(event => event.id === message.id)).toBe(true);
+    expect((await readState(prisma, scope)).instructorMessages[0]).toMatchObject({
+      id: message.id, hidden: true, hideEventId: hide.id,
+    });
+    const { req: adminReq, res: adminRes } = createMocks({ method: 'GET', query: scope });
+    await fetchAllChat(adminReq as any, adminRes as any);
+    expect(JSON.parse(adminRes._getJSONData().message)[0]).toMatchObject({
+      id: message.id, hidden: true, hideEventId: hide.id, userId: user.id,
+    });
+    expect((await request(unhideChat, { messageId: message.id }))._getStatusCode()).toBe(200);
+    expect((await readState(prisma, scope)).messages[0].id).toBe(message.id);
+    expect((await readState(prisma, scope)).instructorMessages[0].hidden).toBe(false);
+    expect((await readEvents(prisma, scope)).at(-1)).toMatchObject({ kind: 'UNDO', supersedesId: hide.id });
     expect((await request(muteStudent, { userId: user.id }))._getStatusCode()).toBe(200);
     expect((await request(sendChat, { message: 'Again?' }))._getStatusCode()).toBe(403);
     expect((await readState(prisma, scope)).mutedUsers).toEqual([user.id]);

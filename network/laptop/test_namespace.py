@@ -129,6 +129,8 @@ def main() -> None:
                 file.write(f"{key}={value}\n")
         run(sys.executable, str(ROOT / "network/laptop/classroom.py"), "start", str(config_path))
         started = True
+        if Path("/proc/sys/net/ipv6/conf/all/forwarding").read_text().strip() != "1":
+            raise RuntimeError("Class start did not enable IPv6 forwarding")
         if not uplink_ipv6:
             # A narrow route forces packets through the forward hook even when
             # the host has no IPv6 uplink. Remove it before the plain-curl check.
@@ -335,6 +337,13 @@ def main() -> None:
         if uplink_ipv6:
             namespace("curl", "-6", "--noproxy", "*", "--max-time", "12", "-fsSI",
                       "https://example.com", name=SECOND_NAMESPACE)
+        if test_ipv6_route_added:
+            run("ip", "-6", "route", "delete", f"{test_ipv6_target}/128", "dev", settings["UPLINK_INTERFACE"])
+            test_ipv6_route_added = False
+            namespace("curl", "--noproxy", "*", "--max-time", "12", "-fsSI",
+                      "https://example.com")
+            run("ip", "-6", "route", "add", f"{test_ipv6_target}/128", "dev", settings["UPLINK_INTERFACE"])
+            test_ipv6_route_added = True
         revoke_payload = json.dumps({"courseId": "namespace-course", "classId": "namespace-session",
                                      "userId": "namespace-student", "ip": lease_ip,
                                      "timestamp": int(time.time() * 1000)}).encode()
@@ -354,11 +363,6 @@ def main() -> None:
                   f"http://[{test_ipv6_target}]", check=False)
         if ipv6_block_count() <= blocked6_before:
             raise RuntimeError("The IPv6 forward block did not stop the revoked client")
-        if test_ipv6_route_added:
-            run("ip", "-6", "route", "delete", f"{test_ipv6_target}/128", "dev", settings["UPLINK_INTERFACE"])
-            test_ipv6_route_added = False
-            namespace("curl", "--noproxy", "*", "--max-time", "12", "-fsSI",
-                      "https://example.com")
         restarted_agent.terminate()
         restarted_agent.wait(timeout=5)
         restarted_agent = None
@@ -382,7 +386,7 @@ def main() -> None:
             raise RuntimeError("Rebinding after restart did not match the lease")
         namespace("curl", "-4", "--noproxy", "*", "--max-time", "12", "-fsSI",
                   "https://example.com")
-        print("PASS: dual-stack and IPv6-only SLAAC clients, unbound isolation, revoke, reassociation, private blocks, and second class cycle")
+        print("PASS: dual-stack and IPv6-only SLAAC clients, unbound isolation, revoke, link flap, private blocks, and second class cycle")
     finally:
         if test_ipv6_route_added:
             run("ip", "-6", "route", "delete", f"{test_ipv6_target}/128", "dev", settings["UPLINK_INTERFACE"],

@@ -18,6 +18,12 @@ it('shows the real student only to the instructor', () => {
   });
 });
 
+it('flags a hidden message for the instructor without exposing it to projection', () => {
+  const hidden = { ...message, hidden: true, hideEventId: 'hide-1' };
+  expect(instructorChat([hidden], [author])[0]).toMatchObject({ hidden: true, hideEventId: 'hide-1' });
+  expect(projectionChat([])).toEqual([]);
+});
+
 it('keeps the projection payload anonymous for both I5 and I6', () => {
   const projected = projectionChat([message]);
   expect(projected).toEqual([{ id: 'message', message: 'Question?', anonymousName: 'Swift Panda',

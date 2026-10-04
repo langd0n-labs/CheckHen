@@ -97,11 +97,15 @@ it('hides chat by an immutable moderation event and mutes only this session', ()
     event('04', 'STUDENT_MUTED'),
   ];
   expect(foldEvents(events, scope).messages).toEqual([]);
+  expect(foldEvents(events, scope).instructorMessages[0]).toMatchObject({
+    id: '02', message: 'Question?', hidden: true, hideEventId: '03',
+  });
   expect(foldEvents(events, scope).mutedUsers).toEqual(['student']);
   expect(foldEvents(events, { courseId: 'other', classId: 'other' }).mutedUsers).toEqual([]);
   expect(events[1].payload).toEqual({ message: 'Question?', anonymousName: 'Swift Panda' });
   events.push(event('05', 'UNDO', {}, '03'));
   expect(foldEvents(events, scope).messages[0].message).toBe('Question?');
+  expect(foldEvents(events, scope).instructorMessages[0].hidden).toBe(false);
 });
 
 it('addresses the effective message after a chat correction', () => {

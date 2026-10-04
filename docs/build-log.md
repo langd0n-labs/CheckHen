@@ -348,9 +348,10 @@ missing AAAA record does not stop class mode. The student heartbeat now uses
 `/api/student/re-bind`; it cannot create a `CHECK_IN` after checkout, and the
 page reports when the device has no uplink. The IPv6 forward rule requires
 both an authorized MAC and a source in the AP ULA prefix. It also blocks the
-mapped, NAT64, 6to4, and Teredo ranges. Class start sets uplink `accept_ra=2`
-before enabling forwarding on the AP and uplink interfaces, saves and restores
-both prior interface values, and adds the AP IPv6 address with `nodad` so
+mapped, NAT64, 6to4, and Teredo ranges. Class start sets `accept_ra=2` on the
+uplink and every interface with an RA default route before setting
+`all/forwarding=1`. It saves and restores the prior forwarding and RA values,
+and adds the AP IPv6 address with `nodad` so
 dnsmasq can bind immediately.
 
 The agent requires two missing lease reads at least one second apart before
@@ -404,8 +405,8 @@ also refresh every 500 ms. The Slidev component is a separate package in
 | M4 acceptance check | Result |
 | --- | --- |
 | Correct name rules in student, instructor, I5, and I6 views | PASS: chat-view unit tests check each payload; API and projection page tests check that room views reveal no student identity. |
-| Hidden message leaves I5 and I6 within one second | PASS in the disposable Postgres/socket test: the hide event reached the projection socket in less than one second and the folded message list became empty. Projection page and Slidev feed tests verify that socket updates remove the message from view state. |
-| Sample Slidev deck imports I6 and shows live chat | PASS: the sample imports the package, its production build succeeds with Slidev 53, and the feed unit test verifies live socket refresh and anonymous output. |
+| Hidden message leaves I5 and I6 within one second | PASS (unit and socket level): the hide event reached the projection socket in less than one second and the folded message list became empty. Projection page and Slidev feed tests use mocked fetch responses. A browser run remains open. |
+| Sample Slidev deck imports I6 and shows live chat | PASS (unit and socket level): the sample imports the package, its production build succeeds with Slidev 53, and the feed unit test verifies socket refresh and anonymous output. A live deck run remains open. |
 
 Verification on 2026-10-04: 21 Jest suites and 192 tests, seven
 route-to-store Postgres integration tests, the event-store and legacy
@@ -413,3 +414,12 @@ migration scripts, socket isolation and moderation latency, the Slidev feed
 unit test, TypeScript checks for the app and socket server, and the app and
 sample deck production builds passed. M4 did not change the AP network layer. The
 root x1 namespace test remains a prerequisite before M5.
+
+The M4 review fixes restore kernel IPv6 forwarding through `all/forwarding`,
+preserve RA acceptance on each interface with an RA default route, and save
+and restore every forwarding value touched by that sysctl. The namespace
+script checks `all/forwarding`, runs plain `curl` while its IPv4 client is
+still bound, and names the link flap accurately. Instructor chat now retains
+hidden messages with a visible flag and can unhide one through an `UNDO`
+event. The Slidev feed test runs in `scripts/test-postgres.sh`. The x1 root
+namespace check remains pending for the operator.

@@ -32,6 +32,7 @@ const instructorMethod = (name: string) =>
     'ack-hand-raise',
     'end-class-early',
     'hide-chat',
+    'unhide-chat',
     'mute-student',
     'projection-ticket',
     'rate-hand-raise',

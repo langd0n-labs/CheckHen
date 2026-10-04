@@ -3,6 +3,7 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
+"$root/scripts/test-slidev-chat.sh"
 admin_url=${CHECKHEN_TEST_PG_ADMIN_URL:?Set a local PostgreSQL admin URL ending in /postgres}
 mapfile -t urls < <(python3 - "$admin_url" <<'PY'
 from urllib.parse import urlparse

@@ -56,6 +56,8 @@ type HandRaise = {
 
 type ChatMessage = {
   id: string;
+  hidden: boolean;
+  hideEventId: string | null;
   userId: string;
   message: string;
   anonymousName: string | null;
@@ -234,6 +236,13 @@ export default function AdminDashboard() {
     const response = await fetch('/api/admin/hide-chat', { method: 'POST',
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId }) });
     if (!response.ok) notifications.show({ title: 'Error', message: 'Could not hide message', color: 'red' });
+    else fetchAllChatMessages();
+  };
+
+  const unhideMessage = async (messageId: string) => {
+    const response = await fetch('/api/admin/unhide-chat', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId }) });
+    if (!response.ok) notifications.show({ title: 'Error', message: 'Could not restore message', color: 'red' });
     else fetchAllChatMessages();
   };
 
@@ -668,6 +677,7 @@ export default function AdminDashboard() {
                         <Badge size="xs" variant="light" color="gray">
                           as {msg.anonymousName || 'Anonymous'}
                         </Badge>
+                        {msg.hidden && <Badge size="xs" color="orange">Hidden</Badge>}
                       </Group>
                       <Text size="xs" c="dimmed">
                         {new Date(msg.createdAt).toLocaleTimeString()}
@@ -687,7 +697,9 @@ export default function AdminDashboard() {
                     </Group>
                     <Text size="sm">{msg.message}</Text>
                     <Group gap="xs" mt="xs">
-                      <Button size="xs" variant="subtle" color="orange" onClick={() => hideMessage(msg.id)}>Hide</Button>
+                      {msg.hidden ?
+                        <Button size="xs" variant="subtle" color="green" onClick={() => unhideMessage(msg.id)}>Unhide</Button> :
+                        <Button size="xs" variant="subtle" color="orange" onClick={() => hideMessage(msg.id)}>Hide</Button>}
                       <Button size="xs" variant="subtle" color="red" onClick={() => muteStudent(msg.userId)}>Mute student</Button>
                     </Group>
                   </Paper>

@@ -5,13 +5,51 @@ import socket
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from pathlib import Path
 
 import classroom
 
 
 class RouteGuardTests(unittest.TestCase):
+    def test_ipv6_forwarding_saves_ra_routes_and_restores_sysctls(self):
+        values = {
+            "/proc/sys/net/ipv6/conf/eth0/accept_ra": "1",
+            "/proc/sys/net/ipv6/conf/wlan0/accept_ra": "0",
+            "/proc/sys/net/ipv6/conf/all/forwarding": "0",
+            "/proc/sys/net/ipv6/conf/eth0/forwarding": "0",
+            "/proc/sys/net/ipv6/conf/wlan0/forwarding": "0",
+        }
+        writes = []
+        def fake_path(name):
+            path = MagicMock()
+            path.read_text.side_effect = lambda: values[str(name)]
+            path.write_text.side_effect = lambda value: (writes.append((str(name), value)), values.__setitem__(str(name), value.strip()))
+            return path
+        routes = type("Result", (), {"stdout": json.dumps([{"dev": "wlan0", "protocol": "ra"}])})()
+        with patch.object(classroom, "run", return_value=routes) as run, patch.object(classroom, "Path", side_effect=fake_path):
+            state = {"ap": "chbr0", "uplink": "eth0", "forward6": values["/proc/sys/net/ipv6/conf/all/forwarding"],
+                     "forward6_interfaces": {"eth0": "0", "wlan0": "0"},
+                     "accept_ra6": classroom.ra_route_interfaces("eth0")}
+            run.assert_called_once_with("ip", "-6", "-j", "route", "show", "table", "all", "default")
+            classroom.enable_ipv6_forwarding(state)
+            self.assertEqual(writes[:3], [
+                ("/proc/sys/net/ipv6/conf/eth0/accept_ra", "2\n"),
+                ("/proc/sys/net/ipv6/conf/wlan0/accept_ra", "2\n"),
+                ("/proc/sys/net/ipv6/conf/all/forwarding", "1\n")])
+            errors = []
+            classroom.restore_ipv6_forwarding(state, errors)
+            self.assertEqual(errors, [])
+            self.assertEqual(writes[3:], [
+                ("/proc/sys/net/ipv6/conf/all/forwarding", "0\n"),
+                ("/proc/sys/net/ipv6/conf/eth0/forwarding", "0\n"),
+                ("/proc/sys/net/ipv6/conf/wlan0/forwarding", "0\n"),
+                ("/proc/sys/net/ipv6/conf/eth0/accept_ra", "1\n"),
+                ("/proc/sys/net/ipv6/conf/wlan0/accept_ra", "0\n")])
+            self.assertEqual(values["/proc/sys/net/ipv6/conf/all/forwarding"], "0")
+            self.assertEqual(values["/proc/sys/net/ipv6/conf/eth0/accept_ra"], "1")
+            self.assertEqual(values["/proc/sys/net/ipv6/conf/wlan0/accept_ra"], "0")
+
     def test_ap_configures_dual_stack_slaac_and_private_uplink_blocks(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(classroom, "STATE", Path(directory)):
             classroom.write_configs({"AP_INTERFACE": "chbr0", "UPLINK_INTERFACE": "eth0",
