@@ -38,6 +38,10 @@ def namespace(*args: str, check: bool = True, name: str = NAMESPACE) -> subproce
     return run("ip", "netns", "exec", name, *args, check=check)
 
 
+def set_accept_ra(interface: str, name: str) -> None:
+    namespace("sh", "-c", f"printf 2 > /proc/sys/net/ipv6/conf/{interface}/accept_ra", name=name)
+
+
 def drop_count(family: str, table: str, set_name: str) -> int:
     rules = json.loads(run("nft", "-j", "list", "chain", family, table, "forward").stdout)["nftables"]
     for item in rules:
@@ -115,8 +119,8 @@ def main() -> None:
         namespace("ip", "link", "set", CLIENT_IF, "up")
         namespace("ip", "link", "set", "lo", "up", name=SECOND_NAMESPACE)
         namespace("ip", "link", "set", SECOND_CLIENT_IF, "up", name=SECOND_NAMESPACE)
-        namespace("sysctl", "-w", f"net.ipv6.conf.{CLIENT_IF}.accept_ra=2")
-        namespace("sysctl", "-w", f"net.ipv6.conf.{SECOND_CLIENT_IF}.accept_ra=2", name=SECOND_NAMESPACE)
+        set_accept_ra(CLIENT_IF, NAMESPACE)
+        set_accept_ra(SECOND_CLIENT_IF, SECOND_NAMESPACE)
         RESOLV.mkdir(parents=True, exist_ok=True)
         (RESOLV / "resolv.conf").write_text(f"nameserver {address}\n")
         SECOND_RESOLV.mkdir(parents=True, exist_ok=True)

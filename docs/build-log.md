@@ -423,3 +423,9 @@ still bound, and names the link flap accurately. Instructor chat now retains
 hidden messages with a visible flag and can unhide one through an `UNDO`
 event. The Slidev feed test runs in `scripts/test-postgres.sh`. The x1 root
 namespace check remains pending for the operator.
+
+The first x1 namespace run at `bb9d65f` stopped while setting a client
+`accept_ra` value: the image does not include `sysctl`. The test now writes
+the value through `/proc` inside each namespace. The network image checks
+every executable used by the namespace test and classroom layer during its
+build. The namespace test still needs an operator rerun.
