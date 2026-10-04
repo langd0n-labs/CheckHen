@@ -1,6 +1,7 @@
 """Checks for the route guard that runs before any host network change."""
 import ipaddress
 import json
+import socket
 import sys
 import tempfile
 import unittest
@@ -20,13 +21,25 @@ class RouteGuardTests(unittest.TestCase):
             rules = (Path(directory) / "firewall.nft").read_text()
             self.assertIn("table ip6 checkhen6", rules)
             self.assertIn("set authorized6 { type ether_addr; }", rules)
-            self.assertIn('iifname "chbr0" ether saddr @authorized6 oifname "eth0" accept', rules)
+            self.assertIn('iifname "chbr0" ip6 saddr fd9b:2f69:8c44::/64 ether saddr @authorized6 oifname "eth0" counter accept', rules)
+            for private in ("::ffff:0:0/96", "64:ff9b::/96", "2001::/32", "2002::/16"):
+                self.assertIn(private, rules)
             self.assertIn('iifname "chbr0" ip6 daddr @private6 counter drop', rules)
             self.assertIn('iifname "chbr0" drop', rules)
             self.assertIn('iifname "chbr0" ip daddr @private4 counter drop', rules)
             self.assertIn("enable-ra", (Path(directory) / "dnsmasq.conf").read_text())
             self.assertIn("constructor:chbr0,ra-only,64", (Path(directory) / "dnsmasq.conf").read_text())
             self.assertIn("ap_isolate=1", (Path(directory) / "hostapd.conf").read_text())
+
+    def test_ipv4_preauth_survives_missing_aaaa(self):
+        def lookup(_name, _port, family):
+            if family == socket.AF_INET6:
+                raise socket.gaierror(socket.EAI_NONAME, "No AAAA")
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("198.51.100.10", 443))]
+        with patch.object(classroom.socket, "getaddrinfo", side_effect=lookup), patch.object(classroom, "run") as run:
+            classroom.seed_preauth({"PREAUTH_DOMAINS": "ipv4-only.example"})
+        run.assert_called_once_with("nft", "add", "element", "ip", "checkhen", "preauth4",
+                                    "{", "198.51.100.10", "}")
 
     def test_rejects_overlapping_host_route(self):
         routes = [{"dst": "default", "dev": "wlan0"},

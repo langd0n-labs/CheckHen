@@ -57,7 +57,7 @@ export async function appendEvent(db: PrismaClient, input: AppendInput) {
     if (!sessions.length) throw new Error('Unknown course/session');
     let kind = input.kind;
     let payload = input.payload ?? {};
-    if (kind === 'CHECK_IN' && input.userId) {
+    if (kind === 'CHECK_IN' && input.userId && !input.supersedesId) {
       const current = foldEvents((await tx.participationEvent.findMany({ where: {
         courseId: input.courseId, classId: input.classId },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],

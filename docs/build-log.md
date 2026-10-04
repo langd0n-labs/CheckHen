@@ -340,3 +340,44 @@ The disposable PostgreSQL script passed against a local test server on
 2026-10-04: event store, route-to-store attendance and concurrent check-ins,
 legacy migration, session expiry, and socket isolation. The laptop Python
 unit tests, Jest suite, and TypeScript typecheck passed locally.
+
+## M3 second review fix pass
+
+PREAUTH DNS lookup failures are handled separately for IPv4 and IPv6, so a
+missing AAAA record does not stop class mode. The student heartbeat now uses
+`/api/student/re-bind`; it cannot create a `CHECK_IN` after checkout, and the
+page reports when the device has no uplink. The IPv6 forward rule requires
+both an authorized MAC and a source in the AP ULA prefix. It also blocks the
+mapped, NAT64, 6to4, and Teredo ranges. Class start sets uplink `accept_ra=2`
+before enabling forwarding on the AP and uplink interfaces, saves and restores
+both prior interface values, and adds the AP IPv6 address with `nodad` so
+dnsmasq can bind immediately.
+
+The agent requires two missing lease reads at least one second apart before
+pruning an IPv4 binding. Restart reconciliation also retries a missing lease
+before removing a saved binding. Duration expiry skips sessions older than seven days and
+sessions with no check-in, continues after one session fails, and timestamps
+checkout at the lapse time unless a later event requires a later timestamp.
+`CHECK_IN` corrections now bypass repeat-check-in handling.
+
+The namespace script restores the client's default route after a link flap.
+It measures the IPv6 forward accept and block counters, adding and then
+removing a narrow test route when the host has no IPv6 uplink. On such a host,
+it also checks plain `curl` after removing that route. The root namespace
+test has not run; the operator will run it on x1 after this commit.
+
+Local verification on 2026-10-04: 25 laptop Python tests, 172 Jest tests,
+TypeScript typecheck, and the disposable Postgres script passed. The Postgres
+script covered six route-to-store integration cases, legacy import, and
+socket isolation. On nimbus, the agent-test default is
+`CHECKHEN_TEST_PG_ADMIN_URL=postgresql://agent:agent@127.0.0.1:55432/postgres`.
+It is a loopback-only disposable test server.
+
+Departure checkout and its 30-second reassociation grace are M5 work. They
+require station departure tracking and a delayed checkout decision; M3 keeps
+the device binding through brief departures. Review finding 10, handoff of a
+shared device to another student, is deferred to the M5 excuse flow because
+clearing the first student's binding without a verified checkout would grant
+access under the wrong identity. Review finding 11 is deferred: retry policy,
+socket poll ordering, event log growth, admin correction scope, and the other
+listed maintenance items do not block the M3 network and attendance checks.

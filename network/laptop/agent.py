@@ -179,7 +179,11 @@ def reconcile_bindings() -> None:
                    check=True, capture_output=True)
     current = {}
     for ip, binding in read_bindings().items():
-        valid = (lease_mac(ip) == binding.get("mac") if ipaddress.ip_address(ip).version == 4
+        lease = lease_mac(ip) if ipaddress.ip_address(ip).version == 4 else None
+        if ipaddress.ip_address(ip).version == 4 and lease is None:
+            time.sleep(0.1)
+            lease = lease_mac(ip)
+        valid = (lease == binding.get("mac") if ipaddress.ip_address(ip).version == 4
                  else binding.get("expiresAt", 0) > time.time())
         if valid:
             if ipaddress.ip_address(ip).version == 4:
@@ -203,8 +207,23 @@ def prune_bindings(interface: str | None) -> None:
     for ip, binding in list(bindings.items()):
         # A station may reconnect within M5's grace period. The nft key includes
         # its MAC, so departure alone never transfers access to another device.
-        expired = (lease_mac(ip) != binding.get("mac") if ipaddress.ip_address(ip).version == 4
-                   else binding.get("expiresAt", 0) <= time.time())
+        if ipaddress.ip_address(ip).version == 4:
+            lease = lease_mac(ip)
+            if lease is None:
+                if "leaseMissedAt" not in binding:
+                    binding["leaseMissedAt"] = time.time()
+                    binding["leaseMisses"] = 1
+                elif time.time() - binding["leaseMissedAt"] >= 1:
+                    binding["leaseMisses"] = 2
+                save(bindings)
+                expired = binding["leaseMisses"] >= 2
+            else:
+                if binding.pop("leaseMisses", None) is not None:
+                    binding.pop("leaseMissedAt", None)
+                    save(bindings)
+                expired = lease != binding.get("mac")
+        else:
+            expired = binding.get("expiresAt", 0) <= time.time()
         if expired:
             try:
                 remove_binding(bindings, ip, notify=True)

@@ -109,6 +109,25 @@ def domains(settings: dict[str, str]) -> list[str]:
     return list(dict.fromkeys(names))
 
 
+def seed_preauth(settings: dict[str, str]) -> None:
+    seeded: set[str] = set()
+    for name in domains(settings):
+        for family, table, target in ((socket.AF_INET, "ip", "preauth4"),
+                                      (socket.AF_INET6, "ip6", "preauth6")):
+            try:
+                addresses = socket.getaddrinfo(name, 443, family)
+            except socket.gaierror:
+                continue
+            for resolved_family, _, _, _, address_info in addresses:
+                if resolved_family != family:
+                    continue
+                value = str(ipaddress.ip_address(address_info[0]))
+                if value not in seeded:
+                    run("nft", "add", "element", table, "checkhen" if family == socket.AF_INET else "checkhen6",
+                        target, "{", value, "}")
+                    seeded.add(value)
+
+
 def write_configs(settings: dict[str, str], subnet: ipaddress.IPv4Network,
                   address: ipaddress.IPv4Address) -> None:
     ap = settings["AP_INTERFACE"]
@@ -153,7 +172,7 @@ def write_configs(settings: dict[str, str], subnet: ipaddress.IPv4Network,
 table ip6 checkhen6 {{
   set authorized6 {{ type ether_addr; }}
   set preauth6 {{ type ipv6_addr; flags timeout; timeout 5m; }}
-  set private6 {{ type ipv6_addr; flags interval; elements = {{ ::/128, ::1/128, fc00::/7, fe80::/10, ff00::/8, 2001:db8::/32 }}; }}
+  set private6 {{ type ipv6_addr; flags interval; elements = {{ ::/128, ::1/128, ::ffff:0:0/96, 64:ff9b::/96, fc00::/7, fe80::/10, ff00::/8, 2001::/32, 2001:db8::/32, 2002::/16 }}; }}
   chain input {{
     type filter hook input priority -5; policy accept;
     iifname "{ap}" icmpv6 type {{ nd-router-solicit, nd-neighbor-solicit, nd-neighbor-advert }} accept
@@ -165,9 +184,9 @@ table ip6 checkhen6 {{
     type filter hook forward priority -5; policy accept;
     oifname "{ap}" ct state established,related accept
     iifname "{ap}" ip6 daddr @private6 counter drop
-    iifname "{ap}" ether saddr @authorized6 oifname "{uplink}" accept
+    iifname "{ap}" ip6 saddr {ipv6_subnet} ether saddr @authorized6 oifname "{uplink}" counter accept
 {open_rule6}    iifname "{ap}" ip6 daddr @preauth6 oifname "{uplink}" tcp dport 443 accept
-    iifname "{ap}" drop
+    iifname "{ap}" counter drop
   }}
   chain prerouting {{
     type nat hook prerouting priority dstnat; policy accept;
@@ -280,7 +299,8 @@ def start(config_path: Path | None = None) -> None:
              "link_up": "UP" in json.loads(run("ip", "-j", "link", "show", "dev",
                                                  settings["AP_INTERFACE"]).stdout)[0]["flags"],
              "forward": Path("/proc/sys/net/ipv4/ip_forward").read_text().strip(),
-             "forward6": Path("/proc/sys/net/ipv6/conf/all/forwarding").read_text().strip(),
+             "ap_forward6": Path(f"/proc/sys/net/ipv6/conf/{settings['AP_INTERFACE']}/forwarding").read_text().strip(),
+             "uplink_forward6": Path(f"/proc/sys/net/ipv6/conf/{settings['UPLINK_INTERFACE']}/forwarding").read_text().strip(),
              "uplink_accept_ra": Path(f"/proc/sys/net/ipv6/conf/{settings['UPLINK_INTERFACE']}/accept_ra").read_text().strip(),
              "processes": {}, "pid_namespace": os.stat("/proc/self/ns/pid").st_ino,
              "firewall": False, "address_added": False, "address6_added": False,
@@ -292,7 +312,7 @@ def start(config_path: Path | None = None) -> None:
         run("ip", "address", "add", f"{address}/{subnet.prefixlen}", "dev", state["ap"])
         state["address_added"] = True
         save_state(state)
-        run("ip", "-6", "address", "add", f"{ipv6_address}/{ipaddress.IPv6Network(ipv6_subnet).prefixlen}", "dev", state["ap"])
+        run("ip", "-6", "address", "add", f"{ipv6_address}/{ipaddress.IPv6Network(ipv6_subnet).prefixlen}", "dev", state["ap"], "nodad")
         state["address6_added"] = True
         save_state(state)
         run("ip", "link", "set", state["ap"], "up")
@@ -304,23 +324,11 @@ def start(config_path: Path | None = None) -> None:
             state["zone_changed"] = True
             save_state(state)
         Path("/proc/sys/net/ipv4/ip_forward").write_text("1\n")
-        Path("/proc/sys/net/ipv6/conf/all/forwarding").write_text("1\n")
         Path(f"/proc/sys/net/ipv6/conf/{state['uplink']}/accept_ra").write_text("2\n")
+        Path(f"/proc/sys/net/ipv6/conf/{state['ap']}/forwarding").write_text("1\n")
+        Path(f"/proc/sys/net/ipv6/conf/{state['uplink']}/forwarding").write_text("1\n")
         spawn(state, "dnsmasq", ["dnsmasq", "--no-daemon", f"--conf-file={STATE / 'dnsmasq.conf'}"])
-        seeded: set[str] = set()
-        for name in domains(settings):
-            for family, _, _, _, address_info in socket.getaddrinfo(name, 443, socket.AF_INET):
-                if family == socket.AF_INET:
-                    value = str(ipaddress.IPv4Address(address_info[0]))
-                    if value not in seeded:
-                        run("nft", "add", "element", "ip", "checkhen", "preauth4", "{", value, "}")
-                        seeded.add(value)
-            for family, _, _, _, address_info in socket.getaddrinfo(name, 443, socket.AF_INET6):
-                if family == socket.AF_INET6:
-                    value = str(ipaddress.IPv6Address(address_info[0]))
-                    if value not in seeded:
-                        run("nft", "add", "element", "ip6", "checkhen6", "preauth6", "{", value, "}")
-                        seeded.add(value)
+        seed_preauth(settings)
         agent_args = [sys.executable, str(Path(__file__).with_name("agent.py"))]
         if config_path:
             agent_args.append(str(config_path))
@@ -387,10 +395,13 @@ def stop() -> None:
         Path("/proc/sys/net/ipv4/ip_forward").write_text(state["forward"] + "\n")
     except OSError:
         errors.append("IP forwarding")
-    try:
-        Path("/proc/sys/net/ipv6/conf/all/forwarding").write_text(state["forward6"] + "\n")
-    except OSError:
-        errors.append("IPv6 forwarding")
+    forward6 = ([("all", state["forward6"])] if "forward6" in state else
+                [(state["ap"], state["ap_forward6"]), (state["uplink"], state["uplink_forward6"])])
+    for interface, value in forward6:
+        try:
+            Path(f"/proc/sys/net/ipv6/conf/{interface}/forwarding").write_text(value + "\n")
+        except OSError:
+            errors.append(f"{interface} IPv6 forwarding")
     try:
         Path(f"/proc/sys/net/ipv6/conf/{state['uplink']}/accept_ra").write_text(state["uplink_accept_ra"] + "\n")
     except OSError:

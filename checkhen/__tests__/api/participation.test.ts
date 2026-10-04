@@ -4,6 +4,7 @@ import { appendEvent, readState } from '@/lib/event-store';
 import { prisma } from '@/lib/prisma';
 import { generateUniqueAnonymousName } from '@/lib/anonymousNames';
 import checkIn from '@/pages/api/student/check-in';
+import reBind from '@/pages/api/student/re-bind';
 import checkOut from '@/pages/api/student/check-out';
 import sendChat from '@/pages/api/student/send-chat';
 import startup from '@/pages/api/student/startup';
@@ -101,6 +102,20 @@ describe('event-backed check-in', () => {
     (readState as jest.Mock).mockResolvedValue(state);
     await invoke(checkIn, 'POST');
     expect(appendEvent).toHaveBeenCalledWith(prisma, expect.objectContaining({ kind: 'CHECK_IN', payload: { anonymousName: 'Swift Panda' } }));
+  });
+  it('does not re-check-in or bind a checked-out student during heartbeat', async () => {
+    const state = checkedIn();
+    state.attendance[0].isPresent = false;
+    (readState as jest.Mock).mockResolvedValue(state);
+    expect((await invoke(reBind, 'POST'))._getStatusCode()).toBe(409);
+    expect(bindDevice).not.toHaveBeenCalled();
+    expect(appendEvent).not.toHaveBeenCalled();
+  });
+  it('refreshes a present student binding without a new check-in', async () => {
+    (readState as jest.Mock).mockResolvedValue(checkedIn());
+    expect((await invoke(reBind, 'POST'))._getStatusCode()).toBe(200);
+    expect(bindDevice).toHaveBeenCalledTimes(1);
+    expect(appendEvent).not.toHaveBeenCalled();
   });
   it('revokes all student devices before checkout', async () => {
     (readState as jest.Mock).mockResolvedValue(checkedIn());

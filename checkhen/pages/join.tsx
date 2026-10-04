@@ -66,7 +66,12 @@ export default function JoinPage() {
       // Wait for both the check-in check and class fetch before showing the page
       Promise.all([
         fetch('/api/student/fetch-check-in').then(async (res) => {
-          if (res.ok && (await fetch('/api/student/check-in', { method: 'POST' })).ok) router.push('/');
+          if (res.ok) {
+            if ((await fetch('/api/student/re-bind', { method: 'POST' })).ok) router.push('/');
+            else notifications.show({ title: 'No uplink',
+              message: 'This device has no internet access through the class network. Check in again or ask your instructor for help.',
+              color: 'red' });
+          }
         }),
         fetchActiveClasses(),
       ]).finally(() => setLoading(false));

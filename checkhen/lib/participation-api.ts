@@ -7,7 +7,7 @@ import type { EventKind } from './events';
 import { bindDevice, PortalBindingError, revokeCurrentDevice, revokeDevice, revokeSessionDevices, revokeStudentDevices } from './portal-binding';
 import type { DeviceBinding } from './portal-binding';
 
-const writes = new Set(['check-in', 'check-out', 'toggle-vhr', 'send-chat', 'send-pace-signal',
+const writes = new Set(['check-in', 're-bind', 'check-out', 'toggle-vhr', 'send-chat', 'send-pace-signal',
   'ack-hand-raise', 'rate-hand-raise', 'reset-pace-signals', 'end-class-early']);
 
 function publicMessage<T extends { userId: string }>(message: T): Omit<T, 'userId'> {
@@ -36,10 +36,13 @@ export function participationHandler(action: string, adminOnly = false) {
       appendEvent(prisma, { ...scope, actorId: user.id, userId, kind, payload });
     const json = (value: unknown) => res.status(200).json({ message: JSON.stringify(value) });
     if (writes.has(action) && !active && action !== 'check-out') return res.status(400).json({ message: 'No active class' });
-    if (!adminOnly && writes.has(action) && !['check-in', 'check-out'].includes(action) && !checkIn?.isPresent) {
+    if (!adminOnly && writes.has(action) && !['check-in', 'check-out', 're-bind'].includes(action) && !checkIn?.isPresent) {
       return res.status(400).json({ message: 'Not currently checked in to this class' });
     }
-    if (action === 'check-in') {
+    if (action === 'check-in' || action === 're-bind') {
+      if (action === 're-bind' && !checkIn?.isPresent) {
+        return res.status(409).json({ message: 'No current check-in; no uplink' });
+      }
       let binding: DeviceBinding | null = null;
       try {
         binding = await bindDevice(req, scope, user);

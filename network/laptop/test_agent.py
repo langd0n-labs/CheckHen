@@ -44,6 +44,10 @@ class AgentTests(unittest.TestCase):
     def lease(self, mac):
         agent.LEASES.write_text(f"{int(time.time()) + 3600} {mac} 172.16.77.20 host *\n")
 
+    def second_prune(self):
+        with patch.object(agent.time, "time", return_value=time.time() + 2):
+            agent.prune_bindings(None)
+
     def request(self, path, data=None, signed=True):
         payload = json.dumps(data or {"courseId": "course", "classId": "class", "userId": "student",
                                       "ip": "172.16.77.20", "timestamp": int(time.time() * 1000)}).encode()
@@ -114,6 +118,8 @@ class AgentTests(unittest.TestCase):
         self.assertIn("172.16.77.20", json.loads(agent.BINDINGS.read_text()))
         agent.LEASES.write_text("")
         agent.prune_bindings(None)
+        self.assertIn("172.16.77.20", agent.read_bindings())
+        self.second_prune()
         self.assertEqual(json.loads(agent.BINDINGS.read_text()), {})
         self.assertEqual(json.loads(agent.PENDING.read_text()), [{
             "userId": "student", "courseId": "course", "classId": "class"}])
@@ -122,6 +128,7 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(self.request("bind"), 200)
         agent.LEASES.write_text("")
         agent.prune_bindings(None)
+        self.second_prune()
         response = type("Response", (), {"status": 200, "__enter__": lambda self: self,
                                           "__exit__": lambda self, *_args: None})()
         with patch.object(agent.urllib.request, "urlopen", return_value=response) as send:
@@ -181,6 +188,45 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(agent.read_bindings(), {})
         self.assertTrue(agent.BINDINGS.with_suffix(".corrupt").exists())
 
+    def test_corrupt_bindings_restart_flushes_live_nft_entries(self):
+        agent.BINDINGS.write_text("{bad json")
+        with patch.object(agent.subprocess, "run") as run:
+            agent.reconcile_bindings()
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(run.call_args_list[0].args[0][:5],
+                         ["nft", "flush", "set", "ip", "checkhen"])
+        self.assertEqual(run.call_args_list[1].args[0][:5],
+                         ["nft", "flush", "set", "ip6", "checkhen6"])
+        self.assertEqual(agent.read_bindings(), {})
+
+    def test_one_lease_file_miss_recovers_without_checkout(self):
+        self.assertEqual(self.request("bind"), 200)
+        agent.LEASES.write_text("")
+        agent.prune_bindings(None)
+        self.assertEqual(agent.read_bindings()["172.16.77.20"]["leaseMisses"], 1)
+        self.lease("02:00:00:00:00:20")
+        agent.prune_bindings(None)
+        self.assertNotIn("leaseMisses", agent.read_bindings()["172.16.77.20"])
+        self.assertFalse(agent.PENDING.exists())
+
+    def test_ipv6_expiry_and_heartbeat_refresh(self):
+        data = {"courseId": "course", "classId": "class", "userId": "student",
+                "ip": "fd9b:2f69:8c44::20", "timestamp": int(time.time() * 1000)}
+        with patch.object(agent, "neighbor_mac", return_value="02:00:00:00:00:20"):
+            self.assertEqual(self.request("bind", data), 200)
+            first_expiry = agent.read_bindings()[data["ip"]]["expiresAt"]
+            self.assertAlmostEqual(first_expiry - time.time(), 43200, delta=2)
+            with patch.object(agent.time, "time", return_value=time.time() + 60):
+                data["timestamp"] = int(agent.time.time() * 1000)
+                self.assertEqual(self.request("bind", data), 200)
+            refreshed = agent.read_bindings()[data["ip"]]["expiresAt"]
+        self.assertGreater(refreshed, first_expiry)
+        bindings = agent.read_bindings()
+        bindings[data["ip"]]["expiresAt"] = time.time() - 1
+        agent.save(bindings)
+        agent.prune_bindings(None)
+        self.assertNotIn(data["ip"], agent.read_bindings())
+
     def test_prune_continues_after_one_failed_delete(self):
         self.assertEqual(self.request("bind"), 200)
         agent.save({**agent.read_bindings(), "172.16.77.21": {
@@ -188,6 +234,7 @@ class AgentTests(unittest.TestCase):
         agent.LEASES.write_text("")
         self.nft.side_effect = [subprocess.CalledProcessError(1, "nft"), None]
         agent.prune_bindings(None)
+        self.second_prune()
         self.assertEqual(list(agent.read_bindings()), ["172.16.77.20"])
 
 

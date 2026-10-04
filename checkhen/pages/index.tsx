@@ -61,6 +61,7 @@ export default function HomePage() {
   const [currentClassName, setCurrentClassName] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isCheckedIn, setIsCheckedIn] = useState(false);
+  const [uplinkUnavailable, setUplinkUnavailable] = useState(false);
   const [checkInResolved, setCheckInResolved] = useState(false);
   const [anonymousName, setAnonymousName] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState('');
@@ -100,7 +101,7 @@ export default function HomePage() {
   // Check if user is checked in to the current class
   const checkIfCheckedIn = async () => {
     const response = await fetch('/api/student/fetch-check-in');
-    if (response.ok) await fetch('/api/student/check-in', { method: 'POST' });
+    if (response.ok) setUplinkUnavailable(!(await fetch('/api/student/re-bind', { method: 'POST' })).ok);
     setIsCheckedIn(response.ok);
     setCheckInResolved(true);
     return response.ok;
@@ -251,6 +252,9 @@ export default function HomePage() {
       .then((r) => r.json())
       .then((d) => {
         if (d.isCheckedIn) {
+          fetch('/api/student/re-bind', { method: 'POST' })
+            .then(response => setUplinkUnavailable(!response.ok))
+            .catch(() => setUplinkUnavailable(true));
           setIsCheckedIn(true);
           setCurrentClassId(d.classId);
           const date = d.classId ? new Date() : null; // class name comes from startup
@@ -284,7 +288,9 @@ export default function HomePage() {
     if (!isCheckedIn) return;
 
     const _dataInterval = setInterval(() => {
-      fetch('/api/student/check-in', { method: 'POST' });
+      fetch('/api/student/re-bind', { method: 'POST' })
+        .then(response => setUplinkUnavailable(!response.ok))
+        .catch(() => setUplinkUnavailable(true));
       fetchAllChatMessages();
       fetchHandRaiseStatus();
       fetchPaceSignals();
@@ -503,6 +509,12 @@ export default function HomePage() {
           style={{ borderRadius: 0, borderBottom: `1px solid ${theme.colors.orange[3]}` }}
         >
           The instructor has ended this class session.
+        </Alert>
+      )}
+
+      {uplinkUnavailable && (
+        <Alert icon={<AlertTriangle size={18} />} title="No uplink" color="red" style={{ borderRadius: 0 }}>
+          This device has no internet access through the class network. Check in again or ask your instructor for help.
         </Alert>
       )}
 
