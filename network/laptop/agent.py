@@ -57,6 +57,13 @@ def save(bindings: dict[str, dict]) -> None:
     temporary.replace(BINDINGS)
 
 
+def ap_client_ip(value: str, subnet: ipaddress.IPv4Network) -> str:
+    address = ipaddress.IPv4Address(value)
+    if address not in subnet:
+        raise PermissionError("Outside AP subnet")
+    return str(address)
+
+
 class Handler(BaseHTTPRequestHandler):
     secret = ""
     subnet = ipaddress.IPv4Network("172.16.77.0/24")
@@ -76,9 +83,7 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(raw)
             if abs(time.time() * 1000 - data["timestamp"]) > 30000:
                 raise PermissionError("Expired request")
-            ip = str(ipaddress.IPv4Address(data["ip"]))
-            if ipaddress.IPv4Address(ip) not in self.subnet:
-                raise PermissionError("Outside AP subnet")
+            ip = ap_client_ip(data["ip"], self.subnet)
             if not all(isinstance(data.get(key), str) and data[key]
                        for key in ("userId", "courseId", "classId")):
                 raise ValueError("Missing scope")

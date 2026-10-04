@@ -34,6 +34,16 @@ it('orders equal timestamps by ID, independent of input order', () => {
   expect(foldEvents(events.reverse(), scope).attendance[0].isPresent).toBe(false);
 });
 
+it('keeps one attendance record when a second device binds', () => {
+  const first = event('01', 'CHECK_IN', {
+    anonymousName: 'Swift Panda', deviceIp: '172.16.77.20', deviceMac: '02:00:00:00:00:20',
+  });
+  const second = event('02', 'DEVICE_BOUND', {
+    deviceIp: '172.16.77.21', deviceMac: '02:00:00:00:00:21',
+  });
+  expect(foldEvents([first, second], scope).attendance).toEqual(foldEvents([first], scope).attendance);
+});
+
 it('rejects forward, missing, and cross-course supersession targets', () => {
   expect(() => effectiveEvents([event('01', 'UNDO', {}, '02'), event('02', 'CHECK_OUT')], scope)).toThrow();
   expect(() => effectiveEvents([event('01', 'UNDO', {}, 'missing')], scope)).toThrow();

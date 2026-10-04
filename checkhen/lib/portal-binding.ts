@@ -64,9 +64,9 @@ export async function bindDevice(
   req: NextApiRequest,
   scope: Scope,
   user: Identity
-): Promise<DeviceBinding | null> {
-  if (!process.env.PORTAL_AGENT_URL) {
-    return null;
+): Promise<DeviceBinding> {
+  if (!process.env.PORTAL_AGENT_URL || !process.env.PORTAL_CONTROL_SECRET) {
+    throw new PortalBindingError('Portal agent is not configured', 503);
   }
   return callAgent('bind', { ...scope, userId: user.id, ip: clientAddress(req) });
 }

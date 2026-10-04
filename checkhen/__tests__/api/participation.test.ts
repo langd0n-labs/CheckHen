@@ -13,6 +13,7 @@ jest.mock('@/lib/request-scope', () => ({ requireScope: jest.fn(), isInstructor:
 jest.mock('@/lib/event-store', () => ({ appendEvent: jest.fn(), readState: jest.fn() }));
 jest.mock('@/lib/prisma', () => ({ prisma: { user: { findUnique: jest.fn(), findMany: jest.fn() } } }));
 jest.mock('@/lib/anonymousNames', () => ({ generateUniqueAnonymousName: jest.fn() }));
+jest.mock('@/lib/portal-binding', () => ({ bindDevice: jest.fn().mockResolvedValue(null), revokeDevice: jest.fn() }));
 
 const user = { id: 'student', email: 'student@bu.edu' };
 const selected = { id: 'session-a', courseId: 'course-a', name: 'Class A', createdAt: new Date(), duration: 60 };

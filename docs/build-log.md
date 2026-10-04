@@ -1,6 +1,6 @@
 # Build log
 
-Branch: build/m0-m2. Scope: M0, M1, M2 only.
+Branch: build/m0-m2. Scope: M0 through M3.
 
 ## Operator decisions
 
@@ -251,6 +251,24 @@ Native macOS AP networking with Internet Sharing and `pf` is outside scope;
 no evidence establishes 150-client capacity for it. Windows Mobile Hotspot's
 brief-stated 8-client limit makes it unsuitable for the target.
 
+## M3 — attendance
+
+Merged `origin/main` before M3. The only merge conflict was `.gitignore`;
+both sets of ignore rules were retained. Check-in now requires the configured
+portal agent and its control secret. The agent verifies that the proxy's client
+address belongs to the AP subnet and has a live DHCP lease before a check-in
+event is appended. An app-only deployment without the agent returns 503 for
+check-in.
+
+| Acceptance check | Result |
+| --- | --- |
+| Check-in from outside the AP subnet fails | PASS in unit tests: the agent rejects an address outside its configured subnet; the app maps the agent's 403 to a failed check-in. A missing agent configuration also fails closed. Live AP testing remains part of the deferred M2 operator check. |
+| A second device does not change attendance | PASS: the check-in route records `DEVICE_BOUND` rather than another `CHECK_IN`, and the event fold retains one identical attendance record. |
+
+Verification: 16 Jest suites and 133 tests pass; TypeScript typecheck passes;
+the two Python agent tests pass. The M2 live AP and Google sign-in checks remain
+deferred until the operator has the adapter.
+
 ## Resume
 
 M0 is committed (`86eabe9`); M1 is committed (`e7fdfab`). The post-M1 test
@@ -258,4 +276,5 @@ repair is committed (`51b78b4`). M2 is a software and namespace working
 draft with the live AP/Google/client acceptance check explicitly deferred
 by the operator until the USB adapter arrives. When it does, use
 `docs/operator-checks.md` and record each result here. Docker acceptance
-remains deferred at the operator's request. Do not start M3.
+remains deferred at the operator's request. M3 software checks are complete;
+live AP validation remains pending with M2.
