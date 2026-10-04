@@ -121,8 +121,10 @@ the route contract suite exercises the real non-instructor 403 path.
 
 ## M2 — laptop network profile, class mode
 
-Working draft in progress. At the operator's request, Profile A now packages
-the AP, DHCP, DNS, firewall rules, and signed binding helper in one privileged,
+Working draft for software and namespace testing; the operator
+deferred the live USB-adapter and real-client check until the adapter arrives.
+At the operator's request, Profile A packages the AP, DHCP, DNS, firewall
+rules, and signed binding helper in one privileged,
 host-network Podman service. Nginx is a separate host-network service in the
 same Compose stack as the app, socket, and database. Rootful Podman Compose
 starts and stops class mode; its preflight rejects an AP subnet overlapping an
@@ -134,7 +136,7 @@ identity; live Google-to-BU sign-in still needs a browser on x1.
 
 | Acceptance check | Result |
 | --- | --- |
-| Captive portal signs a student in with Google and binds IP and MAC | PARTIAL: the Auth.js callback requires a verified `bu.edu` Workspace identity, and check-in calls a signed local helper that reads the DHCP lease, grants the IP/MAC pair, and appends the binding to the event log. Four OAuth-domain cases and four portal check-in cases pass; a fresh PostgreSQL migration and event-store integration test accept `DEVICE_BOUND`. Waiting for the live x1 Google→BU redirect trace, a real sign-in, and adapter/client check. |
+| Captive portal signs a student in with Google and binds IP and MAC | DEFERRED LIVE CHECK: the Auth.js callback requires a verified `bu.edu` Workspace identity, and check-in calls a signed local helper that reads the DHCP lease, grants the IP/MAC pair, and appends the binding to the event log. Four OAuth-domain cases and four portal check-in cases pass; a fresh PostgreSQL migration and event-store integration test accept `DEVICE_BOUND`. The operator deferred the live x1 Google→BU redirect trace, real sign-in, and adapter/client check until the USB radio arrives. This acceptance check is not yet proven end to end. |
 | Simulated clients sign in and use the uplink | PARTIAL: the operator's x1 `bash scripts/class-mode.sh namespace-test` run completed with `PASS: DHCP lease, captive redirect, pre-sign-in block, signed IP/MAC bind, and uplink access`. This proves the network path for one namespace client with a signed test identity; it does not exercise multiple namespace clients or live Google sign-in. |
 | 150 concurrent socket clients, median chat latency < 1 second | PASS on Nimbus, isolated disposable Podman database and socket service: 150 connected, 150 received, 0 failures, 16.8 ms median from event-write start to socket notification, 5.3 ms event write. The isolated stack and volume were removed after the run. This measures socket fanout after one direct event-log write; it does not simulate 150 simultaneous chat submissions. |
 
@@ -142,7 +144,7 @@ The default AP subnet is configurable and the start command checks every
 existing IPv4 host route for overlap before starting services. The class-mode
 script runs that check before starting the app. Unit tests cover an
 overlapping route, a nonoverlapping VPN route, and reserved ranges. The live
-x1 route check is pending.
+x1 route check with a real AP interface is pending.
 Final local draft checks: 15 Jest suites and 129 tests pass; TypeScript,
 targeted ESLint and Prettier, Python compilation and route-guard tests, and
 `git diff --check` pass. The production app image builds. Targeted ESLint
@@ -218,6 +220,25 @@ devices, live Google/BU redirect hosts and locked pre-auth allowlist, restored
 network state after stop, and any 150-station radio-association capacity. The
 150-socket test does not establish that a single radio can host 150 stations.
 Profile A adapter choice and tested USB ID will be recorded after the x1 run.
+
+Read-only x1 radio inspection: the built-in Intel Wi-Fi interface uses the
+`iwlwifi` driver with `iwlmvm`, advertises AP mode, and advertises concurrent managed+AP
+interfaces only on one channel. Its current uplink is on 5 GHz channel 157.
+[Linux Wireless documents 2.4 GHz AP support for iwlmvm devices](https://wireless.docs.kernel.org/en/latest/en/users/drivers/iwlwifi.html).
+With the reported one-channel concurrency limit, that documented AP mode
+would require changing the current 5 GHz uplink. Whether this specific
+driver and firmware can keep the current uplink while serving an AP remains
+untested. No radio mode or connection was changed.
+
+Without the adapter, x1's default app-only Compose profile started the
+database (healthy), app (healthy), and socket service. The loopback
+`/api/ping` returned HTTP 200 with `Pong!`; the Google sign-in page route
+returned HTTP 200, which does not prove a completed OAuth exchange. The
+app-only stack was stopped, and no CheckHen containers remain running.
+Podman Compose had to send SIGKILL to the app and socket containers after
+their 10-second SIGTERM grace period; it removed the containers and network.
+The `checkhen-m2_pgdata` database volume remains present.
+
 Independent Codex bulk review found a database trigger that rejected the new
 `DEVICE_BOUND` event. A forward migration now expands the trigger; all 17
 migrations applied to a fresh PostgreSQL database, and the event-store
@@ -233,8 +254,8 @@ brief-stated 8-client limit makes it unsuitable for the target.
 ## Resume
 
 M0 is committed (`86eabe9`); M1 is committed (`e7fdfab`). The post-M1 test
-repair is committed (`51b78b4`). Next, pull `build/m0-m2` on x1 and run the
-adapter and real-client checks in `docs/operator-checks.md`.
-Record each result here. Docker acceptance remains deferred at the operator's
-request.
-Do not start M3.
+repair is committed (`51b78b4`). M2 is a software and namespace working
+draft with the live AP/Google/client acceptance check explicitly deferred
+by the operator until the USB adapter arrives. When it does, use
+`docs/operator-checks.md` and record each result here. Docker acceptance
+remains deferred at the operator's request. Do not start M3.
