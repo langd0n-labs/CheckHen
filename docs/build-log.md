@@ -135,7 +135,7 @@ identity; live Google-to-BU sign-in still needs a browser on x1.
 | Acceptance check | Result |
 | --- | --- |
 | Captive portal signs a student in with Google and binds IP and MAC | PARTIAL: the Auth.js callback requires a verified `bu.edu` Workspace identity, and check-in calls a signed local helper that reads the DHCP lease, grants the IP/MAC pair, and appends the binding to the event log. Four OAuth-domain cases and four portal check-in cases pass; a fresh PostgreSQL migration and event-store integration test accept `DEVICE_BOUND`. Waiting for the live x1 Google→BU redirect trace, a real sign-in, and adapter/client check. |
-| Simulated clients sign in and use the uplink | WAITING FOR ROOT CHECK on x1: `bash scripts/class-mode.sh namespace-test` runs `network/laptop/test_namespace.py` inside the privileged network image. It covers DHCP address and route assignment, portal DNS, the shared Nginx captive redirect, pre-auth block, signed test-identity IP/MAC bind, and post-bind uplink. Python syntax and three route-guard tests pass on Nimbus; the root namespace run requires x1. Procedure: `docs/operator-checks.md`. |
+| Simulated clients sign in and use the uplink | PARTIAL: the operator's x1 `bash scripts/class-mode.sh namespace-test` run completed with `PASS: DHCP lease, captive redirect, pre-sign-in block, signed IP/MAC bind, and uplink access`. This proves the network path for one namespace client with a signed test identity; it does not exercise multiple namespace clients or live Google sign-in. |
 | 150 concurrent socket clients, median chat latency < 1 second | PASS on Nimbus, isolated disposable Podman database and socket service: 150 connected, 150 received, 0 failures, 16.8 ms median from event-write start to socket notification, 5.3 ms event write. The isolated stack and volume were removed after the run. This measures socket fanout after one direct event-log write; it does not simulate 150 simultaneous chat submissions. |
 
 The default AP subnet is configurable and the start command checks every
@@ -153,8 +153,8 @@ Podman 5.8.7 with Compose, dnsmasq 2.92 with nftset support, nft, iw, ip,
 and dhclient are installed. System hostapd and nginx are no longer required;
 the USB AP adapter is not yet present. `sudo -n` requires an operator password. The Bitwarden
 project and all three named keys were
-checked for access without printing values. No x1 root or hardware result has
-been reported yet.
+checked for access without printing values. The x1 root namespace result is
+recorded above; live USB hardware checks remain open.
 
 The pushed draft commit `3354298` was cloned on x1. Before the container revision, a local Certbot venv was
 installed, the ignored app `.env` received OAuth credentials through the
@@ -186,7 +186,7 @@ of an overlapping host route. Python compilation, shell syntax, and
 `git diff --check` pass. No host-script network runtime remains;
 `scripts/start.py` is the older M0 app-only development entry point and is
 not used by class mode. The setup commands run from a tools image. Rootful
-Compose start/stop, network restoration, namespace test, and adapter path
+Compose start/stop, network restoration with a real AP, and adapter path
 are awaiting x1 checks.
 
 On x1, `agent-credential run --project fishjump -- podman info` succeeds
@@ -201,8 +201,10 @@ profile parses on x1 without displaying `.env` values, and the rootless
 setup/Certbot image builds there. The proxy image also builds on x1 and
 passes `nginx -t` with the existing real certificate mounted read-only in
 an isolated container network. `iw dev` shows only the built-in managed
-Wi-Fi interface; `lsusb` shows no external Wi-Fi adapter. The earlier rootless
-app stack has not yet been stopped for the rootful class-mode tests.
+Wi-Fi interface; `lsusb` shows no external Wi-Fi adapter. After the namespace
+run, x1 shows no test namespace, `chveth0`, or `172.16.77.1` address. The
+earlier rootless app stack is stopped; the unrelated `langdon_distrobox`
+container remains running.
 
 Independent Claude personal review found one startup blocker: the AP service
 healthcheck contacted loopback although the signed binding helper listens on
@@ -232,7 +234,7 @@ brief-stated 8-client limit makes it unsuitable for the target.
 
 M0 is committed (`86eabe9`); M1 is committed (`e7fdfab`). The post-M1 test
 repair is committed (`51b78b4`). Next, pull `build/m0-m2` on x1 and run the
-rootful namespace, adapter, and real-client checks in `docs/operator-checks.md`.
+adapter and real-client checks in `docs/operator-checks.md`.
 Record each result here. Docker acceptance remains deferred at the operator's
 request.
 Do not start M3.
