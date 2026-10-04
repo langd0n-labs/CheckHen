@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createHmac, randomUUID } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 import { io } from 'socket.io-client';
+import { readState } from '../lib/event-store';
 
 if (new URL(process.env.DATABASE_URL || 'postgresql://localhost/invalid').pathname !== '/checkhen_test') {
   throw new Error('Use the disposable checkhen_test database');
@@ -27,16 +28,23 @@ async function main() {
   const url = process.env.TEST_SOCKET_URL || 'http://localhost:6061';
   const first = io(url, { transports: ['websocket'], auth: { ticket: ticket(courseA.id, a.id) } });
   const second = io(url, { transports: ['websocket'], auth: { ticket: ticket(courseB.id, b.id) } });
+  const projectionPayload = Buffer.from(JSON.stringify({ courseId: courseA.id, classId: a.id,
+    projection: true, expires: Date.now() + 60000 })).toString('base64url');
+  const projectionTicket = projectionPayload + '.' + createHmac('sha256', secret)
+    .update(projectionPayload).digest('base64url');
+  const projection = io(url, { transports: ['websocket'], auth: { ticket: projectionTicket } });
   const connected = (socket: ReturnType<typeof io>) => new Promise<void>((resolve, reject) => {
     socket.once('connect', () => resolve());
     socket.once('connect_error', reject);
   });
   try {
-    await Promise.all([connected(first), connected(second)]);
+    await Promise.all([connected(first), connected(second), connected(projection)]);
     let aEvents = 0;
     let bEvents = 0;
     first.on('fetch-messages', () => { aEvents += 1; });
     second.on('fetch-messages', () => { bEvents += 1; });
+    let projectionEvents = 0;
+    projection.on('fetch-messages', () => { projectionEvents += 1; });
     let resetEvents = 0;
     second.on('pace-signals-reset', () => { resetEvents += 1; });
     first.emit('chat-message-sent', { classId: b.id, courseId: courseB.id });
@@ -44,8 +52,9 @@ async function main() {
     await new Promise(resolve => setTimeout(resolve, 1200));
     assert.equal(aEvents, 0);
     assert.equal(bEvents, 0);
+    assert.equal(projectionEvents, 0);
     assert.equal(resetEvents, 0);
-    await db.participationEvent.create({ data: { courseId: courseA.id, classId: a.id,
+    const message = await db.participationEvent.create({ data: { courseId: courseA.id, classId: a.id,
       userId: user.id, actorId: user.id, kind: 'CHAT_MESSAGE',
       payload: { message: 'Persisted', anonymousName: 'Swift Panda' } } });
     for (let retry = 0; retry < 30 && aEvents === 0; retry += 1) {
@@ -53,6 +62,18 @@ async function main() {
     }
     assert.equal(aEvents, 1);
     assert.equal(bEvents, 0);
+    assert.equal(projectionEvents, 1);
+    const hideAt = Date.now();
+    await db.participationEvent.create({ data: { courseId: courseA.id, classId: a.id,
+      userId: user.id, actorId: 'instructor', kind: 'CHAT_HIDDEN',
+      payload: { messageId: message.id }, supersedesId: message.id,
+      createdAt: new Date(Math.max(Date.now(), message.createdAt.getTime() + 1)) } });
+    for (let retry = 0; retry < 20 && projectionEvents < 2; retry += 1) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.equal(projectionEvents, 2);
+    assert.ok(Date.now() - hideAt < 1000, 'projection hide notification exceeded one second');
+    assert.deepEqual((await readState(db, { courseId: courseA.id, classId: a.id })).messages, []);
     const attacker = io(url, { transports: ['websocket'], auth: { ticket: ticket(courseA.id, b.id) }, reconnection: false });
     const denied = await new Promise<boolean>(resolve => {
       attacker.once('connect_error', () => resolve(true));
@@ -71,10 +92,11 @@ async function main() {
     });
     inactive.disconnect();
     assert.equal(rosterDenied, true);
-    console.log('PASS: sockets broadcast only persisted events and reject forged relays, mismatched tickets, and inactive rosters');
+    console.log('PASS: persisted socket events, anonymous projection hide latency, forged relay rejection, and roster isolation');
   } finally {
     first.disconnect();
     second.disconnect();
+    projection.disconnect();
     await db.$disconnect();
   }
 }

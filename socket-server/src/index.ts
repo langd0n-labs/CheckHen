@@ -7,7 +7,7 @@ const prisma = new PrismaClient(); // Initialize Prisma client for database oper
 
 const io = new Server(Number(process.env.PORT || 6060), {
   cors: {
-    origin: process.env.NEXTAUTH_URL || "http://localhost:3000",
+    origin: [process.env.NEXTAUTH_URL || "http://localhost:3000", process.env.SLIDEV_ORIGIN].filter(Boolean) as string[],
   },
 });
 
@@ -26,18 +26,21 @@ io.use(async (socket, next) => {
     const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
     if (typeof data.expires !== 'number' || data.expires < Date.now() ||
         typeof data.courseId !== 'string' || typeof data.classId !== 'string' ||
-        typeof data.userId !== 'string' || typeof data.admin !== 'boolean') throw new Error('Expired ticket');
+        (data.projection !== true &&
+          (typeof data.userId !== 'string' || typeof data.admin !== 'boolean'))) throw new Error('Expired ticket');
     const selected = await prisma.class.findFirst({
       where: { id: data.classId, courseId: data.courseId },
     });
     if (!selected) throw new Error('Unknown class session');
-    const user = await prisma.user.findUnique({ where: { id: data.userId } });
-    if (!user) throw new Error('Unknown user');
-    if (!data.admin) {
-      const roster = await prisma.rosterEntry.findUnique({
-        where: { courseId_userId: { courseId: data.courseId, userId: data.userId } },
-      });
-      if (!roster?.active) throw new Error('Inactive roster entry');
+    if (data.projection !== true) {
+      const user = await prisma.user.findUnique({ where: { id: data.userId } });
+      if (!user) throw new Error('Unknown user');
+      if (!data.admin) {
+        const roster = await prisma.rosterEntry.findUnique({
+          where: { courseId_userId: { courseId: data.courseId, userId: data.userId } },
+        });
+        if (!roster?.active) throw new Error('Inactive roster entry');
+      }
     }
     socket.data.courseId = data.courseId;
     socket.data.classId = data.classId;
@@ -99,7 +102,7 @@ io.on("connection", socket => {
 const notifications: Record<string, string> = {
   HAND_RAISED: "user-hand-update", HAND_LOWERED: "user-hand-update",
   HAND_ACKNOWLEDGED: "check-raised-hands", HAND_RATED: "check-raised-hands",
-  CHAT_MESSAGE: "fetch-messages", PACE_SIGNAL: "pace-signal-update",
+  CHAT_MESSAGE: "fetch-messages", CHAT_HIDDEN: "fetch-messages", PACE_SIGNAL: "pace-signal-update",
   PACE_RESET: "pace-signals-reset",
 };
 let cursor = new Date();
@@ -124,4 +127,4 @@ setInterval(async () => {
   } finally {
     polling = false;
   }
-}, 1000);
+}, 200);

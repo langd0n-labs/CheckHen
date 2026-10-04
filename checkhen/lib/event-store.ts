@@ -5,7 +5,8 @@ import { generateUniqueAnonymousName } from './anonymousNames';
 
 const kinds: EventKind[] = [
   'CHECK_IN', 'CHECK_OUT', 'HAND_RAISED', 'HAND_LOWERED', 'HAND_ACKNOWLEDGED',
-  'HAND_RATED', 'PACE_SIGNAL', 'PACE_RESET', 'CHAT_MESSAGE', 'SESSION_ENDED', 'DEVICE_BOUND', 'DEVICE_UNBOUND', 'UNDO',
+  'HAND_RATED', 'PACE_SIGNAL', 'PACE_RESET', 'CHAT_MESSAGE', 'CHAT_HIDDEN', 'STUDENT_MUTED',
+  'SESSION_ENDED', 'DEVICE_BOUND', 'DEVICE_UNBOUND', 'UNDO',
 ];
 type AppendInput = EventScope & {
   actorId: string;
@@ -26,6 +27,7 @@ export function validatePayload(kind: EventKind, payload: Record<string, unknown
   if (kind === 'DEVICE_BOUND') { requiredString('deviceIp'); requiredString('deviceMac'); }
   if (kind === 'DEVICE_UNBOUND') requiredString('deviceIp');
   if (kind === 'CHAT_MESSAGE') { requiredString('message'); requiredString('anonymousName'); }
+  if (kind === 'CHAT_HIDDEN') requiredString('messageId');
   if (['HAND_LOWERED', 'HAND_ACKNOWLEDGED', 'HAND_RATED'].includes(kind)) requiredString('handRaiseId');
   if (kind === 'HAND_RATED' && typeof payload.hasValue !== 'boolean') throw new Error('Invalid rating');
   if (kind === 'PACE_SIGNAL' && !['slow_down', 'ready_to_move_on'].includes(String(payload.signalType))) {
@@ -85,14 +87,19 @@ export async function appendEvent(db: PrismaClient, input: AppendInput) {
       });
       if (!member) throw new Error('Student is not on this course roster');
     }
+    if (kind === 'STUDENT_MUTED' && !input.userId) throw new Error('Mute requires a student');
+    if (kind === 'CHAT_HIDDEN' && !input.supersedesId) throw new Error('Hide requires a message');
     if (input.supersedesId) {
       const previous = await tx.participationEvent.findFirst({
         where: { id: input.supersedesId, courseId: input.courseId, classId: input.classId },
       });
       if (!previous) throw new Error('Unknown superseded event');
-      if (kind !== 'UNDO' && (kind !== previous.kind || input.userId !== previous.userId)) {
+      const hidesMessage = kind === 'CHAT_HIDDEN' && previous.kind === 'CHAT_MESSAGE' &&
+        payload.messageId === previous.id && input.userId === previous.userId;
+      if (kind !== 'UNDO' && !hidesMessage && (kind !== previous.kind || input.userId !== previous.userId)) {
         throw new Error('A correction must preserve event kind and student');
       }
+      if (kind === 'CHAT_HIDDEN' && !hidesMessage) throw new Error('Hide must target a message by that student');
     } else if (kind === 'UNDO') {
       throw new Error('Undo requires a target event');
     }

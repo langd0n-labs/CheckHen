@@ -2,7 +2,8 @@
 export type EventKind =
   | 'CHECK_IN' | 'CHECK_OUT' | 'HAND_RAISED' | 'HAND_LOWERED'
   | 'HAND_ACKNOWLEDGED' | 'HAND_RATED' | 'PACE_SIGNAL' | 'PACE_RESET'
-  | 'CHAT_MESSAGE' | 'SESSION_ENDED' | 'DEVICE_BOUND' | 'DEVICE_UNBOUND' | 'UNDO';
+  | 'CHAT_MESSAGE' | 'CHAT_HIDDEN' | 'STUDENT_MUTED'
+  | 'SESSION_ENDED' | 'DEVICE_BOUND' | 'DEVICE_UNBOUND' | 'UNDO';
 
 export type ParticipationEvent = {
   id: string;
@@ -47,7 +48,8 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
   const attendance = new Map<string, { id: string; userId: string; classId: string; anonymousName: string; deviceIp: string | null; devices: { ip: string; mac: string }[]; createdAt: Date; checkOutTime: Date | null; isPresent: boolean }>();
   const hands = new Map<string, { id: string; userId: string; classId: string; createdAt: Date; isAcknowledged: boolean; isRated: boolean; hasValue: boolean }>();
   const pace = new Map<string, { id: string; userId: string; classId: string; signalType: string; createdAt: Date }>();
-  const messages: { id: string; userId: string; classId: string; message: string; anonymousName: string; createdAt: Date }[] = [];
+  const messages = new Map<string, { id: string; userId: string; classId: string; message: string; anonymousName: string; createdAt: Date }>();
+  const mutedUsers = new Set<string>();
   let endedAt: Date | null = null;
   const byId = new Map(events.filter(e => e.courseId === scope.courseId && e.classId === scope.classId).map(e => [e.id, e]));
   const originalId = (event: ParticipationEvent): string => {
@@ -91,7 +93,11 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
     } else if (event.kind === 'PACE_RESET') {
       pace.clear();
     } else if (event.kind === 'CHAT_MESSAGE' && userId) {
-      messages.push({ id, userId, classId, createdAt, message: String(payload.message), anonymousName: String(payload.anonymousName) });
+      messages.set(id, { id: event.id, userId, classId, createdAt, message: String(payload.message), anonymousName: String(payload.anonymousName) });
+    } else if (event.kind === 'CHAT_HIDDEN') {
+      messages.delete(id);
+    } else if (event.kind === 'STUDENT_MUTED' && userId) {
+      mutedUsers.add(userId);
     } else if (event.kind === 'SESSION_ENDED') {
       endedAt = createdAt;
       for (const [student, entry] of Array.from(attendance.entries())) {
@@ -99,5 +105,5 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
       }
     }
   }
-  return { attendance: Array.from(attendance.values()), hands: Array.from(hands.values()), pace: Array.from(pace.values()), messages, endedAt };
+  return { attendance: Array.from(attendance.values()), hands: Array.from(hands.values()), pace: Array.from(pace.values()), messages: Array.from(messages.values()), mutedUsers: Array.from(mutedUsers), endedAt };
 }

@@ -88,3 +88,37 @@ it('keeps a corrected hand raise addressable by its original ID', () => {
   ];
   expect(foldEvents(events, scope).hands[0]).toMatchObject({ id: '01', isAcknowledged: true });
 });
+
+it('hides chat by an immutable moderation event and mutes only this session', () => {
+  const events = [
+    event('01', 'CHECK_IN', { anonymousName: 'Swift Panda' }),
+    event('02', 'CHAT_MESSAGE', { message: 'Question?', anonymousName: 'Swift Panda' }),
+    event('03', 'CHAT_HIDDEN', { messageId: '02' }, '02'),
+    event('04', 'STUDENT_MUTED'),
+  ];
+  expect(foldEvents(events, scope).messages).toEqual([]);
+  expect(foldEvents(events, scope).mutedUsers).toEqual(['student']);
+  expect(foldEvents(events, { courseId: 'other', classId: 'other' }).mutedUsers).toEqual([]);
+  expect(events[1].payload).toEqual({ message: 'Question?', anonymousName: 'Swift Panda' });
+  events.push(event('05', 'UNDO', {}, '03'));
+  expect(foldEvents(events, scope).messages[0].message).toBe('Question?');
+});
+
+it('addresses the effective message after a chat correction', () => {
+  const events = [
+    event('01', 'CHAT_MESSAGE', { message: 'Old text', anonymousName: 'Swift Panda' }),
+    event('02', 'CHAT_MESSAGE', { message: 'Corrected text', anonymousName: 'Swift Panda' }, '01'),
+  ];
+  expect(foldEvents(events, scope).messages[0].id).toBe('02');
+  events.push(event('03', 'CHAT_HIDDEN', { messageId: '02' }, '02'));
+  expect(foldEvents(events, scope).messages).toEqual([]);
+});
+
+it('keeps only the newest correction in a chain', () => {
+  const events = [
+    event('01', 'CHAT_MESSAGE', { message: 'First', anonymousName: 'Swift Panda' }),
+    event('02', 'CHAT_MESSAGE', { message: 'Second', anonymousName: 'Swift Panda' }, '01'),
+    event('03', 'CHAT_MESSAGE', { message: 'Third', anonymousName: 'Swift Panda' }, '02'),
+  ];
+  expect(foldEvents(events, scope).messages.map(message => message.message)).toEqual(['Third']);
+});

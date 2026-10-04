@@ -10,6 +10,9 @@ import { expireSessions } from '@/lib/session-expiry';
 import checkIn from '@/pages/api/student/check-in';
 import reBind from '@/pages/api/student/re-bind';
 import checkOut from '@/pages/api/student/check-out';
+import sendChat from '@/pages/api/student/send-chat';
+import hideChat from '@/pages/api/admin/hide-chat';
+import muteStudent from '@/pages/api/admin/mute-student';
 
 jest.mock('@/lib/request-scope', () => ({ requireScope: jest.fn() }));
 jest.mock('@/lib/portal-binding', () => ({
@@ -107,6 +110,25 @@ integration('route → store → attendance fold', () => {
     expect(correction.kind).toBe('CHECK_IN');
     expect(correction.supersedesId).toBe(original.id);
     expect((await readState(prisma, scope)).attendance[0].anonymousName).toBe('Corrected Otter');
+  });
+
+  it('hides a stored message and mutes its student without deleting facts', async () => {
+    await invoke(checkIn, '172.16.77.20');
+    const request = async (handler: typeof checkIn, body: Record<string, unknown>) => {
+      const { req, res } = createMocks({ method: 'POST', query: scope, body });
+      await handler(req as any, res as any);
+      return res;
+    };
+    expect((await request(sendChat, { message: 'Question?' }))._getStatusCode()).toBe(200);
+    const message = (await readEvents(prisma, scope)).find(event => event.kind === 'CHAT_MESSAGE')!;
+    expect((await request(hideChat, { messageId: message.id }))._getStatusCode()).toBe(200);
+    expect((await readState(prisma, scope)).messages).toEqual([]);
+    const hide = (await readEvents(prisma, scope)).find(event => event.kind === 'CHAT_HIDDEN')!;
+    expect(hide.supersedesId).toBe(message.id);
+    expect((await readEvents(prisma, scope)).some(event => event.id === message.id)).toBe(true);
+    expect((await request(muteStudent, { userId: user.id }))._getStatusCode()).toBe(200);
+    expect((await request(sendChat, { message: 'Again?' }))._getStatusCode()).toBe(403);
+    expect((await readState(prisma, scope)).mutedUsers).toEqual([user.id]);
   });
 
   it('continues past a failed expiry, skips legacy and empty classes, and stamps the lapse', async () => {

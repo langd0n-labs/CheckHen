@@ -6,14 +6,10 @@ import { generateUniqueAnonymousName } from './anonymousNames';
 import type { EventKind } from './events';
 import { bindDevice, PortalBindingError, revokeCurrentDevice, revokeDevice, revokeSessionDevices, revokeStudentDevices } from './portal-binding';
 import type { DeviceBinding } from './portal-binding';
+import { instructorChat, studentChat } from './chat-view';
 
 const writes = new Set(['check-in', 're-bind', 'check-out', 'toggle-vhr', 'send-chat', 'send-pace-signal',
-  'ack-hand-raise', 'rate-hand-raise', 'reset-pace-signals', 'end-class-early']);
-
-function publicMessage<T extends { userId: string }>(message: T): Omit<T, 'userId'> {
-  const { userId: _userId, ...visible } = message;
-  return visible;
-}
+  'ack-hand-raise', 'rate-hand-raise', 'reset-pace-signals', 'end-class-early', 'hide-chat', 'mute-student']);
 
 export function participationHandler(action: string, adminOnly = false) {
   return async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -93,12 +89,28 @@ export function participationHandler(action: string, adminOnly = false) {
       return res.json({ message: 'Pace signal recorded', signalType });
     }
     if (action === 'send-chat') {
+      if (state.mutedUsers?.includes(user.id)) return res.status(403).json({ message: 'Muted for this class' });
       const message = req.body?.message;
       if (typeof message !== 'string' || !message.trim() || message.length > 1000) {
         return res.status(400).json({ message: 'Invalid message' });
       }
       const event = await append('CHAT_MESSAGE', { message, anonymousName: checkIn!.anonymousName });
       return json({ id: event.id, createdAt: event.createdAt, message, anonymousName: checkIn!.anonymousName });
+    }
+    if (action === 'hide-chat') {
+      const target = state.messages.find(message => message.id === req.body?.messageId);
+      if (!target) return res.status(404).json({ message: 'Message not found' });
+      await appendEvent(prisma, { ...scope, actorId: user.id, userId: target.userId,
+        kind: 'CHAT_HIDDEN', payload: { messageId: target.id }, supersedesId: target.id });
+      return res.json({ message: 'Message hidden' });
+    }
+    if (action === 'mute-student') {
+      const targetId = req.body?.userId;
+      if (typeof targetId !== 'string' || !state.attendance.some(entry => entry.userId === targetId)) {
+        return res.status(404).json({ message: 'Student not found in this class' });
+      }
+      if (!state.mutedUsers?.includes(targetId)) await append('STUDENT_MUTED', {}, targetId);
+      return res.json({ message: 'Student muted' });
     }
     if (action === 'reset-pace-signals') {
       await append('PACE_RESET', {}, null);
@@ -139,20 +151,15 @@ export function participationHandler(action: string, adminOnly = false) {
         isCheckedIn: active && !!checkIn?.isPresent,
         classId: selected.id, className: selected.name, classColor: selected.color,
         anonymousName: checkIn?.anonymousName ?? null, handRaised: !!ownHand,
-        paceSignals: counts, messages: checkIn ? state.messages.slice(-100).map(publicMessage) : [],
+        paceSignals: counts, messages: checkIn ? studentChat(state.messages.slice(-100), user.id) : [],
       });
     }
     if (!adminOnly && !checkIn) return res.status(403).json({ message: 'Not checked in' });
     if (action === 'fetch-all-chat' || action === 'fetch-last-chat') {
       const messages = state.messages.slice(action === 'fetch-last-chat' ? -1 : adminOnly ? -state.messages.length : -25);
-      if (!adminOnly) return json(messages.map(publicMessage));
+      if (!adminOnly) return json(studentChat(messages, user.id));
       const users = await prisma.user.findMany({ where: { id: { in: messages.map(m => m.userId) } } });
-      return json(messages.map(message => {
-        const author = users.find(entry => entry.id === message.userId);
-        return { ...message, userName: author?.email.split('@')[0] ?? 'Unknown',
-          user: { email: author?.email ?? '', displayName: author?.displayName ?? null,
-            namePronunciation: author?.namePronunciation ?? null, pronouns: author?.pronouns ?? null } };
-      }));
+      return json(instructorChat(messages, users));
     }
     const users = await prisma.user.findMany({
       where: { id: { in: [...state.attendance, ...state.hands].map(entry => entry.userId) } },

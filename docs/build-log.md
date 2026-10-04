@@ -381,3 +381,35 @@ clearing the first student's binding without a verified checkout would grant
 access under the wrong identity. Review finding 11 is deferred: retry policy,
 socket poll ordering, event log growth, admin correction scope, and the other
 listed maintenance items do not block the M3 network and attendance checks.
+
+## M4 — chat, moderation, projection
+
+Chat moderation now appends `CHAT_HIDDEN` events that supersede the target
+message and `STUDENT_MUTED` events scoped to the class session. The original
+message remains in the immutable event log. A mute rejects later chat from
+that student. Student responses expose anonymous names and an `isOwn` flag;
+instructor responses include the real author; projection responses contain
+only the message, anonymous name, ID, and timestamp.
+
+The instructor dashboard can hide a message, mute its author, open an I5
+projection window, and copy a short-lived projection ticket for I6. The
+ticket is signed for one course and class and expires at class end or after
+four hours. Both projection clients use the anonymous projection API and the
+same socket notification channel. Socket polling runs every 200 ms; clients
+also refresh every 500 ms. The Slidev component is a separate package in
+`packages/slidev-chat`, imported by the sample deck in
+`examples/slidev-chat`. Slidev's exact origin is configured through
+`SLIDEV_ORIGIN` when the deck runs on another origin.
+
+| M4 acceptance check | Result |
+| --- | --- |
+| Correct name rules in student, instructor, I5, and I6 views | PASS: chat-view unit tests check each payload; API and projection page tests check that room views reveal no student identity. |
+| Hidden message leaves I5 and I6 within one second | PASS in the disposable Postgres/socket test: the hide event reached the projection socket in less than one second and the folded message list became empty. Projection page and Slidev feed tests verify that socket updates remove the message from view state. |
+| Sample Slidev deck imports I6 and shows live chat | PASS: the sample imports the package, its production build succeeds with Slidev 53, and the feed unit test verifies live socket refresh and anonymous output. |
+
+Verification on 2026-10-04: 21 Jest suites and 192 tests, seven
+route-to-store Postgres integration tests, the event-store and legacy
+migration scripts, socket isolation and moderation latency, the Slidev feed
+unit test, TypeScript checks for the app and socket server, and the app and
+sample deck production builds passed. M4 did not change the AP network layer. The
+root x1 namespace test remains a prerequisite before M5.

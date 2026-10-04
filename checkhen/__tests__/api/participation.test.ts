@@ -15,6 +15,8 @@ import { bindDevice, revokeCurrentDevice, revokeDevice, revokeSessionDevices, re
 import paceSignal from '@/pages/api/student/send-pace-signal';
 import acknowledge from '@/pages/api/admin/ack-hand-raise';
 import fetchCheckIns from '@/pages/api/admin/fetch-check-ins';
+import hideChat from '@/pages/api/admin/hide-chat';
+import muteStudent from '@/pages/api/admin/mute-student';
 
 jest.mock('@/lib/request-scope', () => ({ requireScope: jest.fn(), isInstructor: jest.fn() }));
 jest.mock('@/lib/event-store', () => ({ appendEvent: jest.fn(), readState: jest.fn() }));
@@ -148,6 +150,23 @@ describe('event-backed check-in', () => {
 });
 
 describe('event-backed chat and pace', () => {
+  it('writes a hide event that supersedes the message', async () => {
+    (readState as jest.Mock).mockResolvedValue({ ...checkedIn(), messages: [{
+      id: 'message-1', userId: user.id, classId: scope.classId,
+      message: 'Question?', anonymousName: 'Swift Panda', createdAt: new Date(),
+    }] });
+    expect((await invoke(hideChat, 'POST', { messageId: 'message-1' }))._getStatusCode()).toBe(200);
+    expect(appendEvent).toHaveBeenCalledWith(prisma, expect.objectContaining({
+      kind: 'CHAT_HIDDEN', userId: user.id, supersedesId: 'message-1', payload: { messageId: 'message-1' },
+    }));
+  });
+  it('mutes a student for the session and refuses later chat', async () => {
+    (readState as jest.Mock).mockResolvedValue(checkedIn());
+    expect((await invoke(muteStudent, 'POST', { userId: user.id }))._getStatusCode()).toBe(200);
+    expect(appendEvent).toHaveBeenCalledWith(prisma, expect.objectContaining({ kind: 'STUDENT_MUTED', userId: user.id }));
+    (readState as jest.Mock).mockResolvedValue({ ...checkedIn(), mutedUsers: [user.id] });
+    expect((await invoke(sendChat, 'POST', { message: 'Question?' }))._getStatusCode()).toBe(403);
+  });
   it('does not expose stable user IDs in student chat responses', async () => {
     const message = { id: 'message-1', userId: 'student', classId: scope.classId,
       message: 'Hello', anonymousName: 'Swift Panda', createdAt: new Date() };

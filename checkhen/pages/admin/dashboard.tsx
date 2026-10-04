@@ -56,6 +56,7 @@ type HandRaise = {
 
 type ChatMessage = {
   id: string;
+  userId: string;
   message: string;
   anonymousName: string | null;
   createdAt: string;
@@ -227,6 +228,45 @@ export default function AdminDashboard() {
     const data = await response.json();
     const jsonData = JSON.parse(data.message);
     setMessages(jsonData);
+  };
+
+  const hideMessage = async (messageId: string) => {
+    const response = await fetch('/api/admin/hide-chat', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId }) });
+    if (!response.ok) notifications.show({ title: 'Error', message: 'Could not hide message', color: 'red' });
+    else fetchAllChatMessages();
+  };
+
+  const muteStudent = async (userId: string) => {
+    const response = await fetch('/api/admin/mute-student', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId }) });
+    if (!response.ok) notifications.show({ title: 'Error', message: 'Could not mute student', color: 'red' });
+    else notifications.show({ title: 'Student muted', message: 'Chat is disabled for this student until class ends.' });
+  };
+
+  const projectionTicket = async (): Promise<string | null> => {
+    const response = await fetch('/api/admin/projection-ticket', { method: 'POST' });
+    if (!response.ok) {
+      notifications.show({ title: 'Error', message: 'Could not open projection', color: 'red' });
+      return null;
+    }
+    return (await response.json()).ticket;
+  };
+
+  const openProjection = async () => {
+    const target = window.open('about:blank', '_blank');
+    const ticket = await projectionTicket();
+    if (!ticket) { target?.close(); return; }
+    if (!target) { notifications.show({ title: 'Pop-up blocked', message: 'Allow a new window for projection.', color: 'red' }); return; }
+    target.opener = null;
+    target.location.href = `/projection?ticket=${encodeURIComponent(ticket)}`;
+  };
+
+  const copySlidevTicket = async () => {
+    const ticket = await projectionTicket();
+    if (!ticket) return;
+    await navigator.clipboard.writeText(ticket);
+    notifications.show({ title: 'Slidev token copied', message: 'Paste it into the sample deck URL as the ticket parameter.' });
   };
 
 
@@ -594,7 +634,13 @@ export default function AdminDashboard() {
         {/* Center Column - De-anonymized Chat */}
         <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <Paper p="md" shadow="xs" withBorder style={{ borderRadius: 0 }}>
-            <Title order={4}>Class Discussion</Title>
+            <Group justify="space-between">
+              <Title order={4}>Class Discussion</Title>
+              <Group gap="xs">
+                <Button size="xs" variant="light" onClick={openProjection} disabled={!currentClassId}>Project chat</Button>
+                <Button size="xs" variant="subtle" onClick={copySlidevTicket} disabled={!currentClassId}>Copy Slidev token</Button>
+              </Group>
+            </Group>
             <Text size="sm" c="dimmed">
               De-anonymized view (real names shown)
             </Text>
@@ -640,6 +686,10 @@ export default function AdminDashboard() {
                       )}
                     </Group>
                     <Text size="sm">{msg.message}</Text>
+                    <Group gap="xs" mt="xs">
+                      <Button size="xs" variant="subtle" color="orange" onClick={() => hideMessage(msg.id)}>Hide</Button>
+                      <Button size="xs" variant="subtle" color="red" onClick={() => muteStudent(msg.userId)}>Mute student</Button>
+                    </Group>
                   </Paper>
                 ))
               )}

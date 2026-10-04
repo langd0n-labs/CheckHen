@@ -1,0 +1,14 @@
+{
+  "name": "checkhen-slidev-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "slidev --host 0.0.0.0"
+  },
+  "dependencies": {
+    "@checkhen/slidev-chat": "file:../../packages/slidev-chat",
+    "@slidev/cli": "53.0.0",
+    "@slidev/theme-default": "0.25.0",
+    "vue": "^3.0.0"
+  }
+}

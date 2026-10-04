@@ -43,7 +43,7 @@ type ChatMessage = {
   message: string;
   anonymousName: string | null;
   createdAt: string;
-  userId: string;
+  isOwn: boolean;
 };
 
 export default function HomePage() {
@@ -620,7 +620,7 @@ export default function HomePage() {
                 </Text>
               ) : (
                 messages.map((msg) => {
-                  const isOwnMessage = msg.userId === user?.id;
+                  const isOwnMessage = msg.isOwn;
                   return (
                     <Paper
                       key={msg.id}

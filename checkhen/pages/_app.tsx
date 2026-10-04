@@ -9,8 +9,10 @@ import { MantineProvider } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
 import { theme } from '../theme';
 import { SessionScopePicker } from '@/components/SessionScopePicker';
+import { useRouter } from 'next/router';
 
 export default function App({ Component, pageProps: { session, ...pageProps } }: AppProps) {
+  const router = useRouter();
   return (
     <SessionProvider session={session}>
       <MantineProvider theme={theme}>
@@ -23,7 +25,7 @@ export default function App({ Component, pageProps: { session, ...pageProps } }:
           />
           <link rel="shortcut icon" href="/favicon.svg" />
         </Head>
-        <SessionScopePicker />
+        {router.pathname !== '/projection' && <SessionScopePicker />}
         <Component {...pageProps} />
       </MantineProvider>
     </SessionProvider>
