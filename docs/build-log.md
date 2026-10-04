@@ -19,6 +19,9 @@ Branch: build/m0-m2. Scope: M0, M1, M2 only.
 - 2026-10-03: Operator approved assigning all existing sessions to one Imported
   course, preserving the original records.
 - Send decision requests to Telegram alerts as well as the build session.
+- 2026-10-03: Preserve existing test suites. If a change breaks a test, update
+  it for the new design. Ask before deleting or replacing a suite. This rule
+  is also in `OPS.md`.
 
 ## M0 — implementation verified; operator checks pending
 
@@ -68,10 +71,7 @@ connection. The interface provides course and session selection.
 | Undo and correction append new events; folded state is correct | PASS: `test-event-store.ts` records an original pace event, correction, undo, and undo of undo; reads after each operation match the expected state. The original event remains unchanged and 12 concurrent appends receive distinct order timestamps. |
 
 Verification: the populated legacy migration passes `test-legacy-import.ts`.
-Jest route suites were rewritten around the event-backed API because the old
-suites asserted direct writes to legacy tables. The replacement covers scope,
-roster, check-in, chat, pace, and instructor actions. TypeScript and Jest pass.
-Final results: TypeScript passes; Jest passes 8 suites and 49 tests. The live
+M1 milestone results: TypeScript passes; Jest passes 8 suites and 49 tests. The live
 socket test passes cross-course isolation, mismatched-ticket rejection, and
 inactive-roster rejection. The final Podman production image builds, migration
 `20261003000000_courses_and_events` applies to the retained database, all three
@@ -83,6 +83,25 @@ the unused socket argument; both were fixed. It also claimed repeated trigger
 names block migration. PostgreSQL scopes trigger names by table; both clean and
 populated migrations applied successfully. The reviewer had no Node runtime.
 
+Post-M1 test repair: the five deleted route suites were restored and updated
+for the event-backed API.
+
+| Requested check | Result |
+| --- | --- |
+| Every instructor route returns 403 for a non-instructor | PASS: the route contract suite exercises the real authorization path for all 14 instructor routes. |
+| Chat rejects missing, empty, whitespace-only, and over-1000-character messages | PASS: the restored chat suite checks all four cases and confirms no event is appended. |
+| Pace rejects a missing or invalid signal type | PASS: the restored pace suite checks absent, empty, and unknown types and confirms no event is appended. |
+| Every route rejects the wrong HTTP method | PASS: the route contract suite checks an unsupported method on all 36 first-party API routes, excluding the framework-managed NextAuth handler. The sweep found that `/api/ping` accepted unsupported methods; it now returns 405. |
+| Check-in and chat reject an ended session | PASS: the restored suites check both 400 responses and confirm no event is appended. |
+| Instructor attendance reports per-student hand-raise counts | PASS: the restored attendance suite checks counts of two and zero for two different students. |
+
+Final verification: 14 Jest suites and 121 tests pass, TypeScript and targeted
+ESLint/Prettier pass, and
+`git diff --check` passes. An independent Codex bulk review found no
+implementation defect. It noted that the restored instructor suites mock a
+scope denial; those tests also assert the instructor-only scope request, while
+the route contract suite exercises the real non-instructor 403 path.
+
 ## M2 — laptop network profile, class mode
 
 Not started. Portal binding, simulated uplink, 150-client latency, and physical
@@ -90,7 +109,7 @@ adapter checks are pending. No adapter has been validated for 150 stations.
 
 ## Resume
 
-M0 is committed (`86eabe9`). M1 is complete. Notify the operator in Telegram
-alerts and in the build session, then pause before M2 so the operator can
-switch account or model. Docker acceptance remains deferred at the operator's
-request. Do not start M3.
+M0 is committed (`86eabe9`); M1 is committed (`e7fdfab`). The operator was
+notified in the build session and Telegram alerts. The post-M1 test repair is
+complete; pause before M2 for further operator guidance. Docker acceptance
+remains deferred at the operator's request. Do not start M3.
