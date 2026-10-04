@@ -221,8 +221,10 @@ application layer.
 
 - Host: a Linux laptop with a USB Wi-Fi adapter that supports AP mode. The
   laptop's built-in Wi-Fi or Ethernet is the uplink.
-- Run the network layer in a privileged container with host networking, or as
-  host scripts that one command installs. Choose one and document the reason.
+- Run the network layer (hostapd, dnsmasq, nftables) in one privileged
+  container with host networking. Run nginx in the application's Compose
+  stack. The host needs only Podman and the USB adapter; install nothing else
+  on it. Operator decision, 2026-10-03.
 - One command starts class mode. One command switches to exam mode and back.
   One command stops everything and restores the laptop's network.
 
