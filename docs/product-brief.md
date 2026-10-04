@@ -221,8 +221,10 @@ application layer.
 
 - Host: a Linux laptop with a USB Wi-Fi adapter that supports AP mode. The
   laptop's built-in Wi-Fi or Ethernet is the uplink.
-- Run the network layer in a privileged container with host networking, or as
-  host scripts that one command installs. Choose one and document the reason.
+- Run the network layer (hostapd, dnsmasq, nftables) in one privileged
+  container with host networking. Run nginx in the application's Compose
+  stack. The host needs only Podman and the USB adapter; install nothing else
+  on it. Operator decision, 2026-10-03.
 - One command starts class mode. One command switches to exam mode and back.
   One command stops everything and restores the laptop's network.
 
@@ -290,6 +292,15 @@ if it does.
 
 Do the milestones in order. A milestone is complete only when each acceptance
 check passes. Record the result of each check in `docs/build-log.md`.
+
+Rules for every milestone:
+
+- Every new module gets unit tests.
+- When a change breaks an existing test, update the test to the new design. Do
+  not delete or skip a test without the operator's approval.
+- If the brief seems wrong, a check seems unreasonable, or a simpler design
+  meets the same goal, stop and tell the operator before you build around it.
+  Say what you would change and why.
 
 Some checks need hardware that the build environment does not have: a USB Wi-Fi
 adapter, a real router, a macOS or Windows laptop, phones. For each such check,
