@@ -137,7 +137,7 @@ identity; live Google-to-BU sign-in still needs a browser on x1.
 | Acceptance check | Result |
 | --- | --- |
 | Captive portal signs a student in with Google and binds IP and MAC | DEFERRED LIVE CHECK: the Auth.js callback requires a verified `bu.edu` Workspace identity, and check-in calls a signed local helper that reads the DHCP lease, grants the IP/MAC pair, and appends the binding to the event log. Four OAuth-domain cases and four portal check-in cases pass; a fresh PostgreSQL migration and event-store integration test accept `DEVICE_BOUND`. The operator deferred the live x1 Google→BU redirect trace, real sign-in, and adapter/client check until the USB radio arrives. This acceptance check is not yet proven end to end. |
-| Simulated clients sign in and use the uplink | PARTIAL: the operator's x1 `bash scripts/class-mode.sh namespace-test` run completed with `PASS: DHCP lease, captive redirect, pre-sign-in block, signed IP/MAC bind, and uplink access`. This proves the network path for one namespace client with a signed test identity; it does not exercise multiple namespace clients or live Google sign-in. |
+| Simulated clients sign in and use the uplink | PASS for simulated clients: on 2026-10-05, the operator ran `bash scripts/class-mode.sh namespace-test` on x1 (Fedora 44) at `d87b82f` in the rebuilt network image. Result: `PASS: dual-stack and IPv6-only SLAAC clients, unbound isolation, revoke, link flap, private blocks, and second class cycle`. The test uses signed test identities; live Google sign-in and USB adapter checks remain open. |
 | 150 concurrent socket clients, median chat latency < 1 second | PASS on Nimbus, isolated disposable Podman database and socket service: 150 connected, 150 received, 0 failures, 16.8 ms median from event-write start to socket notification, 5.3 ms event write. The isolated stack and volume were removed after the run. This measures socket fanout after one direct event-log write; it does not simulate 150 simultaneous chat submissions. |
 
 The default AP subnet is configurable and the start command checks every
@@ -262,7 +262,7 @@ check-in.
 
 | Acceptance check | Result |
 | --- | --- |
-| Check-in from outside the AP subnet fails | PASS in unit tests: the agent rejects an address outside its configured subnet; the app maps the agent's 403 to a failed check-in. A missing agent configuration also fails closed. Live AP testing remains part of the deferred M2 operator check. |
+| Check-in from outside the AP subnet fails | PASS: unit tests show the agent rejecting addresses outside its subnet and the app mapping its 403 to a failed check-in. The 2026-10-05 x1 namespace test at `d87b82f` also rejected an outside-subnet bind request. Live USB adapter testing remains open. |
 | A second device does not change attendance | PASS: the check-in route records `DEVICE_BOUND` rather than another `CHECK_IN`; the event fold retains one attendance record and its primary device. A second device's checkout revokes only that binding and appends no `CHECK_OUT`. |
 
 Initial M3 verification: 16 Jest suites and 133 tests passed; TypeScript
@@ -333,7 +333,7 @@ pre-binding uplink blocks to both families. IPv4 remains available without an
 IPv6 uplink. The namespace script covers a dual-stack client, an IPv6-only
 client, unbound traffic on both families, private destination blocks, agent
 restart with a stale `bindings.json`, reassociation, revoke, and a second class
-cycle. The root namespace test is written but has not run. The live AP and
+cycle. The root namespace test passed on x1 on 2026-10-05. The live AP and
 Google sign-in checks remain pending.
 
 The disposable PostgreSQL script passed against a local test server on
@@ -370,7 +370,7 @@ test has not run; the operator will run it on x1 after this commit.
 Local verification on 2026-10-04: 25 laptop Python tests, 172 Jest tests,
 TypeScript typecheck, and the disposable Postgres script passed. The Postgres
 script covered six route-to-store integration cases, legacy import, and
-socket isolation. On nimbus, the agent-test default is
+socket isolation. On the build host, the agent-test default is
 `CHECKHEN_TEST_PG_ADMIN_URL=postgresql://agent:agent@127.0.0.1:55432/postgres`.
 It is a loopback-only disposable test server.
 
@@ -451,3 +451,9 @@ hit an `IndexError` when `ip -j -4 address` returned `[]` for the intentionally
 IPv6-only second client. Address reads now treat an empty result as no
 addresses. Required link and uplink-route reads report a clear error if
 `ip -j` returns no entries. The operator namespace rerun remains pending.
+
+On 2026-10-05, the operator reran `bash scripts/class-mode.sh namespace-test`
+on x1 (Fedora 44) at commit `d87b82f` in the rebuilt network image. It
+reported `PASS: dual-stack and IPv6-only SLAAC clients, unbound isolation,
+revoke, link flap, private blocks, and second class cycle`. The live USB
+adapter, real AP client, and Google sign-in checks remain open.
