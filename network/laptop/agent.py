@@ -14,6 +14,7 @@ import urllib.error
 import urllib.request
 
 from settings import read_env
+import exam
 
 
 STATE = Path("/run/checkhen")
@@ -266,9 +267,12 @@ class Handler(BaseHTTPRequestHandler):
     subnet = ipaddress.IPv4Network("172.16.77.0/24")
     ipv6_subnet = ipaddress.IPv6Network("fd9b:2f69:8c44::/64")
     interface = "wlan0"
+    test_mode = False
+    exam_callback_url = "http://127.0.0.1:3000/api/internal/exam-failed"
 
     def do_POST(self) -> None:
-        if self.path not in {"/bind", "/revoke", "/revoke-student", "/revoke-session"}:
+        if self.path not in {"/bind", "/revoke", "/revoke-student", "/revoke-session",
+                             "/exam-start", "/exam-stop", "/exam-status", "/exam-heartbeat"}:
             self.send_error(404)
             return
         try:
@@ -282,10 +286,50 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(raw)
             if abs(time.time() * 1000 - data["timestamp"]) > 30000:
                 raise PermissionError("Expired request")
-            keys = ("courseId", "classId") if self.path == "/revoke-session" else ("userId", "courseId", "classId")
+            keys = (("userId", "courseId", "classId") if self.path in
+                    {"/bind", "/revoke", "/revoke-student", "/exam-heartbeat"} else ("courseId", "classId"))
             if not all(isinstance(data.get(key), str) and data[key] for key in keys):
                 raise ValueError("Missing scope")
             ip = ap_client_ip(data["ip"], self.subnet, self.ipv6_subnet) if self.path in {"/bind", "/revoke"} else None
+            if self.path.startswith("/exam-"):
+                scope = {key: data[key] for key in ("courseId", "classId")}
+                if self.path == "/exam-start":
+                    if not isinstance(data.get("examId"), str) or not data["examId"]:
+                        raise ValueError("Missing exam ID")
+                    result = exam.start(scope, data["examId"], data.get("domains"),
+                                        data.get("clients"), data.get("thresholdSeconds"))
+                    body = json.dumps({"examId": result["examId"]}).encode()
+                elif self.path == "/exam-stop":
+                    active_exam = exam.read()
+                    if active_exam:
+                        if any(active_exam[key] != scope[key] for key in scope):
+                            raise PermissionError("Wrong exam session")
+                        stations = set() if self.test_mode else station_macs(self.interface)
+                        statuses = exam.monitor(stations, self.secret, self.exam_callback_url)
+                        latest = exam.read()
+                        if any(status["failed"] and not latest["clients"][status["userId"]]["reported"]
+                               for status in statuses):
+                            raise OSError("Automatic fail could not be recorded")
+                    exam.stop(scope)
+                    body = b'{}'
+                elif self.path == "/exam-heartbeat":
+                    exam.heartbeat(scope, data["userId"])
+                    body = b'{}'
+                else:
+                    state = exam.read()
+                    if state and any(state[key] != scope[key] for key in scope):
+                        raise PermissionError("Wrong exam session")
+                    stations = set() if self.test_mode else station_macs(self.interface)
+                    statuses = exam.connection_status(state, stations, time.time()) if state else []
+                    if state:
+                        exam.save(state)
+                    body = json.dumps({"active": bool(state), "clients": statuses}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             bindings = read_bindings()
             if self.path == "/bind":
                 assert ip is not None
@@ -295,6 +339,11 @@ class Handler(BaseHTTPRequestHandler):
                     raise PermissionError("No active AP neighbor or DHCP lease")
                 previous = bindings.get(ip)
                 identity = (data["userId"], data["courseId"], data["classId"])
+                known_device = any(binding.get("mac") == mac and
+                                   tuple(binding.get(key) for key in ("userId", "courseId", "classId")) == identity
+                                   for binding in bindings.values())
+                if exam.read() and not known_device:
+                    raise PermissionError("No new device binding during an exam")
                 if any(binding.get("mac") == mac and
                        tuple(binding.get(key) for key in ("userId", "courseId", "classId")) != identity
                        for binding in bindings.values()):
@@ -366,6 +415,8 @@ def main() -> None:
     Handler.subnet = ipaddress.IPv4Network(settings.get("AP_SUBNET", "172.16.77.0/24"))
     Handler.ipv6_subnet = ipaddress.IPv6Network(settings.get("AP_IPV6_PREFIX", "fd9b:2f69:8c44::/64"))
     Handler.interface = settings["AP_INTERFACE"]
+    Handler.test_mode = settings.get("AP_TEST_MODE") == "1"
+    Handler.exam_callback_url = settings.get("EXAM_CALLBACK_URL", Handler.exam_callback_url)
     address = settings.get("AP_ADDRESS", "172.16.77.1")
     reconcile_bindings()
     interface = None if settings.get("AP_TEST_MODE") == "1" else settings["AP_INTERFACE"]
@@ -378,6 +429,8 @@ def main() -> None:
             flush_checkout_notifications(Handler.secret,
                 settings.get("APP_CALLBACK_URL", "http://127.0.0.1:3000/api/internal/portal-expired"),
                 read_bindings())
+            exam.monitor(set() if interface is None else station_macs(interface), Handler.secret,
+                Handler.exam_callback_url)
         except (OSError, subprocess.CalledProcessError):
             print("Portal binding cleanup failed; retrying", file=sys.stderr)
 

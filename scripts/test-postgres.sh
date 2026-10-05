@@ -66,7 +66,8 @@ PRISMA_SCHEMA_ENGINE_BINARY="$schema_engine" \
 DATABASE_URL=$test_url \
   "$root/socket-server/node_modules/.bin/prisma" generate --schema "$root/socket-server/prisma/schema.prisma" >/dev/null
 (cd "$root/socket-server" && ./node_modules/.bin/tsc)
-AUTH_SECRET=checkhen-disposable-test-secret DATABASE_URL=$test_url PORT=6061 \
+AUTH_SECRET=checkhen-disposable-test-secret PORTAL_CONTROL_SECRET=checkhen-disposable-test-secret \
+  PORTAL_AGENT_URL=http://127.0.0.1:7879 DATABASE_URL=$test_url PORT=6061 \
   node "$root/socket-server/dist/index.js" >"$old/socket.log" 2>&1 &
 socket_pid=$!
 for _ in $(seq 1 30); do
@@ -74,5 +75,6 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 (cd "$app" && DATABASE_URL=$test_url TEST_AUTH_SECRET=checkhen-disposable-test-secret \
+  TEST_EXAM_AGENT_PORT=7879 \
   TEST_SOCKET_URL=http://127.0.0.1:6061 "$tsx" scripts/test-socket-isolation.ts)
 echo 'PASS: event store, legacy import, and socket isolation'

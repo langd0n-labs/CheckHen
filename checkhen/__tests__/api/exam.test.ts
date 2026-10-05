@@ -1,0 +1,132 @@
+import { createHmac } from 'node:crypto';
+import { Readable } from 'node:stream';
+import { createMocks } from 'node-mocks-http';
+import { appendEvent, readState } from '@/lib/event-store';
+import { examAgent } from '@/lib/exam-control';
+import { prisma } from '@/lib/prisma';
+import { requireScope } from '@/lib/request-scope';
+import examRoute from '@/pages/api/admin/exam';
+import failedRoute from '@/pages/api/internal/exam-failed';
+
+jest.mock('@/lib/request-scope', () => ({ requireScope: jest.fn() }));
+jest.mock('@/lib/event-store', () => ({ appendEvent: jest.fn(), readState: jest.fn() }));
+jest.mock('@/lib/exam-control', () => ({
+  examDomains: jest.requireActual('@/lib/exam-control').examDomains,
+  examAgent: jest.fn(),
+}));
+jest.mock('@/lib/prisma', () => ({ prisma: { user: { findMany: jest.fn() } } }));
+
+const scope = { courseId: 'course', classId: 'class' };
+const user = { id: 'instructor' };
+const selected = { createdAt: new Date(Date.now() - 1000), duration: 60 };
+const attendance = [
+  {
+    userId: 'student',
+    isPresent: true,
+    deviceIp: '172.16.77.20',
+    devices: [{ ip: '172.16.77.20', mac: '02:00:00:00:00:20' }],
+  },
+];
+const state = { exam: null, examFails: [], attendance, endedAt: null };
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  process.env.PORTAL_CONTROL_SECRET = 'test-secret';
+  (requireScope as jest.Mock).mockResolvedValue({ scope, user, selected, admin: true });
+  (readState as jest.Mock).mockResolvedValue(state);
+  (examAgent as jest.Mock).mockResolvedValue({ active: true, clients: [] });
+  (appendEvent as jest.Mock).mockResolvedValue({ id: 'event' });
+  (prisma.user.findMany as jest.Mock).mockResolvedValue([]);
+});
+
+const invoke = async (action: string, body: Record<string, unknown> = {}) => {
+  const { req, res } = createMocks({ method: 'POST', query: scope, body: { action, ...body } });
+  await examRoute(req as any, res as any);
+  return res;
+};
+
+it('starts with primary AP devices and an allowlist, then records the event', async () => {
+  const res = await invoke('start', { domains: ['Exam.Example.edu.'] });
+  expect(res._getStatusCode()).toBe(200);
+  expect(examAgent).toHaveBeenCalledWith(
+    'exam-start',
+    expect.objectContaining({
+      ...scope,
+      domains: ['exam.example.edu'],
+      thresholdSeconds: 30,
+      clients: [{ userId: 'student', mac: '02:00:00:00:00:20' }],
+    })
+  );
+  expect(appendEvent).toHaveBeenCalledWith(
+    prisma,
+    expect.objectContaining({ kind: 'EXAM_STARTED' })
+  );
+});
+
+it('rejects an absent primary device and an invalid domain', async () => {
+  (readState as jest.Mock).mockResolvedValueOnce({
+    ...state,
+    attendance: [{ ...attendance[0], devices: [] }],
+  });
+  expect((await invoke('start', { domains: ['exam.example.edu'] }))._getStatusCode()).toBe(400);
+  expect((await invoke('start', { domains: ['*.example.edu'] }))._getStatusCode()).toBe(400);
+  expect(examAgent).not.toHaveBeenCalled();
+});
+
+it('excuses a fail by superseding its immutable event', async () => {
+  (readState as jest.Mock).mockResolvedValue({
+    ...state,
+    exam: { id: 'exam', active: true },
+    examFails: [{ id: 'fail', userId: 'student', excused: false }],
+  });
+  expect(
+    (await invoke('excuse', { failId: 'fail', reason: 'Verified disconnect' }))._getStatusCode()
+  ).toBe(200);
+  expect(appendEvent).toHaveBeenCalledWith(
+    prisma,
+    expect.objectContaining({
+      kind: 'EXAM_EXCUSED',
+      userId: 'student',
+      supersedesId: 'fail',
+      payload: { examId: 'exam', reason: 'Verified disconnect' },
+    })
+  );
+});
+
+describe('signed fail callback', () => {
+  const signed = async (body: Record<string, unknown>, signature?: string) => {
+    const raw = JSON.stringify(body);
+    const { res } = createMocks();
+    const req = Object.assign(Readable.from([Buffer.from(raw)]), {
+      method: 'POST',
+      headers: {
+        'x-checkhen-signature':
+          signature ?? createHmac('sha256', 'test-secret').update(raw).digest('hex'),
+      },
+    });
+    await failedRoute(req as any, res as any);
+    return res;
+  };
+  const body = () => ({ ...scope, userId: 'student', examId: 'exam', timestamp: Date.now() });
+  it('rejects forged reports', async () => {
+    expect((await signed(body(), 'wrong'))._getStatusCode()).toBe(403);
+    expect(appendEvent).not.toHaveBeenCalled();
+  });
+  it('retries before start is logged, then records one fail', async () => {
+    expect((await signed(body()))._getStatusCode()).toBe(503);
+    (readState as jest.Mock).mockResolvedValue({ ...state, exam: { id: 'exam', active: true } });
+    expect((await signed(body()))._getStatusCode()).toBe(200);
+    expect(appendEvent).toHaveBeenCalledWith(
+      prisma,
+      expect.objectContaining({ kind: 'EXAM_FAILED', userId: 'student' })
+    );
+    (appendEvent as jest.Mock).mockClear();
+    (readState as jest.Mock).mockResolvedValue({
+      ...state,
+      exam: { id: 'exam', active: true },
+      examFails: [{ id: 'fail', userId: 'student', excused: true }],
+    });
+    expect((await signed(body()))._getStatusCode()).toBe(200);
+    expect(appendEvent).not.toHaveBeenCalled();
+  });
+});

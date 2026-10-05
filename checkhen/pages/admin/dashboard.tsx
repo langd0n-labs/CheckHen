@@ -1,44 +1,45 @@
-import { scopedFetch as fetch } from '@/lib/scoped-fetch';
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
+import {
+  AlertCircle,
+  ArrowLeft,
+  CheckCircle,
+  GraduationCap,
+  Hand,
+  Info,
+  Plus,
+  RefreshCw,
+  ThumbsDown,
+  ThumbsUp,
+  TrendingDown,
+  User,
+  Users,
+} from 'lucide-react';
 import { Socket } from 'socket.io-client';
 import {
+  Alert,
   Avatar,
+  Badge,
+  Box,
   Button,
   Card,
+  Divider,
+  Flex,
+  Group,
   Loader,
   Paper,
   ScrollArea,
   Stack,
   Text,
+  TextInput,
   Title,
-  Box,
-  Group,
-  Badge,
-  Flex,
   Tooltip,
   useMantineTheme,
-  Alert,
-  Divider,
 } from '@mantine/core';
-import {
-  Hand,
-  TrendingDown,
-  CheckCircle,
-  ArrowLeft,
-  GraduationCap,
-  Users,
-  AlertCircle,
-  ThumbsUp,
-  ThumbsDown,
-  RefreshCw,
-  Plus,
-  User,
-  Info,
-} from 'lucide-react';
+import { notifications } from '@mantine/notifications';
 import ClassSessionManager from '@/components/Admin/ClassSessionManager/ClassSessionManager';
 import { StudentProfileModal } from '@/components/Admin/StudentProfileModal';
-import { notifications } from '@mantine/notifications';
+import { scopedFetch as fetch } from '@/lib/scoped-fetch';
 import { getSocket } from '@/lib/socket';
 
 type UserInfo = {
@@ -86,6 +87,21 @@ type AttendanceRecord = {
   };
 };
 
+type ExamStatus = {
+  exam: { id: string; domains: string[]; thresholdSeconds: number; active: boolean } | null;
+  fails: { id: string; userId: string; excused: boolean; reason: string | null }[];
+  network: {
+    active: boolean;
+    clients: {
+      userId: string;
+      connected: boolean;
+      disconnectedAt: number | null;
+      failed: boolean;
+    }[];
+  };
+  students: { userId: string; name: string }[];
+};
+
 export default function AdminDashboard() {
   const router = useRouter();
   const theme = useMantineTheme();
@@ -102,6 +118,12 @@ export default function AdminDashboard() {
   const [handRaises, setHandRaises] = useState<HandRaise[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
+  const [exam, setExam] = useState<ExamStatus | null>(null);
+  const [examDomains, setExamDomains] = useState('');
+  const [examThreshold, setExamThreshold] = useState('30');
+  const [excuseReasons, setExcuseReasons] = useState<Record<string, string>>({});
+  const [examBusy, setExamBusy] = useState(false);
+  const [examClock, setExamClock] = useState(Date.now());
   const [paceSignals, setPaceSignals] = useState({ slowDown: 0, readyToMove: 0 });
   const [leftWidth, setLeftWidth] = useState(280);
   const [rightWidth, setRightWidth] = useState(280);
@@ -167,6 +189,39 @@ export default function AdminDashboard() {
     setAttendance(jsonData);
   };
 
+  const fetchExam = async () => {
+    if (!currentClassId) return;
+    const response = await fetch('/api/admin/exam');
+    if (response.ok) setExam(await response.json());
+  };
+
+  const examAction = async (
+    action: 'start' | 'stop' | 'excuse',
+    values: Record<string, unknown> = {}
+  ) => {
+    setExamBusy(true);
+    try {
+      const response = await fetch('/api/admin/exam', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, ...values }),
+      });
+      if (!response.ok) {
+        const body = await response.json();
+        notifications.show({
+          title: 'Exam mode',
+          message: body.message || 'Exam action failed',
+          color: 'red',
+        });
+      }
+      await fetchExam();
+    } catch {
+      notifications.show({ title: 'Exam mode', message: 'Exam service unavailable', color: 'red' });
+    } finally {
+      setExamBusy(false);
+    }
+  };
+
   // Fetch hand raises
   const fetchHandRaiseData = async () => {
     const response = await fetch('/api/admin/fetch-hand-raise');
@@ -199,7 +254,11 @@ export default function AdminDashboard() {
     });
 
     if (!res.ok) {
-      notifications.show({ title: 'Error', message: 'Could not acknowledge hand raise', color: 'red' });
+      notifications.show({
+        title: 'Error',
+        message: 'Could not acknowledge hand raise',
+        color: 'red',
+      });
       return;
     }
     ws.current?.emit('user-hand-acked', { email, classId: currentClassId });
@@ -233,24 +292,40 @@ export default function AdminDashboard() {
   };
 
   const hideMessage = async (messageId: string) => {
-    const response = await fetch('/api/admin/hide-chat', { method: 'POST',
-      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId }) });
-    if (!response.ok) notifications.show({ title: 'Error', message: 'Could not hide message', color: 'red' });
+    const response = await fetch('/api/admin/hide-chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messageId }),
+    });
+    if (!response.ok)
+      notifications.show({ title: 'Error', message: 'Could not hide message', color: 'red' });
     else fetchAllChatMessages();
   };
 
   const unhideMessage = async (messageId: string) => {
-    const response = await fetch('/api/admin/unhide-chat', { method: 'POST',
-      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId }) });
-    if (!response.ok) notifications.show({ title: 'Error', message: 'Could not restore message', color: 'red' });
+    const response = await fetch('/api/admin/unhide-chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messageId }),
+    });
+    if (!response.ok)
+      notifications.show({ title: 'Error', message: 'Could not restore message', color: 'red' });
     else fetchAllChatMessages();
   };
 
   const muteStudent = async (userId: string) => {
-    const response = await fetch('/api/admin/mute-student', { method: 'POST',
-      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId }) });
-    if (!response.ok) notifications.show({ title: 'Error', message: 'Could not mute student', color: 'red' });
-    else notifications.show({ title: 'Student muted', message: 'Chat is disabled for this student until class ends.' });
+    const response = await fetch('/api/admin/mute-student', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId }),
+    });
+    if (!response.ok)
+      notifications.show({ title: 'Error', message: 'Could not mute student', color: 'red' });
+    else
+      notifications.show({
+        title: 'Student muted',
+        message: 'Chat is disabled for this student until class ends.',
+      });
   };
 
   const projectionTicket = async (): Promise<string | null> => {
@@ -265,8 +340,18 @@ export default function AdminDashboard() {
   const openProjection = async () => {
     const target = window.open('about:blank', '_blank');
     const ticket = await projectionTicket();
-    if (!ticket) { target?.close(); return; }
-    if (!target) { notifications.show({ title: 'Pop-up blocked', message: 'Allow a new window for projection.', color: 'red' }); return; }
+    if (!ticket) {
+      target?.close();
+      return;
+    }
+    if (!target) {
+      notifications.show({
+        title: 'Pop-up blocked',
+        message: 'Allow a new window for projection.',
+        color: 'red',
+      });
+      return;
+    }
     target.opener = null;
     target.location.href = `/projection?ticket=${encodeURIComponent(ticket)}`;
   };
@@ -275,9 +360,11 @@ export default function AdminDashboard() {
     const ticket = await projectionTicket();
     if (!ticket) return;
     await navigator.clipboard.writeText(ticket);
-    notifications.show({ title: 'Slidev token copied', message: 'Paste it into the sample deck URL as the ticket parameter.' });
+    notifications.show({
+      title: 'Slidev token copied',
+      message: 'Paste it into the sample deck URL as the ticket parameter.',
+    });
   };
-
 
   // Fetch pace signals
   const fetchPaceSignals = async () => {
@@ -323,6 +410,17 @@ export default function AdminDashboard() {
     return () => clearInterval(_interval);
   }, []);
 
+  useEffect(() => {
+    setExam(null);
+    if (!currentClassId) return;
+    fetchExam();
+    const timer = window.setInterval(() => {
+      setExamClock(Date.now());
+      fetchExam();
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [currentClassId]);
+
   // WebSocket setup
   useEffect(() => {
     if (!user || !currentClassId) return;
@@ -341,11 +439,13 @@ export default function AdminDashboard() {
     ws.current?.on('pace-signal-update', () => {
       fetchPaceSignals();
     });
+    ws.current?.on('exam-status-update', fetchExam);
 
     return () => {
       ws.current?.off('user-hand-update');
       ws.current?.off('fetch-messages');
       ws.current?.off('pace-signal-update');
+      ws.current?.off('exam-status-update', fetchExam);
       ws.current?.disconnect();
     };
   }, [user, currentClassId]);
@@ -389,10 +489,7 @@ export default function AdminDashboard() {
             >
               My Profile
             </Button>
-            <Button
-              variant="light"
-              onClick={() => router.push('/admin/analytics')}
-            >
+            <Button variant="light" onClick={() => router.push('/admin/analytics')}>
               Analytics
             </Button>
           </Group>
@@ -416,7 +513,9 @@ export default function AdminDashboard() {
             currentClassId={currentClassId}
             setCurrentClassId={setCurrentClassId}
             onClassColor={(color) => setCurrentClassColor(color)}
-            onOpenModal={(openFn) => { openModalRef.current = openFn; }}
+            onOpenModal={(openFn) => {
+              openModalRef.current = openFn;
+            }}
             onReady={() => setDashboardReady(true)}
           />
 
@@ -482,6 +581,123 @@ export default function AdminDashboard() {
                   </Alert>
                 )}
               </Group>
+              <Divider />
+              <Stack gap="xs">
+                <Group justify="space-between">
+                  <Text fw={600}>Exam mode</Text>
+                  {exam?.exam?.active && <Badge color="red">Active</Badge>}
+                </Group>
+                {exam?.exam?.active ? (
+                  <>
+                    <Text size="sm">Allowed: {exam.exam.domains.join(', ')}</Text>
+                    <Group gap="xs">
+                      {exam.network.clients.map((client) => {
+                        const fail = exam.fails.find((item) => item.userId === client.userId);
+                        const name =
+                          exam.students.find((item) => item.userId === client.userId)?.name ||
+                          client.userId;
+                        const seconds =
+                          client.disconnectedAt === null
+                            ? 0
+                            : Math.max(0, Math.floor(examClock / 1000 - client.disconnectedAt));
+                        return (
+                          <Group key={client.userId} gap="xs">
+                            <Text size="sm">{name}</Text>
+                            <Badge
+                              color={
+                                fail && !fail.excused
+                                  ? 'red'
+                                  : client.connected
+                                    ? 'green'
+                                    : 'yellow'
+                              }
+                            >
+                              {fail?.excused
+                                ? 'Excused'
+                                : fail
+                                  ? 'Failed'
+                                  : client.connected
+                                    ? 'Connected'
+                                    : `Disconnected ${seconds}s`}
+                            </Badge>
+                            {fail && !fail.excused && (
+                              <Group gap="xs">
+                                <TextInput
+                                  size="xs"
+                                  aria-label={`Reason to excuse ${name}`}
+                                  placeholder="Reason"
+                                  value={excuseReasons[client.userId] || ''}
+                                  onChange={(event) => {
+                                    const value = event.currentTarget.value;
+                                    setExcuseReasons((previous) => ({
+                                      ...previous,
+                                      [client.userId]: value,
+                                    }));
+                                  }}
+                                />
+                                <Button
+                                  size="xs"
+                                  variant="light"
+                                  disabled={!excuseReasons[client.userId]?.trim()}
+                                  onClick={() =>
+                                    examAction('excuse', {
+                                      failId: fail.id,
+                                      reason: excuseReasons[client.userId].trim(),
+                                    })
+                                  }
+                                >
+                                  Excuse
+                                </Button>
+                              </Group>
+                            )}
+                          </Group>
+                        );
+                      })}
+                    </Group>
+                    <Button
+                      size="xs"
+                      color="red"
+                      loading={examBusy}
+                      onClick={() => examAction('stop')}
+                    >
+                      End exam
+                    </Button>
+                  </>
+                ) : (
+                  <Group align="end">
+                    <TextInput
+                      label="Allowed domains"
+                      placeholder="exam.example.edu, files.example.edu"
+                      value={examDomains}
+                      onChange={(event) => setExamDomains(event.currentTarget.value)}
+                    />
+                    <TextInput
+                      label="Disconnect limit (seconds)"
+                      type="number"
+                      min={1}
+                      max={3600}
+                      value={examThreshold}
+                      onChange={(event) => setExamThreshold(event.currentTarget.value)}
+                      style={{ width: 190 }}
+                    />
+                    <Button
+                      size="xs"
+                      loading={examBusy}
+                      onClick={() =>
+                        examAction('start', {
+                          domains: examDomains
+                            .split(',')
+                            .map((value) => value.trim())
+                            .filter(Boolean),
+                          thresholdSeconds: Number(examThreshold),
+                        })
+                      }
+                    >
+                      Start exam
+                    </Button>
+                  </Group>
+                )}
+              </Stack>
             </>
           )}
         </Stack>
@@ -504,7 +720,12 @@ export default function AdminDashboard() {
             background: `linear-gradient(135deg, ${theme.colors.buBlue[0]} 0%, ${theme.colors.warmRed[0]} 100%)`,
           }}
         >
-          <Card shadow="lg" padding="xl" radius="md" style={{ maxWidth: 480, width: '100%', textAlign: 'center' }}>
+          <Card
+            shadow="lg"
+            padding="xl"
+            radius="md"
+            style={{ maxWidth: 480, width: '100%', textAlign: 'center' }}
+          >
             <Stack align="center" gap="lg">
               <Box
                 style={{
@@ -520,7 +741,9 @@ export default function AdminDashboard() {
                 <Users size={40} color={theme.colors.gray[5]} />
               </Box>
               <div>
-                <Title order={2} mb="xs">No Active Class</Title>
+                <Title order={2} mb="xs">
+                  No Active Class
+                </Title>
                 <Text c="dimmed" size="md">
                   Start a new class session so students can check in and participate.
                 </Text>
@@ -536,287 +759,337 @@ export default function AdminDashboard() {
           </Card>
         </Box>
       ) : (
-      /* 3 Column Layout - active class */
-      <Flex style={{ flex: 1, overflow: 'hidden' }}>
-        {/* Left Column - Hand Raises */}
-        <Box
-          style={{
-            width: leftWidth,
-            flexShrink: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-          }}
-        >
-          <Paper p="md" shadow="xs" withBorder style={{ borderRadius: 0 }}>
-            <Group gap="xs">
-              <Hand size={20} color={theme.colors.warning[5]} />
-              <Title order={4}>Hands Raised ({handRaises.length})</Title>
-            </Group>
-          </Paper>
-
-          <ScrollArea style={{ flex: 1 }} p="md">
-            <Stack gap="sm">
-              {handRaises.length === 0 ? (
-                <Text size="sm" c="dimmed" ta="center" mt="xl">
-                  No raised hands
-                </Text>
-              ) : (
-                handRaises.map((raise) => (
-                  <Card key={raise.id} padding="sm">
-                    <Stack gap="xs">
-                      <Group justify="space-between">
-                        <Text
-                          size="sm"
-                          fw={600}
-                          style={{ cursor: 'pointer', textDecoration: 'underline' }}
-                          onClick={() => setProfileEmail(raise.email)}
-                        >
-                          {raise.name}
-                        </Text>
-                        <Text size="xs" c="dimmed">
-                          {new Date(raise.raisedAt).toLocaleTimeString()}
-                        </Text>
-                      </Group>
-                      <Text size="xs" c="dimmed">
-                        {raise.email}
-                      </Text>
-
-                      <Group gap="xs" mt="xs">
-                        {!raise.isAcknowledged ? (
-                          <Button
-                            size="xs"
-                            variant="light"
-                            fullWidth
-                            onClick={() => ackHandRaise(raise.email)}
-                          >
-                            Acknowledge
-                          </Button>
-                        ) : (
-                          <>
-                            <Button
-                              size="xs"
-                              variant="light"
-                              color="successGreen"
-                              style={{ flex: 1 }}
-                              leftSection={<ThumbsUp size={14} />}
-                              onClick={() => rateHandRaise(raise.email, true)}
-                            >
-                              Helpful
-                            </Button>
-                            <Button
-                              size="xs"
-                              variant="light"
-                              color="warmRed"
-                              style={{ flex: 1 }}
-                              leftSection={<ThumbsDown size={14} />}
-                              onClick={() => rateHandRaise(raise.email, false)}
-                            >
-                              Not Now
-                            </Button>
-                          </>
-                        )}
-                      </Group>
-                    </Stack>
-                  </Card>
-                ))
-              )}
-            </Stack>
-          </ScrollArea>
-        </Box>
-
-        {/* Left drag handle */}
-        <Box
-          onMouseDown={onLeftDragStart}
-          style={{
-            width: 5,
-            flexShrink: 0,
-            cursor: 'col-resize',
-            background: theme.colors.gray[3],
-            transition: 'background 0.15s',
-            zIndex: 1,
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = theme.colors.buBlue[4]; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = theme.colors.gray[3]; }}
-        />
-
-        {/* Center Column - De-anonymized Chat */}
-        <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <Paper p="md" shadow="xs" withBorder style={{ borderRadius: 0 }}>
-            <Group justify="space-between">
-              <Title order={4}>Class Discussion</Title>
+        /* 3 Column Layout - active class */
+        <Flex style={{ flex: 1, overflow: 'hidden' }}>
+          {/* Left Column - Hand Raises */}
+          <Box
+            style={{
+              width: leftWidth,
+              flexShrink: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+            }}
+          >
+            <Paper p="md" shadow="xs" withBorder style={{ borderRadius: 0 }}>
               <Group gap="xs">
-                <Button size="xs" variant="light" onClick={openProjection} disabled={!currentClassId}>Project chat</Button>
-                <Button size="xs" variant="subtle" onClick={copySlidevTicket} disabled={!currentClassId}>Copy Slidev token</Button>
+                <Hand size={20} color={theme.colors.warning[5]} />
+                <Title order={4}>Hands Raised ({handRaises.length})</Title>
               </Group>
-            </Group>
-            <Text size="sm" c="dimmed">
-              De-anonymized view (real names shown)
-            </Text>
-          </Paper>
+            </Paper>
 
-          <ScrollArea style={{ flex: 1 }} p="md">
-            <Stack gap="sm">
-              {messages.length === 0 ? (
-                <Text size="sm" c="dimmed" ta="center" mt="xl">
-                  No messages yet
-                </Text>
-              ) : (
-                messages.map((msg) => (
-                  <Paper key={msg.id} p="sm" radius="md" bg={theme.colors.gray[0]}>
-                    <Group justify="space-between" mb={4}>
-                      <Group gap="xs">
-                        <Text
-                          size="sm"
-                          fw={600}
-                          style={{ cursor: 'pointer' }}
-                          onClick={() => setProfileEmail(msg.user.email)}
-                        >
-                          {msg.user.displayName || msg.user.email.split('@')[0]}
-                        </Text>
-                        <Badge size="xs" variant="light" color="gray">
-                          as {msg.anonymousName || 'Anonymous'}
-                        </Badge>
-                        {msg.hidden && <Badge size="xs" color="orange">Hidden</Badge>}
-                      </Group>
-                      <Text size="xs" c="dimmed">
-                        {new Date(msg.createdAt).toLocaleTimeString()}
-                      </Text>
-                    </Group>
-                    <Group gap={4} mb={4} wrap="wrap">
-                      {msg.user.pronouns && (
-                        <Badge size="xs" color="violet" variant="light">
-                          {msg.user.pronouns}
-                        </Badge>
-                      )}
-                      {msg.user.namePronunciation && (
-                        <Badge size="xs" color="cyan" variant="light">
-                          {msg.user.namePronunciation}
-                        </Badge>
-                      )}
-                    </Group>
-                    <Text size="sm">{msg.message}</Text>
-                    <Group gap="xs" mt="xs">
-                      {msg.hidden ?
-                        <Button size="xs" variant="subtle" color="green" onClick={() => unhideMessage(msg.id)}>Unhide</Button> :
-                        <Button size="xs" variant="subtle" color="orange" onClick={() => hideMessage(msg.id)}>Hide</Button>}
-                      <Button size="xs" variant="subtle" color="red" onClick={() => muteStudent(msg.userId)}>Mute student</Button>
-                    </Group>
-                  </Paper>
-                ))
-              )}
-              <div ref={messagesEndRef} />
-            </Stack>
-          </ScrollArea>
-        </Box>
-
-        {/* Right drag handle */}
-        <Box
-          onMouseDown={onRightDragStart}
-          style={{
-            width: 5,
-            flexShrink: 0,
-            cursor: 'col-resize',
-            background: theme.colors.gray[3],
-            transition: 'background 0.15s',
-            zIndex: 1,
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = theme.colors.buBlue[4]; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = theme.colors.gray[3]; }}
-        />
-
-        {/* Right Column - Attendance List */}
-        <Box
-          style={{
-            width: rightWidth,
-            flexShrink: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-          }}
-        >
-          <Paper p="md" shadow="xs" withBorder style={{ borderRadius: 0 }}>
-            <Group gap={4} align="center" wrap="nowrap">
-              <Title order={4}>Present Students</Title>
-              <Tooltip
-                label={
-                  <Stack gap={2}>
-                    <Text size="xs" fw={600}>About check-in time:</Text>
-                    <Text size="xs">Shows the student&apos;s most recent entry time.</Text>
-                    <Text size="xs">If a student leaves and rejoins, only their latest check-in is reflected.</Text>
-                  </Stack>
-                }
-                multiline
-                w={260}
-                withArrow
-              >
-                <Info size={14} style={{ cursor: 'pointer', opacity: 0.5 }} />
-              </Tooltip>
-            </Group>
-          </Paper>
-
-          <ScrollArea style={{ flex: 1 }} p="md">
-            <Stack gap="xs">
-              {attendance.length === 0 ? (
-                <Text size="sm" c="dimmed" ta="center" mt="xl">
-                  No students checked in
-                </Text>
-              ) : (
-                attendance.map((record) => (
-                  <Paper
-                    key={record.id}
-                    p="sm"
-                    radius="md"
-                    bg={theme.colors.gray[0]}
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => setProfileEmail(record.user.email)}
-                  >
-                    <Group gap="sm" align="flex-start">
-                      <Avatar src={record.user.profilePicture} size={36} radius="50%" />
-                      <Box style={{ flex: 1, minWidth: 0 }}>
-                        <Text size="sm" fw={600} truncate>
-                          {record.user.displayName || record.user.email.split('@')[0]}
-                        </Text>
-                        <Group justify="space-between" mt={2}>
-                          <Badge size="xs" variant="light">
-                            {record.anonymousName || 'No name'}
-                          </Badge>
+            <ScrollArea style={{ flex: 1 }} p="md">
+              <Stack gap="sm">
+                {handRaises.length === 0 ? (
+                  <Text size="sm" c="dimmed" ta="center" mt="xl">
+                    No raised hands
+                  </Text>
+                ) : (
+                  handRaises.map((raise) => (
+                    <Card key={raise.id} padding="sm">
+                      <Stack gap="xs">
+                        <Group justify="space-between">
+                          <Text
+                            size="sm"
+                            fw={600}
+                            style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                            onClick={() => setProfileEmail(raise.email)}
+                          >
+                            {raise.name}
+                          </Text>
                           <Text size="xs" c="dimmed">
-                            {new Date(record.joinTime).toLocaleTimeString()}
+                            {new Date(raise.raisedAt).toLocaleTimeString()}
                           </Text>
                         </Group>
-                        <Group gap={4} mt={4} wrap="wrap">
-                          {record.user.pronouns && (
-                            <Badge size="xs" color="violet" variant="light">
-                              {record.user.pronouns}
-                            </Badge>
+                        <Text size="xs" c="dimmed">
+                          {raise.email}
+                        </Text>
+
+                        <Group gap="xs" mt="xs">
+                          {!raise.isAcknowledged ? (
+                            <Button
+                              size="xs"
+                              variant="light"
+                              fullWidth
+                              onClick={() => ackHandRaise(raise.email)}
+                            >
+                              Acknowledge
+                            </Button>
+                          ) : (
+                            <>
+                              <Button
+                                size="xs"
+                                variant="light"
+                                color="successGreen"
+                                style={{ flex: 1 }}
+                                leftSection={<ThumbsUp size={14} />}
+                                onClick={() => rateHandRaise(raise.email, true)}
+                              >
+                                Helpful
+                              </Button>
+                              <Button
+                                size="xs"
+                                variant="light"
+                                color="warmRed"
+                                style={{ flex: 1 }}
+                                leftSection={<ThumbsDown size={14} />}
+                                onClick={() => rateHandRaise(raise.email, false)}
+                              >
+                                Not Now
+                              </Button>
+                            </>
                           )}
-                          {record.user.namePronunciation && (
-                            <Badge size="xs" color="cyan" variant="light">
-                              {record.user.namePronunciation}
-                            </Badge>
-                          )}
-                          {record.user.foodAllergies && (
-                            <Badge size="xs" color="orange" variant="light">
-                              Allergy: {record.user.foodAllergies}
+                        </Group>
+                      </Stack>
+                    </Card>
+                  ))
+                )}
+              </Stack>
+            </ScrollArea>
+          </Box>
+
+          {/* Left drag handle */}
+          <Box
+            onMouseDown={onLeftDragStart}
+            style={{
+              width: 5,
+              flexShrink: 0,
+              cursor: 'col-resize',
+              background: theme.colors.gray[3],
+              transition: 'background 0.15s',
+              zIndex: 1,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = theme.colors.buBlue[4];
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = theme.colors.gray[3];
+            }}
+          />
+
+          {/* Center Column - De-anonymized Chat */}
+          <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <Paper p="md" shadow="xs" withBorder style={{ borderRadius: 0 }}>
+              <Group justify="space-between">
+                <Title order={4}>Class Discussion</Title>
+                <Group gap="xs">
+                  <Button
+                    size="xs"
+                    variant="light"
+                    onClick={openProjection}
+                    disabled={!currentClassId}
+                  >
+                    Project chat
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="subtle"
+                    onClick={copySlidevTicket}
+                    disabled={!currentClassId}
+                  >
+                    Copy Slidev token
+                  </Button>
+                </Group>
+              </Group>
+              <Text size="sm" c="dimmed">
+                De-anonymized view (real names shown)
+              </Text>
+            </Paper>
+
+            <ScrollArea style={{ flex: 1 }} p="md">
+              <Stack gap="sm">
+                {messages.length === 0 ? (
+                  <Text size="sm" c="dimmed" ta="center" mt="xl">
+                    No messages yet
+                  </Text>
+                ) : (
+                  messages.map((msg) => (
+                    <Paper key={msg.id} p="sm" radius="md" bg={theme.colors.gray[0]}>
+                      <Group justify="space-between" mb={4}>
+                        <Group gap="xs">
+                          <Text
+                            size="sm"
+                            fw={600}
+                            style={{ cursor: 'pointer' }}
+                            onClick={() => setProfileEmail(msg.user.email)}
+                          >
+                            {msg.user.displayName || msg.user.email.split('@')[0]}
+                          </Text>
+                          <Badge size="xs" variant="light" color="gray">
+                            as {msg.anonymousName || 'Anonymous'}
+                          </Badge>
+                          {msg.hidden && (
+                            <Badge size="xs" color="orange">
+                              Hidden
                             </Badge>
                           )}
                         </Group>
-                      </Box>
-                    </Group>
-                  </Paper>
-                ))
-              )}
-            </Stack>
-          </ScrollArea>
-        </Box>
-      </Flex>
+                        <Text size="xs" c="dimmed">
+                          {new Date(msg.createdAt).toLocaleTimeString()}
+                        </Text>
+                      </Group>
+                      <Group gap={4} mb={4} wrap="wrap">
+                        {msg.user.pronouns && (
+                          <Badge size="xs" color="violet" variant="light">
+                            {msg.user.pronouns}
+                          </Badge>
+                        )}
+                        {msg.user.namePronunciation && (
+                          <Badge size="xs" color="cyan" variant="light">
+                            {msg.user.namePronunciation}
+                          </Badge>
+                        )}
+                      </Group>
+                      <Text size="sm">{msg.message}</Text>
+                      <Group gap="xs" mt="xs">
+                        {msg.hidden ? (
+                          <Button
+                            size="xs"
+                            variant="subtle"
+                            color="green"
+                            onClick={() => unhideMessage(msg.id)}
+                          >
+                            Unhide
+                          </Button>
+                        ) : (
+                          <Button
+                            size="xs"
+                            variant="subtle"
+                            color="orange"
+                            onClick={() => hideMessage(msg.id)}
+                          >
+                            Hide
+                          </Button>
+                        )}
+                        <Button
+                          size="xs"
+                          variant="subtle"
+                          color="red"
+                          onClick={() => muteStudent(msg.userId)}
+                        >
+                          Mute student
+                        </Button>
+                      </Group>
+                    </Paper>
+                  ))
+                )}
+                <div ref={messagesEndRef} />
+              </Stack>
+            </ScrollArea>
+          </Box>
+
+          {/* Right drag handle */}
+          <Box
+            onMouseDown={onRightDragStart}
+            style={{
+              width: 5,
+              flexShrink: 0,
+              cursor: 'col-resize',
+              background: theme.colors.gray[3],
+              transition: 'background 0.15s',
+              zIndex: 1,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = theme.colors.buBlue[4];
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = theme.colors.gray[3];
+            }}
+          />
+
+          {/* Right Column - Attendance List */}
+          <Box
+            style={{
+              width: rightWidth,
+              flexShrink: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+            }}
+          >
+            <Paper p="md" shadow="xs" withBorder style={{ borderRadius: 0 }}>
+              <Group gap={4} align="center" wrap="nowrap">
+                <Title order={4}>Present Students</Title>
+                <Tooltip
+                  label={
+                    <Stack gap={2}>
+                      <Text size="xs" fw={600}>
+                        About check-in time:
+                      </Text>
+                      <Text size="xs">Shows the student&apos;s most recent entry time.</Text>
+                      <Text size="xs">
+                        If a student leaves and rejoins, only their latest check-in is reflected.
+                      </Text>
+                    </Stack>
+                  }
+                  multiline
+                  w={260}
+                  withArrow
+                >
+                  <Info size={14} style={{ cursor: 'pointer', opacity: 0.5 }} />
+                </Tooltip>
+              </Group>
+            </Paper>
+
+            <ScrollArea style={{ flex: 1 }} p="md">
+              <Stack gap="xs">
+                {attendance.length === 0 ? (
+                  <Text size="sm" c="dimmed" ta="center" mt="xl">
+                    No students checked in
+                  </Text>
+                ) : (
+                  attendance.map((record) => (
+                    <Paper
+                      key={record.id}
+                      p="sm"
+                      radius="md"
+                      bg={theme.colors.gray[0]}
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => setProfileEmail(record.user.email)}
+                    >
+                      <Group gap="sm" align="flex-start">
+                        <Avatar src={record.user.profilePicture} size={36} radius="50%" />
+                        <Box style={{ flex: 1, minWidth: 0 }}>
+                          <Text size="sm" fw={600} truncate>
+                            {record.user.displayName || record.user.email.split('@')[0]}
+                          </Text>
+                          <Group justify="space-between" mt={2}>
+                            <Badge size="xs" variant="light">
+                              {record.anonymousName || 'No name'}
+                            </Badge>
+                            <Text size="xs" c="dimmed">
+                              {new Date(record.joinTime).toLocaleTimeString()}
+                            </Text>
+                          </Group>
+                          <Group gap={4} mt={4} wrap="wrap">
+                            {record.user.pronouns && (
+                              <Badge size="xs" color="violet" variant="light">
+                                {record.user.pronouns}
+                              </Badge>
+                            )}
+                            {record.user.namePronunciation && (
+                              <Badge size="xs" color="cyan" variant="light">
+                                {record.user.namePronunciation}
+                              </Badge>
+                            )}
+                            {record.user.foodAllergies && (
+                              <Badge size="xs" color="orange" variant="light">
+                                Allergy: {record.user.foodAllergies}
+                              </Badge>
+                            )}
+                          </Group>
+                        </Box>
+                      </Group>
+                    </Paper>
+                  ))
+                )}
+              </Stack>
+            </ScrollArea>
+          </Box>
+        </Flex>
       )}
 
-      <StudentProfileModal
-        email={profileEmail}
-        onClose={() => setProfileEmail(null)}
-      />
+      <StudentProfileModal email={profileEmail} onClose={() => setProfileEmail(null)} />
     </Box>
   );
 }

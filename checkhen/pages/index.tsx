@@ -1,36 +1,36 @@
-import { scopedFetch as fetch, selectedScope } from '@/lib/scoped-fetch';
 import { useEffect, useRef, useState } from 'react';
-import { useSession, signIn, signOut } from 'next-auth/react';
 import { useRouter } from 'next/router';
+import {
+  AlertTriangle,
+  CheckCircle,
+  GraduationCap,
+  Hand,
+  LogOut,
+  Send,
+  TrendingDown,
+  User,
+} from 'lucide-react';
+import { signIn, signOut, useSession } from 'next-auth/react';
 import { Socket } from 'socket.io-client';
 import {
   Alert,
+  Badge,
+  Box,
   Button,
   Card,
+  Flex,
+  Group,
   Paper,
   ScrollArea,
   Stack,
   Text,
-  Title,
-  Box,
-  Group,
-  Badge,
-  Flex,
   TextInput,
+  Title,
   Tooltip,
   useMantineTheme,
 } from '@mantine/core';
-import {
-  Hand,
-  TrendingDown,
-  CheckCircle,
-  Send,
-  GraduationCap,
-  LogOut,
-  AlertTriangle,
-  User,
-} from 'lucide-react';
 import { notifications } from '@mantine/notifications';
+import { scopedFetch as fetch, selectedScope } from '@/lib/scoped-fetch';
 import { getSocket } from '@/lib/socket';
 
 type UserInfo = {
@@ -62,6 +62,11 @@ export default function HomePage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isCheckedIn, setIsCheckedIn] = useState(false);
   const [uplinkUnavailable, setUplinkUnavailable] = useState(false);
+  const [examState, setExamState] = useState<{
+    domains: string[];
+    failed: boolean;
+    excused: boolean;
+  } | null>(null);
   const [checkInResolved, setCheckInResolved] = useState(false);
   const [anonymousName, setAnonymousName] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState('');
@@ -101,7 +106,8 @@ export default function HomePage() {
   // Check if user is checked in to the current class
   const checkIfCheckedIn = async () => {
     const response = await fetch('/api/student/fetch-check-in');
-    if (response.ok) setUplinkUnavailable(!(await fetch('/api/student/re-bind', { method: 'POST' })).ok);
+    if (response.ok)
+      setUplinkUnavailable(!(await fetch('/api/student/re-bind', { method: 'POST' })).ok);
     setIsCheckedIn(response.ok);
     setCheckInResolved(true);
     return response.ok;
@@ -222,6 +228,17 @@ export default function HomePage() {
     }
   };
 
+  const fetchExamState = async () => {
+    const response = await fetch('/api/student/exam-status');
+    if (!response.ok) return;
+    const result = await response.json();
+    setExamState(
+      result.exam
+        ? { domains: result.exam.domains, failed: !!result.fail, excused: !!result.fail?.excused }
+        : null
+    );
+  };
+
   // Send pace signal
   const sendPaceSignal = async (signalType: 'slow_down' | 'ready_to_move_on') => {
     const response = await fetch('/api/student/send-pace-signal', {
@@ -253,7 +270,7 @@ export default function HomePage() {
       .then((d) => {
         if (d.isCheckedIn) {
           fetch('/api/student/re-bind', { method: 'POST' })
-            .then(response => setUplinkUnavailable(!response.ok))
+            .then((response) => setUplinkUnavailable(!response.ok))
             .catch(() => setUplinkUnavailable(true));
           setIsCheckedIn(true);
           setCurrentClassId(d.classId);
@@ -261,7 +278,10 @@ export default function HomePage() {
           setCurrentClassName(d.className ?? '');
           setAnonymousName(d.anonymousName);
           setHandRaised(d.handRaised);
-          setPaceSignals({ slowDown: d.paceSignals.slowDown, readyToMove: d.paceSignals.readyToMove });
+          setPaceSignals({
+            slowDown: d.paceSignals.slowDown,
+            readyToMove: d.paceSignals.readyToMove,
+          });
           setMessages(d.messages);
           prevClassNameRef.current = d.className ?? '';
           isCheckedInRef.current = true;
@@ -289,12 +309,14 @@ export default function HomePage() {
 
     const _dataInterval = setInterval(() => {
       fetch('/api/student/re-bind', { method: 'POST' })
-        .then(response => setUplinkUnavailable(!response.ok))
+        .then((response) => setUplinkUnavailable(!response.ok))
         .catch(() => setUplinkUnavailable(true));
       fetchAllChatMessages();
       fetchHandRaiseStatus();
       fetchPaceSignals();
+      fetchExamState();
     }, 10000);
+    fetchExamState();
 
     return () => clearInterval(_dataInterval);
   }, [isCheckedIn]);
@@ -321,6 +343,12 @@ export default function HomePage() {
 
     const classId = currentClassId;
     ws.current = getSocket(classId);
+    const heartbeat = () => {
+      if (isCheckedInRef.current) ws.current?.emit('exam-heartbeat');
+    };
+    ws.current?.on('connect', heartbeat);
+    heartbeat();
+    const heartbeatTimer = window.setInterval(heartbeat, 5000);
 
     // Listen for updates
     ws.current?.on('check-raised-hands', () => {
@@ -338,6 +366,7 @@ export default function HomePage() {
     ws.current?.on('pace-signals-reset', () => {
       setPaceSignals({ slowDown: 0, readyToMove: 0 });
     });
+    ws.current?.on('exam-status-update', fetchExamState);
 
     // Lower hand immediately when instructor acknowledges it
     ws.current?.on('check-raised-hands', () => {
@@ -345,10 +374,13 @@ export default function HomePage() {
     });
 
     return () => {
+      window.clearInterval(heartbeatTimer);
+      ws.current?.off('connect', heartbeat);
       ws.current?.off('check-raised-hands');
       ws.current?.off('fetch-messages');
       ws.current?.off('pace-signal-update');
       ws.current?.off('pace-signals-reset');
+      ws.current?.off('exam-status-update', fetchExamState);
     };
   }, [user, currentClassId]);
 
@@ -430,10 +462,18 @@ export default function HomePage() {
   }
 
   // Redirect to /join if authenticated, check-in resolved, not checked in, and not in preview mode
-  if (checkInResolved && !isCheckedIn && status === 'authenticated' && router.isReady && router.query.preview !== 'true') {
+  if (
+    checkInResolved &&
+    !isCheckedIn &&
+    status === 'authenticated' &&
+    router.isReady &&
+    router.query.preview !== 'true'
+  ) {
     router.push('/join');
     return (
-      <Box style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <Box
+        style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      >
         <Text>Loading...</Text>
       </Box>
     );
@@ -513,8 +553,29 @@ export default function HomePage() {
       )}
 
       {uplinkUnavailable && (
-        <Alert icon={<AlertTriangle size={18} />} title="No uplink" color="red" style={{ borderRadius: 0 }}>
-          This device has no internet access through the class network. Check in again or ask your instructor for help.
+        <Alert
+          icon={<AlertTriangle size={18} />}
+          title="No uplink"
+          color="red"
+          style={{ borderRadius: 0 }}
+        >
+          This device has no internet access through the class network. Check in again or ask your
+          instructor for help.
+        </Alert>
+      )}
+
+      {examState && (
+        <Alert
+          icon={<AlertTriangle size={18} />}
+          title="Exam mode"
+          color={examState.failed && !examState.excused ? 'red' : 'blue'}
+          style={{ borderRadius: 0 }}
+        >
+          {examState.failed
+            ? examState.excused
+              ? 'Your connection fail was excused.'
+              : 'A connection fail was recorded. Raise your hand for the instructor.'
+            : `Only these domains are available: ${examState.domains.join(', ')}.`}
         </Alert>
       )}
 

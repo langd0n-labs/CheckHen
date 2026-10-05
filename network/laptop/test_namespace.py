@@ -2,6 +2,7 @@
 """Exercise DHCP, the shared proxy template, lease binding, and NAT."""
 import hashlib
 import hmac
+from http.server import BaseHTTPRequestHandler, HTTPServer
 import ipaddress
 import json
 import os
@@ -11,6 +12,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -73,6 +75,15 @@ def ipv6_forward_probe(target: str) -> str:
     return f"http://[{target}]:8080"
 
 
+def signed_agent(address: str, secret: str, action: str, payload: dict) -> dict:
+    raw = json.dumps({**payload, "timestamp": int(time.time() * 1000)}).encode()
+    signature = hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
+    request = urllib.request.Request(f"http://{address}:7878/{action}", raw,
+                                     {"Content-Type": "application/json", "X-CheckHen-Signature": signature})
+    with urllib.request.urlopen(request, timeout=8) as response:
+        return json.load(response)
+
+
 def drop_count(family: str, table: str, set_name: str) -> int:
     rules = json.loads(run("nft", "-j", "list", "chain", family, table, "forward").stdout)["nftables"]
     for item in rules:
@@ -96,6 +107,15 @@ def ipv6_block_count() -> int:
     raise RuntimeError("Missing IPv6 forward block counter")
 
 
+def exam_drop_count(family: str, table: str) -> int:
+    rules = json.loads(run("nft", "-j", "list", "chain", family, table, "exam_gate").stdout)["nftables"]
+    for item in rules:
+        expressions = item.get("rule", {}).get("expr", [])
+        if any("drop" in expression for expression in expressions):
+            return next(expression["counter"]["packets"] for expression in expressions if "counter" in expression)
+    raise RuntimeError("Missing exam drop counter")
+
+
 def main() -> None:
     if os.geteuid() != 0:
         raise SystemExit("Run this namespace check with sudo")
@@ -113,6 +133,26 @@ def main() -> None:
         run("ip", "-j", "route", "get", "1.1.1.1").stdout, "IPv4 uplink route")["dev"]
     settings["AP_PASSPHRASE"] = "namespace-only"
     secret = settings["PORTAL_CONTROL_SECRET"]
+    callback_records: list[dict] = []
+    class ExamCallback(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            raw = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            expected = hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
+            if self.path != "/exam-failed" or not hmac.compare_digest(
+                    self.headers.get("X-CheckHen-Signature", ""), expected):
+                self.send_error(403)
+                return
+            callback_records.append(json.loads(raw))
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, _format: str, *_args) -> None:
+            pass
+
+    callback_server = HTTPServer(("127.0.0.1", 0), ExamCallback)
+    callback_thread = threading.Thread(target=callback_server.serve_forever, daemon=True)
+    callback_thread.start()
+    settings["EXAM_CALLBACK_URL"] = f"http://127.0.0.1:{callback_server.server_port}/exam-failed"
     address = settings.get("AP_ADDRESS", "172.16.77.1")
     address6 = settings.get("AP_IPV6_ADDRESS", "fd9b:2f69:8c44::1")
     prefix6 = ipaddress.IPv6Network(settings.get("AP_IPV6_PREFIX", "fd9b:2f69:8c44::/64"))
@@ -403,6 +443,66 @@ def main() -> None:
             for name, interface, target in client_routes_added:
                 if target == test_ipv6_target:
                     client_ipv6_route("replace", name, interface, target, address6)
+        exam_scope = {"courseId": "namespace-course", "classId": "namespace-session"}
+        signed_agent(address, secret, "exam-start", {**exam_scope, "examId": "namespace-exam",
+            "domains": ["example.com"], "thresholdSeconds": 30,
+            "clients": [{"userId": "namespace-student", "mac": mac.lower()},
+                        {"userId": "namespace-student-2", "mac": second_mac.lower()}]})
+        server = namespace("curl", "-4", "--noproxy", "*", "--max-time", "3", "-sS",
+                           "-o", "/dev/null", f"http://{address}", check=False)
+        if server.returncode != 0:
+            raise RuntimeError("Exam client could not reach the CheckHen server")
+        exam_portal = namespace("getent", "ahostsv4", settings.get("AP_HOSTNAME", "checkhen.rfkill.dev"),
+                                check=False)
+        if exam_portal.returncode != 0 or address not in exam_portal.stdout:
+            raise RuntimeError("Exam DNS did not preserve the CheckHen hostname")
+        exam_state = json.loads((STATE / "exam.json").read_text())
+        allowed_ip = exam_state["ipv4"][0]
+        allowed = namespace("curl", "-4", "--noproxy", "*", "--max-time", "8", "-fsSI",
+                            "--resolve", f"example.com:443:{allowed_ip}", "https://example.com", check=False)
+        if allowed.returncode != 0:
+            raise RuntimeError(f"Exam client could not reach an allowlisted IPv4 endpoint: {allowed.stderr}")
+        allowed_by_name = namespace("curl", "-4", "--noproxy", "*", "--max-time", "8", "-fsSI",
+                                    "https://example.com", check=False)
+        if allowed_by_name.returncode != 0:
+            raise RuntimeError(f"Exam client could not reach the allowlisted domain through filtered DNS: "
+                               f"{allowed_by_name.stderr}")
+        if uplink_ipv6:
+            allowed6 = namespace("curl", "-6", "--noproxy", "*", "--max-time", "8", "-fsSI",
+                                 "https://example.com", name=SECOND_NAMESPACE, check=False)
+            if allowed6.returncode != 0:
+                raise RuntimeError(f"IPv6-only exam client could not reach the allowlisted domain: {allowed6.stderr}")
+        exam6_before = exam_drop_count("ip6", "checkhen6")
+        blocked6 = namespace("curl", "-6", "--noproxy", "*", "--max-time", "3", "-fsSI",
+                             ipv6_forward_probe(test_ipv6_target), name=SECOND_NAMESPACE, check=False)
+        if blocked6.returncode == 0 or exam_drop_count("ip6", "checkhen6") <= exam6_before:
+            raise ipv6_counter_failure("Exam policy did not block an unlisted IPv6 address",
+                                       SECOND_NAMESPACE, blocked6)
+        for label, target in (("nonallowlisted IP", "9.9.9.9"),
+                              ("public DoH resolver", "1.1.1.1"), ("Google range", "8.8.8.8")):
+            blocked_exam = namespace("curl", "-4", "--noproxy", "*", "--connect-timeout", "2",
+                                     "--max-time", "3", "-kfsSI", f"https://{target}", check=False)
+            if blocked_exam.returncode == 0:
+                raise RuntimeError(f"Exam client reached {label}")
+        if namespace("getent", "ahostsv4", "not-allowed.example.org", check=False).returncode == 0:
+            raise RuntimeError("Exam DNS resolved a nonallowlisted domain")
+        signed_agent(address, secret, "exam-heartbeat", {**exam_scope, "userId": "namespace-student-2"})
+        signed_agent(address, secret, "exam-heartbeat", {**exam_scope, "userId": "namespace-student"})
+        heartbeat_at = time.monotonic()
+        time.sleep(max(0, 29 - (time.monotonic() - heartbeat_at)))
+        before_limit = signed_agent(address, secret, "exam-status", exam_scope)
+        student_before = next(item for item in before_limit["clients"] if item["userId"] == "namespace-student")
+        if student_before["failed"]:
+            raise RuntimeError("Exam disconnected client failed before 30 seconds")
+        time.sleep(max(0, 31 - (time.monotonic() - heartbeat_at)))
+        after_limit = signed_agent(address, secret, "exam-status", exam_scope)
+        student_after = next(item for item in after_limit["clients"] if item["userId"] == "namespace-student")
+        if not student_after["failed"]:
+            raise RuntimeError("Exam disconnected client did not fail after 30 seconds")
+        signed_agent(address, secret, "exam-stop", exam_scope)
+        if not any(record.get("userId") == "namespace-student" and
+                   record.get("examId") == "namespace-exam" for record in callback_records):
+            raise RuntimeError("Exam agent did not report the automatic fail to its signed callback")
         revoke_payload = json.dumps({"courseId": "namespace-course", "classId": "namespace-session",
                                      "userId": "namespace-student", "ip": lease_ip,
                                      "timestamp": int(time.time() * 1000)}).encode()
@@ -446,8 +546,12 @@ def main() -> None:
             raise RuntimeError("Rebinding after restart did not match the lease")
         namespace("curl", "-4", "--noproxy", "*", "--max-time", "12", "-fsSI",
                   "https://example.com")
-        print("PASS: dual-stack and IPv6-only SLAAC clients, unbound isolation, revoke, link flap, private blocks, and second class cycle")
+        print("PASS: class-mode dual-stack and IPv6-only isolation, revoke, link flap, and second cycle; "
+              "exam allowlist, DNS and DoH blocks, Google block, IPv6 block, and 29/31-second fail threshold")
     finally:
+        callback_server.shutdown()
+        callback_server.server_close()
+        callback_thread.join(timeout=3)
         for name, interface, target in reversed(client_routes_added):
             client_ipv6_route("delete", name, interface, target, address6)
         if test_ipv6_route_added:
@@ -504,4 +608,4 @@ if __name__ == "__main__":
     try:
         main()
     except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
-        raise SystemExit(f"M2 namespace check failed: {error}") from error
+        raise SystemExit(f"CheckHen namespace check failed: {error}") from error

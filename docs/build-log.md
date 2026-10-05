@@ -1,6 +1,6 @@
 # Build log
 
-Branch: build/m0-m2. Scope: M0 through M3.
+Branch: build/m0-m2. Scope: M0 through M5.
 
 ## Operator decisions
 
@@ -457,3 +457,36 @@ on x1 (Fedora 44) at commit `d87b82f` in the rebuilt network image. It
 reported `PASS: dual-stack and IPv6-only SLAAC clients, unbound isolation,
 revoke, link flap, private blocks, and second class cycle`. The live USB
 adapter, real AP client, and Google sign-in checks remain open.
+
+## M5 — exam mode: implementation verified; x1 namespace check pending
+
+The instructor configures domains and a disconnect threshold before starting
+an exam. The network agent resolves the domains into IPv4 and IPv6 nftables
+sets, refreshes them every 30 seconds, and makes dnsmasq answer only the
+allowlisted names. The exam gate runs before class-mode authorization and
+preauth rules. Existing checked-in devices retain access to CheckHen; new
+device binds are refused during the exam. Socket heartbeats and nl80211 station
+polls provide independent connection evidence. The agent reports a fail after
+both are absent longer than the configured threshold. A signed callback writes
+the fail to the immutable event log. An instructor excuse supersedes the fail
+with a reason; the original fail remains stored. Session end stops exam mode.
+
+| M5 acceptance check | Result |
+| --- | --- |
+| Exam client reaches CheckHen and allowed domains; nonallowed IP, DoH, and Google range are blocked | Waiting for operator: run the extended x1 namespace test against this commit. Local isolated-container checks validated the generated IPv4 and IPv6 nftables policy syntax and verified dnsmasq gives NXDOMAIN for an unlisted name and resolves an allowed name. |
+| 29-second drop does not fail; 31-second drop fails | Waiting for operator: the extended x1 namespace test checks both timings and receives the signed fail callback. Python unit tests cover the threshold, callback retry, and fail persistence after reconnection with controlled time. |
+| Excuse clears fail in instructor view while fail remains in log | PASS: PostgreSQL route-to-store integration test reads the instructor status after an excuse and confirms the original `EXAM_FAILED` and superseding `EXAM_EXCUSED` rows both remain. |
+
+Verification on 2026-10-05: 23 Jest suites and 208 tests, 40 Python unit
+tests, TypeScript checks for app and socket server, a Next.js production build,
+PostgreSQL event-store and legacy migrations, route-to-store integration,
+and live socket isolation and signed heartbeat checks passed. The extended
+namespace test is in
+`network/laptop/test_namespace.py`; run `bash scripts/class-mode.sh namespace-test`
+on x1 from the committed checkout. It includes the stale-bindings agent
+restart from the M2/M3 check. The USB adapter and real-client checks remain
+open as previously recorded.
+
+The first local production build exited zero. A repeat after the final UI
+change compiled and generated static pages, but its redirected log write hit
+the sandbox's `/tmp` quota and the shell exited nonzero.

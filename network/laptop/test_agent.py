@@ -15,6 +15,7 @@ import urllib.error
 import urllib.request
 
 import agent
+import exam
 
 REAL_NFT = agent.nft
 REAL_NFT6 = agent.nft6
@@ -73,6 +74,24 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(self.request("bind", {"timestamp": 1}), 403)
         self.assertEqual(self.request("bind"), 200)
         self.nft.assert_called_once_with("add", "172.16.77.20", "02:00:00:00:00:20")
+
+    def test_exam_routes_require_signature_and_preserve_bound_device(self):
+        scope = {"courseId": "course", "classId": "class", "timestamp": int(time.time() * 1000)}
+        with patch.object(exam, "start", return_value={"examId": "exam"}) as start, \
+             patch.object(exam, "read", return_value={"examId": "exam"}):
+            self.assertEqual(self.request("exam-start", {**scope, "examId": "exam", "domains": ["exam.example.edu"],
+                "thresholdSeconds": 30, "clients": [{"userId": "student", "mac": "02:00:00:00:00:20"}]}, signed=False), 403)
+            self.assertEqual(self.request("exam-start", {**scope, "examId": "exam", "domains": ["exam.example.edu"],
+                "thresholdSeconds": 30, "clients": [{"userId": "student", "mac": "02:00:00:00:00:20"}]}), 200)
+            start.assert_called_once()
+            self.assertEqual(self.request("bind"), 403)
+        self.assertEqual(self.request("bind"), 200)
+        with patch.object(exam, "read", return_value={"examId": "exam"}):
+            self.assertEqual(self.request("bind"), 200)
+            agent.LEASES.write_text(f"{int(time.time()) + 3600} 02:00:00:00:00:20 172.16.77.21 host *\n")
+            self.assertEqual(self.request("bind", {**scope, "userId": "student", "ip": "172.16.77.21"}), 200)
+            self.lease("02:00:00:00:00:21")
+            self.assertEqual(self.request("bind"), 403)
 
     def test_outside_subnet_and_missing_lease(self):
         self.assertEqual(self.request("bind", {"courseId": "course", "classId": "class",

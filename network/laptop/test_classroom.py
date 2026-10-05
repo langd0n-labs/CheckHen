@@ -57,6 +57,9 @@ class RouteGuardTests(unittest.TestCase):
                                     ipaddress.IPv4Network("172.16.77.0/24"),
                                     ipaddress.IPv4Address("172.16.77.1"))
             rules = (Path(directory) / "firewall.nft").read_text()
+            self.assertIn('iifname "chbr0" jump exam_gate', rules)
+            self.assertIn('set exam4 { type ipv4_addr; }', rules)
+            self.assertIn('set exam6 { type ipv6_addr; }', rules)
             self.assertIn("table ip6 checkhen6", rules)
             self.assertIn("set authorized6 { type ether_addr; }", rules)
             self.assertIn('iifname "chbr0" ip6 saddr fd9b:2f69:8c44::/64 ether saddr @authorized6 oifname "eth0" counter accept', rules)
@@ -67,6 +70,7 @@ class RouteGuardTests(unittest.TestCase):
             self.assertIn('iifname "chbr0" drop', rules)
             self.assertIn('iifname "chbr0" ip daddr @private4 counter drop', rules)
             self.assertIn("enable-ra", (Path(directory) / "dnsmasq.conf").read_text())
+            self.assertIn("servers-file=", (Path(directory) / "dnsmasq.conf").read_text())
             self.assertIn("constructor:chbr0,ra-only,64", (Path(directory) / "dnsmasq.conf").read_text())
             self.assertIn("ap_isolate=1", (Path(directory) / "hostapd.conf").read_text())
 

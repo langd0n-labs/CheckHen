@@ -45,6 +45,7 @@ io.use(async (socket, next) => {
     socket.data.courseId = data.courseId;
     socket.data.classId = data.classId;
     socket.data.userId = data.userId;
+    socket.data.admin = data.admin === true || data.projection === true;
     next();
   } catch { next(new Error('Socket authentication failed')); }
 });
@@ -97,6 +98,21 @@ cron.schedule("* * * * *", async () => {
 io.on("connection", socket => {
   const room = roomKey(socket.data.courseId, socket.data.classId);
   socket.join(room);
+  if (!socket.data.admin && socket.data.userId) {
+    socket.on("exam-heartbeat", async () => {
+      const url = process.env.PORTAL_AGENT_URL;
+      const secret = process.env.PORTAL_CONTROL_SECRET;
+      if (!url || !secret) return;
+      const body = JSON.stringify({ courseId: socket.data.courseId, classId: socket.data.classId,
+        userId: socket.data.userId, timestamp: Date.now() });
+      const signature = createHmac("sha256", secret).update(body).digest("hex");
+      try {
+        await fetch(`${url.replace(/\/$/, "")}/exam-heartbeat`, { method: "POST", body,
+          headers: { "Content-Type": "application/json", "X-CheckHen-Signature": signature },
+          signal: AbortSignal.timeout(3000) });
+      } catch { /* The AP station monitor remains independent of the socket. */ }
+    });
+  }
 });
 
 const notifications: Record<string, string> = {
@@ -104,6 +120,8 @@ const notifications: Record<string, string> = {
   HAND_ACKNOWLEDGED: "check-raised-hands", HAND_RATED: "check-raised-hands",
   CHAT_MESSAGE: "fetch-messages", CHAT_HIDDEN: "fetch-messages", PACE_SIGNAL: "pace-signal-update",
   PACE_RESET: "pace-signals-reset",
+  EXAM_STARTED: "exam-status-update", EXAM_ENDED: "exam-status-update",
+  EXAM_FAILED: "exam-status-update", EXAM_EXCUSED: "exam-status-update",
 };
 let cursor = new Date();
 let cursorId = "";

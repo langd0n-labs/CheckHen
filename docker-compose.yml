@@ -53,6 +53,8 @@ services:
       NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
       SLIDEV_ORIGIN: ${SLIDEV_ORIGIN:-}
       APP_INTERNAL_URL: http://app:3000/api/internal/expire-sessions
+      PORTAL_AGENT_URL: ${PORTAL_AGENT_URL:-}
+      PORTAL_CONTROL_SECRET: ${PORTAL_CONTROL_SECRET:-}
       DATABASE_URL: postgresql://checkhen:${POSTGRES_PASSWORD:?Run the setup command}@db:5432/checkhen
     depends_on:
       app:

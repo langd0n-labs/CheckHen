@@ -144,6 +144,7 @@ def write_configs(settings: dict[str, str], subnet: ipaddress.IPv4Network,
     open_rule6 = f'    iifname "{ap}" oifname "{uplink}" tcp dport {{ 80, 443 }} accept\n' if discovery else ""
     (STATE / "firewall.nft").write_text(f'''table ip checkhen {{
   set authorized4 {{ type ipv4_addr . ether_addr; }}
+  set exam4 {{ type ipv4_addr; }}
   set preauth4 {{ type ipv4_addr; flags timeout; timeout 5m; }}
   set private4 {{ type ipv4_addr; flags interval; elements = {{ 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4 }}; }}
   chain input {{
@@ -155,12 +156,14 @@ def write_configs(settings: dict[str, str], subnet: ipaddress.IPv4Network,
   }}
   chain forward {{
     type filter hook forward priority -5; policy accept;
+    iifname "{ap}" jump exam_gate
     oifname "{ap}" ct state established,related accept
     iifname "{ap}" ip daddr @private4 counter drop
     iifname "{ap}" ip saddr . ether saddr @authorized4 oifname "{uplink}" accept
 {open_rule}    iifname "{ap}" ip daddr @preauth4 oifname "{uplink}" tcp dport 443 accept
     iifname "{ap}" drop
   }}
+  chain exam_gate {{ }}
   chain prerouting {{
     type nat hook prerouting priority dstnat; policy accept;
 {redirect}  }}
@@ -171,6 +174,7 @@ def write_configs(settings: dict[str, str], subnet: ipaddress.IPv4Network,
 }}
 table ip6 checkhen6 {{
   set authorized6 {{ type ether_addr; }}
+  set exam6 {{ type ipv6_addr; }}
   set preauth6 {{ type ipv6_addr; flags timeout; timeout 5m; }}
   set private6 {{ type ipv6_addr; flags interval; elements = {{ ::/128, ::1/128, ::ffff:0:0/96, 64:ff9b::/96, fc00::/7, fe80::/10, ff00::/8, 2001::/32, 2001:db8::/32, 2002::/16 }}; }}
   chain input {{
@@ -182,12 +186,14 @@ table ip6 checkhen6 {{
   }}
   chain forward {{
     type filter hook forward priority -5; policy accept;
+    iifname "{ap}" jump exam_gate
     oifname "{ap}" ct state established,related accept
     iifname "{ap}" ip6 daddr @private6 counter drop
     iifname "{ap}" ip6 saddr {ipv6_subnet} ether saddr @authorized6 oifname "{uplink}" counter accept
 {open_rule6}    iifname "{ap}" ip6 daddr @preauth6 oifname "{uplink}" tcp dport 443 accept
     iifname "{ap}" counter drop
   }}
+  chain exam_gate {{ }}
   chain prerouting {{
     type nat hook prerouting priority dstnat; policy accept;
     iifname "{ap}" ether saddr @authorized6 return
@@ -224,7 +230,7 @@ wpa_passphrase={settings["AP_PASSPHRASE"]}
     dns = [f"interface={ap}", "bind-interfaces", f"listen-address={ip},{ipv6_address}",
            f"dhcp-option=option:router,{ip}", f"dhcp-option=option:dns-server,{ip}",
            f"dhcp-leasefile={STATE / 'dnsmasq/leases'}", "no-resolv",
-           "server=1.1.1.1", "server=9.9.9.9", "log-queries",
+           "server=1.1.1.1", "server=9.9.9.9", f"servers-file={STATE / 'exam-servers'}", "log-queries",
            f"log-facility={STATE / 'dnsmasq/query.log'}",
            f"address=/{settings.get('AP_HOSTNAME', 'checkhen.rfkill.dev')}/{ip}",
            f"address=/{settings.get('AP_HOSTNAME', 'checkhen.rfkill.dev')}/{ipv6_address}",
@@ -306,6 +312,9 @@ def start(config_path: Path | None = None) -> None:
     # A new class starts with an empty authorized set, even if the old lease persists.
     (STATE / "bindings.json").unlink(missing_ok=True)
     (STATE / "pending-checkouts.json").unlink(missing_ok=True)
+    (STATE / "exam.json").unlink(missing_ok=True)
+    (STATE / "exam-servers").write_text("")
+    (STATE / "exam-servers").chmod(0o644)
     dns_user = pwd.getpwnam("dnsmasq")
     dns_dir = STATE / "dnsmasq"
     dns_dir.mkdir(mode=0o700, exist_ok=True)
