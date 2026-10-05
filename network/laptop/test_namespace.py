@@ -15,7 +15,7 @@ import time
 import urllib.error
 import urllib.request
 
-from settings import ROOT, read_env
+from settings import ROOT, first_ip_json, ip_json_addresses, read_env
 
 
 NAMESPACE = "checkhen-m2"
@@ -109,7 +109,8 @@ def main() -> None:
     settings["AP_INTERFACE"] = HOST_IF
     settings["AP_TEST_MODE"] = "1"
     settings["PREAUTH_DISCOVERY"] = "0"
-    settings["UPLINK_INTERFACE"] = json.loads(run("ip", "-j", "route", "get", "1.1.1.1").stdout)[0]["dev"]
+    settings["UPLINK_INTERFACE"] = first_ip_json(
+        run("ip", "-j", "route", "get", "1.1.1.1").stdout, "IPv4 uplink route")["dev"]
     settings["AP_PASSPHRASE"] = "namespace-only"
     secret = settings["PORTAL_CONTROL_SECRET"]
     address = settings.get("AP_ADDRESS", "172.16.77.1")
@@ -203,25 +204,27 @@ def main() -> None:
                   "-pf", pid_file, CLIENT_IF)
         namespace("dhclient", "-4", "-1", "-v", "-lf", "/tmp/checkhen-m2-second.leases",
                   "-pf", "/tmp/checkhen-m2-second.pid", SECOND_CLIENT_IF, name=SECOND_NAMESPACE)
-        mac = json.loads(namespace("ip", "-j", "link", "show", "dev", CLIENT_IF).stdout)[0]["address"]
-        addresses = json.loads(namespace("ip", "-j", "-4", "address", "show", "dev", CLIENT_IF).stdout)
-        client_ips = [entry["local"] for entry in addresses[0].get("addr_info", [])]
+        mac = first_ip_json(namespace("ip", "-j", "link", "show", "dev", CLIENT_IF).stdout,
+                            f"client link {CLIENT_IF}")["address"]
+        addresses = ip_json_addresses(namespace("ip", "-j", "-4", "address", "show", "dev", CLIENT_IF).stdout)
+        client_ips = [entry["local"] for entry in addresses]
         if len(client_ips) != 1 or ipaddress.IPv4Address(client_ips[0]) not in subnet:
             raise RuntimeError("DHCP did not configure the client address")
         lease_ip = client_ips[0]
-        second_addresses = json.loads(namespace("ip", "-j", "-4", "address", "show", "dev",
-                                               SECOND_CLIENT_IF, name=SECOND_NAMESPACE).stdout)
-        second_ips = [entry["local"] for entry in second_addresses[0].get("addr_info", [])]
+        second_addresses = ip_json_addresses(namespace("ip", "-j", "-4", "address", "show", "dev",
+                                                       SECOND_CLIENT_IF, name=SECOND_NAMESPACE).stdout)
+        second_ips = [entry["local"] for entry in second_addresses]
         if len(second_ips) != 1 or second_ips[0] == lease_ip or ipaddress.IPv4Address(second_ips[0]) not in subnet:
             raise RuntimeError("Second client did not receive a distinct AP lease")
         second_ip = second_ips[0]
-        second_mac = json.loads(namespace("ip", "-j", "link", "show", "dev", SECOND_CLIENT_IF,
-                                          name=SECOND_NAMESPACE).stdout)[0]["address"]
+        second_mac = first_ip_json(namespace("ip", "-j", "link", "show", "dev", SECOND_CLIENT_IF,
+                                             name=SECOND_NAMESPACE).stdout,
+                                   f"client link {SECOND_CLIENT_IF}")["address"]
         def slaac(name: str, interface: str) -> str:
             for _ in range(40):
-                info = json.loads(namespace("ip", "-j", "-6", "address", "show", "dev", interface,
-                                            name=name).stdout)
-                addresses6 = [entry["local"] for entry in info[0].get("addr_info", [])
+                info = ip_json_addresses(namespace("ip", "-j", "-6", "address", "show", "dev", interface,
+                                                    name=name).stdout)
+                addresses6 = [entry["local"] for entry in info
                               if ipaddress.IPv6Address(entry["local"]) in prefix6]
                 if addresses6:
                     return addresses6[0]
@@ -375,8 +378,8 @@ def main() -> None:
         authorized4 = run("nft", "list", "set", "ip", "checkhen", "authorized4").stdout
         if lease_ip not in authorized4 or "172.16.77.250" in authorized4:
             raise RuntimeError("Agent restart did not reconcile the IPv4 nft set")
-        if json.loads(namespace("ip", "-j", "-4", "address", "show", "dev", SECOND_CLIENT_IF,
-                                name=SECOND_NAMESPACE).stdout)[0].get("addr_info"):
+        if ip_json_addresses(namespace("ip", "-j", "-4", "address", "show", "dev", SECOND_CLIENT_IF,
+                                       name=SECOND_NAMESPACE).stdout):
             raise RuntimeError("IPv6-only client still has an IPv4 address")
         private6_before = drop_count("ip6", "checkhen6", "private6")
         private6 = namespace("curl", "-6", "--noproxy", "*", "--max-time", "3", "-fsSI",

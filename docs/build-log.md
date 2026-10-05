@@ -445,3 +445,9 @@ unchanged. The firewall redirects port 80 to the local captive portal in
 prerouting. Forward-chain probes now use port 8080; a separate unbound IPv6
 port-80 check requires the portal redirect. The IPv4 private-address counter
 probe also uses port 8080. The operator rerun remains pending.
+
+The x1 run at `a57046d` passed the forwarding and agent restart checks, then
+hit an `IndexError` when `ip -j -4 address` returned `[]` for the intentionally
+IPv6-only second client. Address reads now treat an empty result as no
+addresses. Required link and uplink-route reads report a clear error if
+`ip -j` returns no entries. The operator namespace rerun remains pending.

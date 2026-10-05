@@ -13,7 +13,7 @@ import subprocess
 import sys
 import time
 
-from settings import read_env
+from settings import first_ip_json, read_env
 
 
 STATE = Path("/run/checkhen")
@@ -329,8 +329,9 @@ def start(config_path: Path | None = None) -> None:
              "ipv6_address": ipv6_address, "ipv6_subnet": ipv6_subnet,
              "managed": "test" if test_mode else run("nmcli", "-g", "GENERAL.NM-MANAGED", "device", "show",
                                                         settings["AP_INTERFACE"]).stdout.strip(),
-             "link_up": "UP" in json.loads(run("ip", "-j", "link", "show", "dev",
-                                                 settings["AP_INTERFACE"]).stdout)[0]["flags"],
+             "link_up": "UP" in first_ip_json(run("ip", "-j", "link", "show", "dev",
+                                                   settings["AP_INTERFACE"]).stdout,
+                                            f"AP link {settings['AP_INTERFACE']}")["flags"],
              "forward": Path("/proc/sys/net/ipv4/ip_forward").read_text().strip(),
              "forward6": Path("/proc/sys/net/ipv6/conf/all/forwarding").read_text().strip(),
              "forward6_interfaces": {
