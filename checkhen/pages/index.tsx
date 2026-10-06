@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/router';
 import {
   AlertTriangle,
   CheckCircle,
   GraduationCap,
   Hand,
+  HelpCircle,
   LogOut,
   Send,
   TrendingDown,
@@ -537,6 +539,16 @@ export default function HomePage() {
                   variant="subtle"
                   color="gray"
                   size={44}
+                  aria-label="How CheckHen works"
+                  component={Link}
+                  href="/help/student"
+                >
+                  <HelpCircle size={20} />
+                </ActionIcon>
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  size={44}
                   aria-label="Profile"
                   onClick={() => router.push('/profile')}
                 >
@@ -554,6 +566,16 @@ export default function HomePage() {
               </>
             ) : (
               <>
+                <Button
+                  variant="subtle"
+                  color="gray"
+                  size="sm"
+                  leftSection={<HelpCircle size={16} />}
+                  component={Link}
+                  href="/help/student"
+                >
+                  Help
+                </Button>
                 <Button
                   variant="subtle"
                   color="gray"

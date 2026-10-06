@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/router';
 import {
   AlertCircle,
@@ -18,6 +19,7 @@ import {
 import { Socket } from 'socket.io-client';
 import {
   Alert,
+  Anchor,
   Avatar,
   Badge,
   Box,
@@ -489,6 +491,14 @@ export default function AdminDashboard() {
             >
               My Profile
             </Button>
+            <Button
+              variant="subtle"
+              color="gray"
+              component={Link}
+              href="/help/instructor#dashboard"
+            >
+              Help
+            </Button>
             <Button variant="light" onClick={() => router.push('/admin/call')}>
               Cold call
             </Button>
@@ -590,7 +600,12 @@ export default function AdminDashboard() {
               <Divider />
               <Stack gap="xs">
                 <Group justify="space-between">
-                  <Text fw={600}>Exam mode</Text>
+                  <Group gap="xs">
+                    <Text fw={600}>Exam mode</Text>
+                    <Anchor component={Link} href="/help/instructor#exam-mode" size="sm">
+                      How exam mode works
+                    </Anchor>
+                  </Group>
                   {exam?.exam?.active && <Badge color="red">Active</Badge>}
                 </Group>
                 {exam?.exam?.active ? (
@@ -901,6 +916,9 @@ export default function AdminDashboard() {
                   >
                     Copy Slidev token
                   </Button>
+                  <Anchor component={Link} href="/help/projection" size="xs">
+                    What the room sees
+                  </Anchor>
                 </Group>
               </Group>
               <Text size="sm" c="dimmed">

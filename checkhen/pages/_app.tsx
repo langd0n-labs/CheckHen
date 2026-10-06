@@ -26,7 +26,8 @@ export default function App({ Component, pageProps: { session, ...pageProps } }:
           <link rel="shortcut icon" href="/favicon.svg" />
         </Head>
         {/* The call screen shows its own compact scope line to keep both taps on one screen. */}
-        {!['/projection', '/admin/call'].includes(router.pathname) && <SessionScopePicker />}
+        {!['/projection', '/admin/call'].includes(router.pathname) &&
+          !router.pathname.startsWith('/help') && <SessionScopePicker />}
         <Component {...pageProps} />
       </MantineProvider>
     </SessionProvider>

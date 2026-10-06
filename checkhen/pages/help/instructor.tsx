@@ -1,0 +1,181 @@
+import { Alert, Text } from '@mantine/core';
+import { HelpLayout, HelpList as List } from '@/components/HelpLayout';
+
+/** Help for instructors: the dashboard, cold calling, and exam mode. */
+export default function InstructorHelp() {
+  return (
+    <HelpLayout
+      title="How CheckHen works for instructors"
+      intro="The dashboard runs the class, the cold-call screen runs on your phone, and exam mode limits the class network during a test."
+      back={{ href: '/admin/dashboard', label: 'Back to the dashboard' }}
+      sections={[
+        {
+          id: 'dashboard',
+          title: 'The dashboard',
+          body: (
+            <>
+              <Text>
+                Choose the course and class session at the top of the page. Start New Class opens a
+                session; End Class closes it, checks everyone out, and removes their class network
+                access.
+              </Text>
+              <List>
+                <List.Item>
+                  Present students: everyone checked in. Open a student to see their profile,
+                  including food allergies and bio, which students never see about each other.
+                </List.Item>
+                <List.Item>
+                  Hands raised: in the order raised. Acknowledge calls on that student. An
+                  acknowledged hand counts as a volunteer answer, and that student is a little less
+                  likely to be drawn for a cold call in the same meeting.
+                </List.Item>
+                <List.Item>
+                  Pace: how many students chose Slow down or Ready. A notice appears when more than
+                  30% want to slow down. Reset clears the counts.
+                </List.Item>
+                <List.Item>
+                  Chat: you see real names. Hide removes a message for students and the projector
+                  within about a second; the message stays in the record and Unhide restores it.
+                  Mute stops a student from sending messages for the rest of the class.
+                </List.Item>
+                <List.Item>
+                  Project chat opens the projection window; Copy Slidev token connects a Slidev
+                  deck. See the projection help for what the room sees.
+                </List.Item>
+              </List>
+            </>
+          ),
+        },
+        {
+          id: 'cold-call',
+          title: 'Cold calling',
+          body: (
+            <>
+              <Text>
+                Open the cold-call screen on your phone. Tap Call on someone; CheckHen draws a
+                checked-in student and shows their photo, name, pronunciation, and pronouns. Tap one
+                outcome. The common path is two taps: Call on someone, then Answered. This screen is
+                for you only; it is not designed to be projected.
+              </Text>
+              <Text fw={600}>Outcomes</Text>
+              <List>
+                <List.Item>
+                  Answered: the student answered. It counts toward participation.
+                </List.Item>
+                <List.Item>
+                  Answered + follow-up: records Answered and keeps the same student on screen for a
+                  deeper or variant question. See follow-up runs below.
+                </List.Item>
+                <List.Item>
+                  Pass: the student did not answer. It is an opportunity without an answer, and it
+                  makes the student more likely to be drawn later, until they answer.
+                </List.Item>
+                <List.Item>
+                  Retry: come back to this student. Nothing is recorded as an answer or pass yet.
+                  The student comes back by chance, at three times their usual weight; record the
+                  outcome when you return to them.
+                </List.Item>
+                <List.Item>
+                  Absent: the student left early. It counts as an absence and checks the student
+                  out. They can be drawn again after they check back in.
+                </List.Item>
+                <List.Item>
+                  Skip: the student is briefly out of the room. It is noted, changes nothing, and
+                  the student stays in the draw.
+                </List.Item>
+              </List>
+              <Text fw={600}>Follow-up runs</Text>
+              <List>
+                <List.Item>
+                  Each follow-up question is its own record, and each Answered counts toward
+                  participation. A run counts as one call for how recently the student was called.
+                </List.Item>
+                <List.Item>
+                  A Pass on a follow-up costs nothing: it is not an opportunity and adds no pass
+                  weight. It still settles an outstanding Retry.
+                </List.Item>
+                <List.Item>
+                  Done with follow-ups ends the run. After a plain Answered, Ask a follow-up starts
+                  one.
+                </List.Item>
+                <List.Item>
+                  If a Retry on a follow-up is resolved later by a fresh draw, that later call is an
+                  ordinary call: a Pass on it counts.
+                </List.Item>
+              </List>
+              <Text fw={600}>Undo</Text>
+              <List>
+                <List.Item>
+                  Undo has no time limit. The last call has an Undo, and every earlier call in the
+                  session is listed with its own.
+                </List.Item>
+                <List.Item>
+                  During a run, or right after an outcome that ended one, Undo steps back one
+                  question with the same student, so you can record the right outcome.
+                </List.Item>
+                <List.Item>Undoing an Absent also checks the student back in.</List.Item>
+                <List.Item>
+                  Undoing the first call of a run keeps its follow-ups, which were real questions.
+                  They stay counted and are labeled (follow-up).
+                </List.Item>
+              </List>
+              <Text fw={600}>Who gets drawn</Text>
+              <List>
+                <List.Item>
+                  Any checked-in student on the roster can be drawn, except one marked Absent in
+                  this meeting who has not checked back in.
+                </List.Item>
+                <List.Item>
+                  A student called earlier in the same meeting stays in the draw at a fifth of their
+                  usual weight, so being called does not take them off the hook.
+                </List.Item>
+                <List.Item>
+                  Weight rises for students never called, for each meeting since they were last
+                  called, for outstanding passes, and for an outstanding Retry. It falls after an
+                  acknowledged hand in the same meeting. The weights are course settings.
+                </List.Item>
+              </List>
+              <Text fw={600}>Two phones</Text>
+              <Text>
+                If you draw on two phones, the newer draw replaces the older one. The older phone
+                clears its card and says so. A draw stays valid for 30 minutes.
+              </Text>
+            </>
+          ),
+        },
+        {
+          id: 'exam-mode',
+          title: 'Exam mode',
+          body: (
+            <>
+              <Alert color="yellow" title="Being finished">
+                Exam mode is being finished. Do not use it in class yet.
+              </Alert>
+              <Text>
+                On the dashboard, enter the allowed domains and the disconnect limit in seconds (30
+                by default), then tap Start exam and confirm. While the exam runs:
+              </Text>
+              <List>
+                <List.Item>
+                  Students reach only CheckHen and the allowed domains. Devices that were not
+                  already checked in cannot join.
+                </List.Item>
+                <List.Item>
+                  CheckHen watches each student&apos;s connection, both the open class page and the
+                  device on the Wi-Fi. A student disconnected for longer than the limit gets an
+                  automatic fail, shown on the dashboard.
+                </List.Item>
+                <List.Item>
+                  Excuse a fail with a reason. The fail stays in the record, marked excused.
+                </List.Item>
+                <List.Item>
+                  End exam restores the normal class network. Ending the session also ends the exam.
+                </List.Item>
+              </List>
+            </>
+          ),
+        },
+      ]}
+    />
+  );
+}

@@ -221,15 +221,36 @@ export default function ColdCall() {
         <Text size="sm" c="dimmed">
           {present} checked in
         </Text>
-        <Text
-          component={Link}
-          href="/admin/dashboard"
-          size="sm"
-          c="buBlue.7"
-          style={{ minHeight: 44, display: 'inline-flex', alignItems: 'center', padding: '0 8px' }}
-        >
-          Dashboard
-        </Text>
+        <Group gap={0} wrap="nowrap">
+          <Text
+            component={Link}
+            href="/help/instructor#cold-call"
+            size="sm"
+            c="buBlue.7"
+            style={{
+              minHeight: 44,
+              display: 'inline-flex',
+              alignItems: 'center',
+              padding: '0 8px',
+            }}
+          >
+            Help
+          </Text>
+          <Text
+            component={Link}
+            href="/admin/dashboard"
+            size="sm"
+            c="buBlue.7"
+            style={{
+              minHeight: 44,
+              display: 'inline-flex',
+              alignItems: 'center',
+              padding: '0 8px',
+            }}
+          >
+            Dashboard
+          </Text>
+        </Group>
       </Group>
       {configProblem && !student && (
         // Only between calls, so it never pushes the outcome buttons down.

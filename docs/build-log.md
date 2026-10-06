@@ -977,3 +977,26 @@ Fixed for use in class:
 The impeccable detector over all 20 page and component files found two
 cosmetic "side-tab" left borders, in `/admin/analytics` and `/join`. Neither
 affects use in class; both are left open.
+
+### Help pages
+
+Three help pages, one per audience, using the operator's 2026-10-06 answers
+on the outline:
+
+- `/help/student`: checking in and out, chat, hands and pace, the profile
+  and who sees it, and exam mode. Linked from the student page (Help), `/join`
+  (checking in), and `/profile` (who sees your profile).
+- `/help/instructor`: the dashboard, cold calling (every outcome, follow-up
+  runs, Undo, who gets drawn, two phones), and exam mode. Linked from the
+  dashboard (Help, and "How exam mode works") and the call screen (Help).
+- `/help/projection`: the projection window and the Slidev chat component.
+  Linked from the dashboard's projection controls; the room-facing views do
+  not link to it.
+
+Both exam sections describe the intended behavior and say "being finished; do
+not use in class yet". The volunteer rule is written as an acknowledged
+raised hand. On hold, per the operator: the student participation-rules
+section and the instructor course-record section. `/admin/analytics` is left
+out as legacy. Each page has a section list and anchors; the help pages hide
+the course picker. Rendered at 375x667 and 1280x800 with no sideways scroll.
+Verified: 30 Jest suites and 285 tests.

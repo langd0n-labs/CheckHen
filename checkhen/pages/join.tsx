@@ -1,19 +1,21 @@
+import Link from 'next/link';
 import { selectScope } from '@/lib/scoped-fetch';
 import { scopedFetch as fetch } from '@/lib/scoped-fetch';
 import { useEffect, useState } from 'react';
 import { useSession, signIn } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import {
+  Anchor,
+  Badge,
   Box,
   Button,
   Card,
+  Group,
+  Loader,
   Stack,
   Text,
   Title,
-  Badge,
-  Group,
   useMantineTheme,
-  Loader,
 } from '@mantine/core';
 import { GraduationCap, BookOpen, Clock, Users, User } from 'lucide-react';
 import { notifications } from '@mantine/notifications';
@@ -237,6 +239,9 @@ export default function JoinPage() {
             <div>
               <Title order={2} mb={4}>Active Classes</Title>
               <Text c="dimmed" size="sm">Select a session to join</Text>
+              <Anchor component={Link} href="/help/student#checking-in" size="sm">
+                How checking in and out works
+              </Anchor>
             </div>
 
             {activeClasses.map((cls) => {

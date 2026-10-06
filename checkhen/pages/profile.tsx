@@ -1,8 +1,10 @@
+import Link from 'next/link';
 import { scopedFetch as fetch } from '@/lib/scoped-fetch';
 import { useEffect, useRef, useState } from 'react';
 import { useSession, signIn } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import {
+  Anchor,
   Avatar,
   Box,
   Button,
@@ -173,7 +175,12 @@ export default function ProfilePage() {
       <Card shadow="lg" padding="xl" radius="md" style={{ maxWidth: 520, width: '100%' }}>
         <Stack gap="lg">
           <Group justify="space-between">
-            <Title order={3}>My Profile</Title>
+            <div>
+              <Title order={3}>My Profile</Title>
+              <Anchor component={Link} href="/help/student#profile" size="sm">
+                Who sees your profile
+              </Anchor>
+            </div>
             <Button
               variant="subtle"
               size="sm"
