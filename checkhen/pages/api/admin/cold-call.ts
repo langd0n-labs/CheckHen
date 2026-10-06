@@ -164,6 +164,41 @@ async function checkFollowUp(tx: Prisma.TransactionClient, scope: EventScope, ca
   }
 }
 
+/** True when the student's attendance in this session is current. */
+async function isPresent(tx: Prisma.TransactionClient, scope: EventScope, userId: string) {
+  const events = (
+    await tx.participationEvent.findMany({
+      where: scope,
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    })
+  ).map(asEvent);
+  return foldEvents(events, scope).attendance.some(
+    (entry) => entry.userId === userId && entry.isPresent
+  );
+}
+
+/** The check-out an Absent call wrote, if it is still in force. */
+async function linkedCheckOut(
+  tx: Prisma.TransactionClient,
+  scope: EventScope,
+  call: { id: string; userId: string | null; actorId: string }
+) {
+  const checkOuts = await tx.participationEvent.findMany({
+    where: { ...scope, kind: 'CHECK_OUT', userId: call.userId, actorId: call.actorId },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+  });
+  const linked = checkOuts.find(
+    (event) => (event.payload as { coldCallId?: string }).coldCallId === call.id
+  );
+  if (
+    !linked ||
+    (await tx.participationEvent.findFirst({ where: { ...scope, supersedesId: linked.id } }))
+  ) {
+    return null;
+  }
+  return linked;
+}
+
 const studentName = (user: { displayName: string | null; email: string }) =>
   user.displayName || user.email.split('@')[0];
 
@@ -261,21 +296,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           token.kind === 'draw'
             ? checkDraw(tx, scope, token.seed, token.userId)
             : checkFollowUp(tx, scope, token.callId),
+        // Absent means the student left early: check them out in the same transaction.
+        then: async (tx, call) =>
+          outcome === 'absent' && (await isPresent(tx, scope, call.userId!))
+            ? [
+                {
+                  ...scope,
+                  actorId: user.id,
+                  userId: call.userId,
+                  kind: 'CHECK_OUT',
+                  // Undoing the Absent call also undoes this check-out.
+                  payload: { coldCallId: call.id },
+                },
+              ]
+            : [],
       });
-      if (outcome === 'absent') {
-        // The student left early: end their attendance until they check in again.
-        const state = await readState(prisma, scope);
-        if (state.attendance.some((entry) => entry.userId === token.userId && entry.isPresent)) {
-          await appendEvent(prisma, {
-            ...scope,
-            actorId: user.id,
-            userId: token.userId,
-            kind: 'CHECK_OUT',
-            // Undoing the Absent call also undoes this check-out.
-            payload: { coldCallId: event.id },
-          });
-        }
-      }
       const followUp =
         req.body?.next === 'follow-up' && outcome === 'answered'
           ? sign(scope, { kind: 'follow-up', userId: token.userId, callId: event.id })
@@ -310,31 +345,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             throw new ConflictError('Call already undone or excused');
           }
         },
+        // A mistaken Absent must not leave the student checked out: undo both together.
+        then: async (tx) => {
+          const linked = await linkedCheckOut(tx, scope, target);
+          return linked
+            ? [
+                {
+                  ...scope,
+                  actorId: user.id,
+                  userId: target.userId,
+                  kind: 'UNDO',
+                  supersedesId: linked.id,
+                },
+              ]
+            : [];
+        },
       });
     } catch (error) {
       if (error instanceof ConflictError) {
         return res.status(409).json({ message: error.message });
       }
       throw error;
-    }
-    // An Absent call checked the student out; a mistaken Absent must not leave them out.
-    const checkOuts = await prisma.participationEvent.findMany({
-      where: { ...scope, kind: 'CHECK_OUT', userId: target.userId },
-    });
-    const linked = checkOuts.find(
-      (event) => (event.payload as { coldCallId?: string }).coldCallId === target.id
-    );
-    if (
-      linked &&
-      !(await prisma.participationEvent.findFirst({ where: { ...scope, supersedesId: linked.id } }))
-    ) {
-      await appendEvent(prisma, {
-        ...scope,
-        actorId: user.id,
-        userId: target.userId,
-        kind: 'UNDO',
-        supersedesId: linked.id,
-      });
     }
     return res.json({ ok: true });
   }

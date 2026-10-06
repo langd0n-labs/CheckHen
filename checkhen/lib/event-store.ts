@@ -35,6 +35,8 @@ type AppendInput = EventScope & {
   supersedesId?: string;
   /** Runs inside the session lock before the write; throw ConflictError to refuse it. */
   guard?: (tx: Prisma.TransactionClient) => Promise<void>;
+  /** Returns more events for the same session, written in the same transaction. */
+  then?: (tx: Prisma.TransactionClient, event: ParticipationEvent) => Promise<AppendInput[]>;
 };
 
 /** A guard refused an append because the session state changed. */
@@ -134,127 +136,139 @@ export async function appendEvent(db: PrismaClient, input: AppendInput) {
     if (input.guard) {
       await input.guard(tx);
     }
-    let kind = input.kind;
-    let payload = input.payload ?? {};
-    if (kind === 'CHECK_IN' && input.userId && !input.supersedesId) {
-      const current = foldEvents(
-        (
-          await tx.participationEvent.findMany({
-            where: {
-              courseId: input.courseId,
-              classId: input.classId,
-            },
-            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-          })
-        ).map(asEvent),
-        input
-      );
-      const present = current.attendance.find(
-        (entry) => entry.userId === input.userId && entry.isPresent
-      );
-      if (present) {
-        if (typeof payload.deviceIp === 'string' && typeof payload.deviceMac === 'string') {
-          kind = 'DEVICE_BOUND';
-          payload = { deviceIp: payload.deviceIp, deviceMac: payload.deviceMac };
-        } else {
-          const existing = await tx.participationEvent.findFirst({
-            where: {
-              courseId: input.courseId,
-              classId: input.classId,
-              userId: input.userId,
-              kind: 'CHECK_IN',
-            },
-            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-          });
-          if (existing) return asEvent(existing);
-        }
-      } else if (
-        current.attendance.some(
-          (entry) => entry.isPresent && entry.anonymousName === payload.anonymousName
-        )
-      ) {
-        payload = {
-          ...payload,
-          anonymousName: generateUniqueAnonymousName(
-            current.attendance
-              .filter((entry) => entry.isPresent)
-              .map((entry) => entry.anonymousName)
-          ),
-        };
+    const event = await writeEvent(tx, input);
+    // Follow-on events commit or fail with the first one.
+    for (const next of input.then ? await input.then(tx, event) : []) {
+      if (next.courseId !== input.courseId || next.classId !== input.classId) {
+        throw new Error('Follow-on events must stay in the same session');
       }
-      validatePayload(kind, payload);
+      validatePayload(next.kind, next.payload ?? {});
+      await writeEvent(tx, next);
     }
-    if (input.userId) {
-      const member = await tx.rosterEntry.findUnique({
-        where: { courseId_userId: { courseId: input.courseId, userId: input.userId } },
-      });
-      if (!member) throw new Error('Student is not on this course roster');
-    }
-    if (kind === 'STUDENT_MUTED' && !input.userId) throw new Error('Mute requires a student');
-    if (kind === 'CHAT_HIDDEN' && !input.supersedesId) throw new Error('Hide requires a message');
-    if (kind === 'EXAM_EXCUSED' && !input.supersedesId) throw new Error('Excuse requires a fail');
-    if (kind === 'COLD_CALL_EXCUSED' && !input.supersedesId) {
-      throw new Error('Excuse requires an absence');
-    }
-    if (input.supersedesId) {
-      const previous = await tx.participationEvent.findFirst({
-        where: { id: input.supersedesId, courseId: input.courseId, classId: input.classId },
-      });
-      if (!previous) throw new Error('Unknown superseded event');
-      const hidesMessage =
-        kind === 'CHAT_HIDDEN' &&
-        previous.kind === 'CHAT_MESSAGE' &&
-        payload.messageId === previous.id &&
-        input.userId === previous.userId;
-      const excusesFail =
-        kind === 'EXAM_EXCUSED' &&
-        previous.kind === 'EXAM_FAILED' &&
-        payload.examId === (previous.payload as Record<string, unknown>).examId &&
-        input.userId === previous.userId;
-      // An excused absence supersedes the student's Absent call; both stay in the log.
-      const excusesAbsence =
-        kind === 'COLD_CALL_EXCUSED' &&
-        previous.kind === 'COLD_CALL' &&
-        (previous.payload as Record<string, unknown>).outcome === 'absent' &&
-        input.userId === previous.userId;
-      if (
-        kind !== 'UNDO' &&
-        !hidesMessage &&
-        !excusesFail &&
-        !excusesAbsence &&
-        (kind !== previous.kind || input.userId !== previous.userId)
-      ) {
-        throw new Error('A correction must preserve event kind and student');
-      }
-      if (kind === 'CHAT_HIDDEN' && !hidesMessage)
-        throw new Error('Hide must target a message by that student');
-      if (kind === 'EXAM_EXCUSED' && !excusesFail)
-        throw new Error('Excuse must target a fail by that student');
-      if (kind === 'COLD_CALL_EXCUSED' && !excusesAbsence) {
-        throw new Error('Excuse must target an absence by that student');
-      }
-    } else if (kind === 'UNDO') {
-      throw new Error('Undo requires a target event');
-    }
-    const latest = await tx.participationEvent.findFirst({
-      where: { courseId: input.courseId, classId: input.classId },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    });
-    const createdAt = new Date(Math.max(Date.now(), (latest?.createdAt.getTime() ?? 0) + 1));
-    return asEvent(
-      await tx.participationEvent.create({
-        data: {
-          id: randomUUID(),
-          courseId: input.courseId,
-          classId: input.classId,
-          userId: input.userId ?? null,
-          actorId: input.actorId,
-          kind,
-          payload: payload as Prisma.InputJsonObject,
-          createdAt,
-          supersedesId: input.supersedesId ?? null,
-        },
-      })
-    );
+    return event;
   });
+}
+
+/** Validate and write one event. The caller holds the session lock. */
+async function writeEvent(tx: Prisma.TransactionClient, input: AppendInput) {
+  let kind = input.kind;
+  let payload = input.payload ?? {};
+  if (kind === 'CHECK_IN' && input.userId && !input.supersedesId) {
+    const current = foldEvents(
+      (
+        await tx.participationEvent.findMany({
+          where: {
+            courseId: input.courseId,
+            classId: input.classId,
+          },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        })
+      ).map(asEvent),
+      input
+    );
+    const present = current.attendance.find(
+      (entry) => entry.userId === input.userId && entry.isPresent
+    );
+    if (present) {
+      if (typeof payload.deviceIp === 'string' && typeof payload.deviceMac === 'string') {
+        kind = 'DEVICE_BOUND';
+        payload = { deviceIp: payload.deviceIp, deviceMac: payload.deviceMac };
+      } else {
+        const existing = await tx.participationEvent.findFirst({
+          where: {
+            courseId: input.courseId,
+            classId: input.classId,
+            userId: input.userId,
+            kind: 'CHECK_IN',
+          },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        });
+        if (existing) return asEvent(existing);
+      }
+    } else if (
+      current.attendance.some(
+        (entry) => entry.isPresent && entry.anonymousName === payload.anonymousName
+      )
+    ) {
+      payload = {
+        ...payload,
+        anonymousName: generateUniqueAnonymousName(
+          current.attendance.filter((entry) => entry.isPresent).map((entry) => entry.anonymousName)
+        ),
+      };
+    }
+    validatePayload(kind, payload);
+  }
+  if (input.userId) {
+    const member = await tx.rosterEntry.findUnique({
+      where: { courseId_userId: { courseId: input.courseId, userId: input.userId } },
+    });
+    if (!member) throw new Error('Student is not on this course roster');
+  }
+  if (kind === 'STUDENT_MUTED' && !input.userId) throw new Error('Mute requires a student');
+  if (kind === 'CHAT_HIDDEN' && !input.supersedesId) throw new Error('Hide requires a message');
+  if (kind === 'EXAM_EXCUSED' && !input.supersedesId) throw new Error('Excuse requires a fail');
+  if (kind === 'COLD_CALL_EXCUSED' && !input.supersedesId) {
+    throw new Error('Excuse requires an absence');
+  }
+  if (input.supersedesId) {
+    const previous = await tx.participationEvent.findFirst({
+      where: { id: input.supersedesId, courseId: input.courseId, classId: input.classId },
+    });
+    if (!previous) throw new Error('Unknown superseded event');
+    const hidesMessage =
+      kind === 'CHAT_HIDDEN' &&
+      previous.kind === 'CHAT_MESSAGE' &&
+      payload.messageId === previous.id &&
+      input.userId === previous.userId;
+    const excusesFail =
+      kind === 'EXAM_EXCUSED' &&
+      previous.kind === 'EXAM_FAILED' &&
+      payload.examId === (previous.payload as Record<string, unknown>).examId &&
+      input.userId === previous.userId;
+    // An excused absence supersedes the student's Absent call; both stay in the log.
+    const excusesAbsence =
+      kind === 'COLD_CALL_EXCUSED' &&
+      previous.kind === 'COLD_CALL' &&
+      (previous.payload as Record<string, unknown>).outcome === 'absent' &&
+      input.userId === previous.userId;
+    if (
+      kind !== 'UNDO' &&
+      !hidesMessage &&
+      !excusesFail &&
+      !excusesAbsence &&
+      (kind !== previous.kind || input.userId !== previous.userId)
+    ) {
+      throw new Error('A correction must preserve event kind and student');
+    }
+    if (kind === 'CHAT_HIDDEN' && !hidesMessage)
+      throw new Error('Hide must target a message by that student');
+    if (kind === 'EXAM_EXCUSED' && !excusesFail)
+      throw new Error('Excuse must target a fail by that student');
+    if (kind === 'COLD_CALL_EXCUSED' && !excusesAbsence) {
+      throw new Error('Excuse must target an absence by that student');
+    }
+  } else if (kind === 'UNDO') {
+    throw new Error('Undo requires a target event');
+  }
+  const latest = await tx.participationEvent.findFirst({
+    where: { courseId: input.courseId, classId: input.classId },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+  });
+  const createdAt = new Date(Math.max(Date.now(), (latest?.createdAt.getTime() ?? 0) + 1));
+  return asEvent(
+    await tx.participationEvent.create({
+      data: {
+        id: randomUUID(),
+        courseId: input.courseId,
+        classId: input.classId,
+        userId: input.userId ?? null,
+        actorId: input.actorId,
+        kind,
+        payload: payload as Prisma.InputJsonObject,
+        createdAt,
+        supersedesId: input.supersedesId ?? null,
+      },
+    })
+  );
 }

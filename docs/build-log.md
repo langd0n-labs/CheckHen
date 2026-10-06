@@ -714,8 +714,12 @@ Open after M8, from these reviews, in this order:
 
 1. (Dropped by operator decision 2026-10-06: Retry call-back. A Retry student
    returns by chance at the retry weight.)
-2. Make Absent and its check-out, and their undos, one transaction or
-   retry-safe.
+2. Done (m1): `appendEvent` takes a `then` callback whose events are written
+   in the same transaction. An Absent call and its check-out, and the undo of
+   both, each commit or fail as one step; the linked check-out lookup is
+   ordered and limited to the recording instructor's check-outs. Verified by
+   28 Jest suites and 260 tests and 26 route integration cases (adds: a failing
+   follow-on writes nothing; Absent and its undo each as one step).
 3. The remaining minor items (m2, m4, m5) and test gaps in the 3896c62 review.
 4. From the e66fe5e review: an accurate refusal when a session has no draw
    event yet; rename or extend the two-phone test so it also covers the

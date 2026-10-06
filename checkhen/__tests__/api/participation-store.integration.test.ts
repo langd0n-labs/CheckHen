@@ -480,6 +480,47 @@ integration('route → store → attendance fold', () => {
       expect((await call('GET'))._getJSONData().calls).toHaveLength(2);
     });
 
+    it('writes nothing when a follow-on event fails', async () => {
+      const ada = await student('Ada');
+      const before = (await readEvents(prisma, scope)).length;
+      await expect(
+        appendEvent(prisma, {
+          ...scope,
+          actorId: 'instructor',
+          userId: ada.id,
+          kind: 'COLD_CALL',
+          payload: { outcome: 'absent' },
+          // An undo of an event that does not exist fails inside the transaction.
+          then: async () => [
+            {
+              ...scope,
+              actorId: 'instructor',
+              userId: ada.id,
+              kind: 'UNDO',
+              supersedesId: 'missing',
+            },
+          ],
+        })
+      ).rejects.toThrow('Unknown superseded event');
+      expect(await readEvents(prisma, scope)).toHaveLength(before);
+    });
+
+    it('writes an Absent and its check-out, and undoes both, as single steps', async () => {
+      const lee = await student('Lee');
+      const absent = await record((await draw()).draw, 'absent');
+      const callId = absent._getJSONData().id;
+      const afterRecord = await readEvents(prisma, scope);
+      const checkOut = afterRecord.find(
+        (event) => event.kind === 'CHECK_OUT' && event.payload.coldCallId === callId
+      );
+      expect(checkOut).toMatchObject({ userId: lee.id });
+      expect((await call('POST', { action: 'undo', eventId: callId }))._getStatusCode()).toBe(200);
+      const undos = (await readEvents(prisma, scope)).filter((event) => event.kind === 'UNDO');
+      expect(undos.map((event) => event.supersedesId).sort()).toEqual(
+        [callId, checkOut!.id].sort()
+      );
+    });
+
     it('makes an absent student callable again when they check back in', async () => {
       const late = await student('Kim');
       await record((await draw()).draw, 'absent');
