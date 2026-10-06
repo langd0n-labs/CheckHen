@@ -33,7 +33,7 @@ const initials = (name: string) =>
 /** I3: the instructor's in-class phone screen. Call on someone, then one outcome tap. */
 export default function ColdCall() {
   const [scoped, setScoped] = useState<boolean | null>(null);
-  const [student, setStudent] = useState<(Student & { seed: number }) | null>(null);
+  const [student, setStudent] = useState<(Student & { draw: string }) | null>(null);
   const [calls, setCalls] = useState<Call[]>([]);
   const [present, setPresent] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -74,7 +74,7 @@ export default function ColdCall() {
       const response = await post({ action: 'draw' });
       if (response.ok) {
         const data = await response.json();
-        setStudent({ ...data.student, seed: data.seed });
+        setStudent({ ...data.student, draw: data.draw });
       } else {
         await fail(response, 'Could not call on a student');
       }
@@ -91,9 +91,8 @@ export default function ColdCall() {
     try {
       const response = await post({
         action: 'record',
-        userId: student.userId,
         outcome,
-        seed: student.seed,
+        draw: student.draw,
       });
       if (response.ok) {
         setStudent(null);

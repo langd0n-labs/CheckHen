@@ -235,46 +235,149 @@ integration('route → store → attendance fold', () => {
     });
   });
 
-  it('draws, records, and undoes a cold call through the event log', async () => {
-    await invoke(checkIn, '172.16.77.20');
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { displayName: 'Alisha', namePronunciation: 'ale-EE-sha' },
-    });
-    (requireScope as jest.Mock).mockResolvedValue({
-      user: { id: 'instructor' },
-      selected,
-      scope,
-      admin: true,
-    });
+  describe('cold calling', () => {
     const call = async (method: 'GET' | 'POST', body?: Record<string, unknown>) => {
       const { req, res } = createMocks({ method, query: scope, body });
       await coldCallRoute(req as any, res as any);
       return res;
     };
-    const drawn = await call('POST', { action: 'draw' });
-    expect(drawn._getStatusCode()).toBe(200);
-    const { seed, student } = drawn._getJSONData();
-    expect(student).toMatchObject({ userId: user.id, name: 'Alisha', pronunciation: 'ale-EE-sha' });
-    const recorded = await call('POST', {
-      action: 'record',
-      userId: user.id,
-      outcome: 'answered',
-      seed,
+    const draw = async () => {
+      const res = await call('POST', { action: 'draw' });
+      expect(res._getStatusCode()).toBe(200);
+      return res._getJSONData();
+    };
+    const record = (token: string, outcome = 'answered') =>
+      call('POST', { action: 'record', outcome, draw: token });
+    const statuses = (responses: { _getStatusCode(): number }[]) =>
+      responses.map((res) => res._getStatusCode()).sort();
+    /** A rostered, checked-in student created directly in the log. */
+    const student = async (name: string) => {
+      const created = await prisma.user.create({
+        data: { email: `${name}-${randomUUID()}@example.edu`, displayName: name },
+      });
+      await prisma.rosterEntry.create({ data: { courseId: scope.courseId, userId: created.id } });
+      await appendEvent(prisma, {
+        ...scope,
+        actorId: created.id,
+        userId: created.id,
+        kind: 'CHECK_IN',
+        payload: { anonymousName: `Anon ${name}` },
+      });
+      return created;
+    };
+    beforeEach(() => {
+      process.env.AUTH_SECRET = 'checkhen-test-draw-secret';
+      (requireScope as jest.Mock).mockResolvedValue({
+        user: { id: 'instructor' },
+        selected,
+        scope,
+        admin: true,
+      });
     });
-    expect(recorded._getStatusCode()).toBe(200);
-    // Called today with no retry outstanding: no one is left to call.
-    expect((await call('POST', { action: 'draw' }))._getStatusCode()).toBe(409);
-    const callId = recorded._getJSONData().id;
-    expect((await call('POST', { action: 'undo', eventId: callId }))._getStatusCode()).toBe(200);
-    expect((await call('GET'))._getJSONData().calls).toEqual([]);
-    expect((await call('POST', { action: 'draw' }))._getStatusCode()).toBe(200);
-    const events = await readEvents(prisma, scope);
-    expect(events.find((event) => event.id === callId)).toMatchObject({
-      kind: 'COLD_CALL',
-      payload: { outcome: 'answered', seed },
+
+    it('draws, records, and undoes a cold call through the event log', async () => {
+      await appendEvent(prisma, {
+        ...scope,
+        actorId: user.id,
+        userId: user.id,
+        kind: 'CHECK_IN',
+        payload: { anonymousName: 'Anon Alisha' },
+      });
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { displayName: 'Alisha', namePronunciation: 'ale-EE-sha' },
+      });
+      const drawn = await draw();
+      expect(drawn.student).toMatchObject({
+        userId: user.id,
+        name: 'Alisha',
+        pronunciation: 'ale-EE-sha',
+      });
+      const recorded = await record(drawn.draw);
+      expect(recorded._getStatusCode()).toBe(200);
+      // Called today with no retry outstanding: no one is left to call.
+      expect((await call('POST', { action: 'draw' }))._getStatusCode()).toBe(409);
+      const callId = recorded._getJSONData().id;
+      expect((await call('POST', { action: 'undo', eventId: callId }))._getStatusCode()).toBe(200);
+      expect((await call('GET'))._getJSONData().calls).toEqual([]);
+      await draw();
+      const events = await readEvents(prisma, scope);
+      expect(events.find((event) => event.id === callId)).toMatchObject({
+        kind: 'COLD_CALL',
+        userId: user.id,
+        payload: { outcome: 'answered', seed: drawn.seed },
+      });
+      expect(events.find((event) => event.kind === 'UNDO')?.supersedesId).toBe(callId);
     });
-    expect(events.find((event) => event.kind === 'UNDO')?.supersedesId).toBe(callId);
+
+    it('refuses a draw with no one checked in and always draws a lone student', async () => {
+      expect((await call('POST', { action: 'draw' }))._getStatusCode()).toBe(409);
+      const only = await student('Only');
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        expect((await draw()).student.userId).toBe(only.id);
+      }
+    });
+
+    it('refuses forged and duplicate records', async () => {
+      await student('Ada');
+      const { draw: token } = await draw();
+      const [body] = token.split('.');
+      const forged = Buffer.from(
+        JSON.stringify({
+          ...JSON.parse(Buffer.from(body, 'base64url').toString()),
+          userId: user.id,
+        })
+      ).toString('base64url');
+      expect((await record(forged + '.' + token.split('.')[1]))._getStatusCode()).toBe(400);
+      expect((await call('POST', { action: 'record', outcome: 'answered' }))._getStatusCode()).toBe(
+        400
+      );
+      // A double tap on one draw records once.
+      expect(statuses(await Promise.all([record(token), record(token, 'pass')]))).toEqual([
+        200, 409,
+      ]);
+      expect((await call('GET'))._getJSONData().calls).toHaveLength(1);
+    });
+
+    it('lets only one of two phones record the same student', async () => {
+      await student('Grace');
+      const first = await draw();
+      const second = await draw();
+      expect(second.student.userId).toBe(first.student.userId);
+      expect(statuses(await Promise.all([record(first.draw), record(second.draw)]))).toEqual([
+        200, 409,
+      ]);
+    });
+
+    it('refuses a stale draw for a student who is no longer eligible', async () => {
+      const leaving = await student('Lin');
+      const stale = await draw();
+      await appendEvent(prisma, {
+        ...scope,
+        actorId: leaving.id,
+        userId: leaving.id,
+        kind: 'CHECK_OUT',
+      });
+      const res = await record(stale.draw);
+      expect(res._getStatusCode()).toBe(409);
+      expect(res._getJSONData().message).toBe('This student can no longer be called');
+    });
+
+    it('undoes a call once when two phones undo it together', async () => {
+      await student('Mae');
+      const recorded = await record((await draw()).draw);
+      const eventId = recorded._getJSONData().id;
+      expect(
+        statuses(
+          await Promise.all([
+            call('POST', { action: 'undo', eventId }),
+            call('POST', { action: 'undo', eventId }),
+          ])
+        )
+      ).toEqual([200, 409]);
+      const undos = (await readEvents(prisma, scope)).filter((event) => event.kind === 'UNDO');
+      expect(undos).toHaveLength(1);
+    });
   });
 
   it('hides a stored message and mutes its student without deleting facts', async () => {

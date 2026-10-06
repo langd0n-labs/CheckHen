@@ -150,13 +150,29 @@ describe('eligibility', () => {
       expect.objectContaining({
         userId: 'a',
         passesOutstanding: 2,
-        sessionsSinceCalled: 2,
+        sessionsSinceCalled: 1,
         neverCalled: false,
         eligible: true,
       }),
-      expect.objectContaining({ userId: 'b', retryOutstanding: true, sessionsSinceCalled: 1 }),
+      expect.objectContaining({ userId: 'b', retryOutstanding: true, sessionsSinceCalled: 0 }),
       expect.objectContaining({ userId: 'c', neverCalled: true, sessionsSinceCalled: 3 }),
     ]);
+  });
+
+  it('counts intervening meetings the same way for called and never-called students', () => {
+    // Called in meeting 1, sampled in meeting 3: one meeting in between.
+    const meetings = [
+      meeting('m1', [call('m1', 'a', 'answered')]),
+      meeting('m2', []),
+      meeting('m3', []),
+    ];
+    const result = eligibility(meetings, 2, ['a', 'b']);
+    expect(result[0].sessionsSinceCalled).toBe(1);
+    expect(weight(result[0], config)).toBe(1.5);
+    // Never called counts as called before meeting 1: two meetings in between.
+    expect(result[1].sessionsSinceCalled).toBe(2);
+    // Called in the previous meeting: none in between.
+    expect(eligibility(meetings.slice(0, 2), 1, ['a'])[0].sessionsSinceCalled).toBe(0);
   });
 
   it('excludes students called today unless a retry is outstanding, and absent students', () => {

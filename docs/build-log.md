@@ -530,8 +530,9 @@ nothing else on it has run.
 3. An excused student cannot fail again in the same exam.
 4. Allowlist addresses come from the laptop resolver and are replaced every
    30 seconds; CDN-hosted sites can fail. Use dnsmasq `nftset`.
-6. The generic `admin/events` endpoint accepts `EXAM_*` events and `UNDO` of
-   them.
+6. Closed with the M7 review fixes: the generic `admin/events` endpoint
+   refuses `EXAM_*` and `COLD_CALL` events and any supersession chain that
+   reaches one.
 7. A failed `iw` call counts every device as disconnected.
 8. A heartbeat is accepted without proof that it came through the AP (M6
    topology).
@@ -540,7 +541,12 @@ nothing else on it has run.
 11. Fails disappear from the instructor view after the exam ends.
 12. `docs/network-filtering.md` describes the old Pi and iptables design.
 
-Test gaps from the review: the station-list path, the start-timeout path,
+Test gaps from the `7e3b844` review (approved for Thursday): a UI test for the
+exam-start confirmation; a browser test that an ordinary class sends no exam
+heartbeats; a socket test with several sockets for one student; an agent test
+that the monitor and heartbeat early returns leave the exam chains empty.
+
+Test gaps from the `738ea01` review: the station-list path, the start-timeout path,
 re-fail after excuse, `EXAM_*` through `admin/events`, `iw` failure,
 post-stop cleanup reachability, and heartbeat load against the agent.
 
@@ -561,15 +567,21 @@ Interpretations where the brief is silent:
 - `passes_outstanding` counts passes since the student's last Answered call.
 - An Absent outcome makes the student ineligible for the rest of the meeting.
   It does not count as being called for recency or retry.
-- `sessions_since_called` counts meetings since the last call. For a student
-  never called, it counts all earlier meetings.
+- `sessions_since_called` counts the meetings between the last call and this
+  one: a student called in meeting 1 and sampled in meeting 3 has 1. A student
+  never called counts as called before meeting 1, so all earlier meetings
+  count. The brief fixes only the unit ("class meetings, not records"); the
+  first M7 commit counted the call's own meeting, which treated the two cases
+  differently.
 - A meeting is a class session of the course that has started.
 - Projected answers use cold-call answers only; volunteer answers are capped by
   `A`, which depends on the projection. With `term_meetings` unset, the
   projection uses the meetings held so far.
 - A score with no opportunities is empty, or 1 when counted volunteer answers
   exist.
-- Only the outcome is recorded. A draw with no outcome leaves no event.
+- Only the outcome is recorded. A draw with no outcome leaves no event. The
+  draw returns a signed token (session, student, seed, 30-minute lifetime);
+  recording requires it.
 
 | M7 acceptance check | Result |
 | --- | --- |
@@ -589,3 +601,25 @@ mode. Open: no `PRODUCT.md` or `DESIGN.md`; sizes are fixed pixels instead of
 theme tokens; the screen has not been checked on a physical phone; the I3 PWA
 manifest and the other I3 features (attendance, hands, pace, moderation, exam
 control) remain on the dashboard.
+
+### M7 review fixes
+
+The independent review of `835180f` found four defects; all are fixed. Its
+blocker, no runtime grade view or export, is M8 scope.
+
+- Recording requires the signed draw token. Inside the session lock it refuses
+  a second record of the same draw and a student who is no longer eligible
+  (checked out, absent, or already called without a retry), so a double tap or
+  a second phone records once.
+- `sessions_since_called` counts intervening meetings (see the interpretations
+  above).
+- `admin/events` refuses `COLD_CALL` and `EXAM_*` events and any `UNDO` or
+  correction whose supersession chain reaches one.
+- `appendEvent` takes a guard that runs inside the session lock. Undo uses it,
+  so two phones cannot both undo one call.
+
+Verification on 2026-10-05 (Nimbus): TypeScript, ESLint on the new code,
+26 Jest suites and 238 tests, `scripts/test-postgres.sh` (15 route
+integration cases: forged, missing, and stale draw tokens; a double tap; two
+phones; concurrent undo; empty and one-student rosters), and a Next.js
+production build.

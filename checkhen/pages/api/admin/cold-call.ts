@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { randomInt } from 'node:crypto';
+import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
+import type { Prisma, PrismaClient } from '@prisma/client';
 import {
   eligibility,
   OUTCOMES,
@@ -9,31 +10,99 @@ import {
   type ColdCallOutcome,
   type Meeting,
 } from '@/lib/cold-call';
-import { appendEvent, asEvent, readState } from '@/lib/event-store';
-import { effectiveEvents } from '@/lib/events';
+import { appendEvent, asEvent, ConflictError, readState } from '@/lib/event-store';
+import { effectiveEvents, foldEvents, type EventScope } from '@/lib/events';
 import { prisma } from '@/lib/prisma';
 import { requireScope } from '@/lib/request-scope';
 
+type Db = PrismaClient | Prisma.TransactionClient;
+
+/** A drawn student stays recordable for 30 minutes. */
+const DRAW_LIFETIME_MS = 30 * 60 * 1000;
+
 /** Every meeting of the course up to and including the selected session, in order. */
-async function courseMeetings(courseId: string, classId: string) {
-  const sessions = await prisma.class.findMany({
-    where: { courseId, OR: [{ createdAt: { lte: new Date() } }, { id: classId }] },
+async function courseMeetings(db: Db, scope: EventScope) {
+  const sessions = await db.class.findMany({
+    where: {
+      courseId: scope.courseId,
+      OR: [{ createdAt: { lte: new Date() } }, { id: scope.classId }],
+    },
     orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     select: { id: true },
   });
-  const current = sessions.findIndex((session) => session.id === classId);
+  const current = sessions.findIndex((session) => session.id === scope.classId);
+  const held = sessions.slice(0, current + 1);
   const events = (
-    await prisma.participationEvent.findMany({
-      where: { courseId, classId: { in: sessions.slice(0, current + 1).map((s) => s.id) } },
+    await db.participationEvent.findMany({
+      where: { courseId: scope.courseId, classId: { in: held.map((session) => session.id) } },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     })
   ).map(asEvent);
-  const meetings: Meeting[] = sessions.slice(0, current + 1).map((session) => ({
-    courseId,
+  const meetings: Meeting[] = held.map((session) => ({
+    courseId: scope.courseId,
     classId: session.id,
     events: events.filter((event) => event.classId === session.id),
   }));
   return { meetings, current };
+}
+
+/** Checked-in, active-roster students who may be called now. */
+async function eligibleStudents(db: Db, scope: EventScope) {
+  const { meetings, current } = await courseMeetings(db, scope);
+  const active = new Set(
+    (
+      await db.rosterEntry.findMany({
+        where: { courseId: scope.courseId, active: true },
+        select: { userId: true },
+      })
+    ).map((entry) => entry.userId)
+  );
+  const present = foldEvents(meetings[current].events, scope)
+    .attendance.filter((entry) => entry.isPresent && active.has(entry.userId))
+    .map((entry) => entry.userId);
+  return eligibility(meetings, current, present).filter((entry) => entry.eligible);
+}
+
+function drawSecret() {
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) {
+    throw new Error('AUTH_SECRET is not configured');
+  }
+  return secret;
+}
+
+/** The draw token binds a record to one draw of one student in one session. */
+function signDraw(scope: EventScope, userId: string, seed: number): string {
+  const body = Buffer.from(
+    JSON.stringify({ ...scope, userId, seed, issuedAt: Date.now() })
+  ).toString('base64url');
+  return `${body}.${createHmac('sha256', drawSecret()).update(body).digest('base64url')}`;
+}
+
+function readDraw(token: unknown, scope: EventScope) {
+  if (typeof token !== 'string') {
+    return null;
+  }
+  const [body, signature] = token.split('.');
+  if (!body || !signature) {
+    return null;
+  }
+  const expected = Buffer.from(createHmac('sha256', drawSecret()).update(body).digest('base64url'));
+  const actual = Buffer.from(signature);
+  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+    return null;
+  }
+  const draw = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+  if (
+    draw.courseId !== scope.courseId ||
+    draw.classId !== scope.classId ||
+    typeof draw.userId !== 'string' ||
+    !Number.isInteger(draw.seed) ||
+    Date.now() - draw.issuedAt > DRAW_LIFETIME_MS
+  ) {
+    return null;
+  }
+  return draw as { userId: string; seed: number };
 }
 
 const studentName = (user: { displayName: string | null; email: string }) =>
@@ -49,8 +118,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   const { scope, user } = context;
   const action = req.method === 'GET' ? 'status' : req.body?.action;
-  const course = await prisma.course.findUnique({ where: { id: scope.courseId } });
-  const config = resolveConfig(course?.config);
 
   if (action === 'status') {
     const state = await readState(prisma, scope);
@@ -81,29 +148,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   if (action === 'draw') {
-    const state = await readState(prisma, scope);
-    const active = new Set(
-      (
-        await prisma.rosterEntry.findMany({
-          where: { courseId: scope.courseId, active: true },
-          select: { userId: true },
-        })
-      ).map((entry) => entry.userId)
-    );
-    const present = state.attendance
-      .filter((entry) => entry.isPresent && active.has(entry.userId))
-      .map((entry) => entry.userId);
-    const { meetings, current } = await courseMeetings(scope.courseId, scope.classId);
-    const candidates = eligibility(meetings, current, present).filter((entry) => entry.eligible);
+    const course = await prisma.course.findUnique({ where: { id: scope.courseId } });
+    const candidates = await eligibleStudents(prisma, scope);
     // The seed is recorded with the outcome so a semester can be replayed exactly.
     const seed = randomInt(0, 2 ** 32);
-    const selected = select(candidates, config, seededRandom(seed));
+    const selected = select(candidates, resolveConfig(course?.config), seededRandom(seed));
     if (!selected) {
       return res.status(409).json({ message: 'No eligible students' });
     }
     const student = await prisma.user.findUnique({ where: { id: selected } });
     return res.json({
       seed,
+      draw: signDraw(scope, selected, seed),
       eligible: candidates.length,
       student: {
         userId: selected,
@@ -116,23 +172,38 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   if (action === 'record') {
-    const { userId, outcome, seed } = req.body ?? {};
-    if (typeof userId !== 'string' || !OUTCOMES.includes(outcome as ColdCallOutcome)) {
-      return res.status(400).json({ message: 'Choose a student and an outcome' });
+    const { outcome } = req.body ?? {};
+    const draw = readDraw(req.body?.draw, scope);
+    if (!draw || !OUTCOMES.includes(outcome as ColdCallOutcome)) {
+      return res.status(400).json({ message: 'Call on a student first' });
     }
     try {
       const event = await appendEvent(prisma, {
         ...scope,
         actorId: user.id,
-        userId,
+        userId: draw.userId,
         kind: 'COLD_CALL',
-        payload: { outcome, ...(Number.isInteger(seed) ? { seed } : {}) },
+        payload: { outcome, seed: draw.seed },
+        // Checked inside the session lock, so two phones or a double tap cannot both record.
+        guard: async (tx) => {
+          const recorded = await tx.participationEvent.findMany({
+            where: { ...scope, kind: 'COLD_CALL' },
+            select: { payload: true },
+          });
+          if (recorded.some((event) => (event.payload as { seed?: number }).seed === draw.seed)) {
+            throw new ConflictError('This call is already recorded');
+          }
+          if (!(await eligibleStudents(tx, scope)).some((entry) => entry.userId === draw.userId)) {
+            throw new ConflictError('This student can no longer be called');
+          }
+        },
       });
       return res.json({ id: event.id });
     } catch (error) {
-      return res
-        .status(400)
-        .json({ message: error instanceof Error ? error.message : 'Invalid call' });
+      if (error instanceof ConflictError) {
+        return res.status(409).json({ message: error.message });
+      }
+      throw error;
     }
   }
 
@@ -143,20 +214,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!target) {
       return res.status(404).json({ message: 'Call not found' });
     }
-    // Undo never expires; a second undo of the same call is harmless but refused.
-    const undone = await prisma.participationEvent.findFirst({
-      where: { ...scope, supersedesId: target.id },
-    });
-    if (undone) {
-      return res.status(409).json({ message: 'Call already undone' });
+    try {
+      await appendEvent(prisma, {
+        ...scope,
+        actorId: user.id,
+        userId: target.userId,
+        kind: 'UNDO',
+        supersedesId: target.id,
+        guard: async (tx) => {
+          if (
+            await tx.participationEvent.findFirst({ where: { ...scope, supersedesId: target.id } })
+          ) {
+            throw new ConflictError('Call already undone');
+          }
+        },
+      });
+    } catch (error) {
+      if (error instanceof ConflictError) {
+        return res.status(409).json({ message: error.message });
+      }
+      throw error;
     }
-    await appendEvent(prisma, {
-      ...scope,
-      actorId: user.id,
-      userId: target.userId,
-      kind: 'UNDO',
-      supersedesId: target.id,
-    });
     return res.json({ ok: true });
   }
 

@@ -16,6 +16,7 @@ function mockServer() {
       if (body.action === 'draw') {
         data = {
           seed: 42,
+          draw: 'signed-draw',
           eligible: 3,
           student: {
             userId: 'student-1',
@@ -65,7 +66,7 @@ it('completes Call to Answered in two taps and shows name and pronunciation', as
   await waitFor(() =>
     expect(posted).toEqual([
       { action: 'draw' },
-      { action: 'record', userId: 'student-1', outcome: 'answered', seed: 42 },
+      { action: 'record', outcome: 'answered', draw: 'signed-draw' },
     ])
   );
   // No dialog: the screen returns to the call button with the result and an undo.

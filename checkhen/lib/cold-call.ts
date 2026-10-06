@@ -190,7 +190,9 @@ export function eligibility(
     return {
       userId,
       passesOutstanding,
-      sessionsSinceCalled: current - (lastCalled ?? 0),
+      // Meetings between the last call and this one. Never called counts as called
+      // before the first meeting, so both cases follow one rule.
+      sessionsSinceCalled: lastCalled === null ? current : Math.max(0, current - lastCalled - 1),
       retryOutstanding,
       neverCalled: lastCalled === null,
       volunteered: record.volunteers.includes(current),

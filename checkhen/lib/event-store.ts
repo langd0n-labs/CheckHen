@@ -31,7 +31,12 @@ type AppendInput = EventScope & {
   kind: EventKind;
   payload?: Record<string, unknown>;
   supersedesId?: string;
+  /** Runs inside the session lock before the write; throw ConflictError to refuse it. */
+  guard?: (tx: Prisma.TransactionClient) => Promise<void>;
 };
+
+/** A guard refused an append because the session state changed. */
+export class ConflictError extends Error {}
 
 export function validatePayload(kind: EventKind, payload: Record<string, unknown>) {
   if (!kinds.includes(kind)) throw new Error('Unknown event kind');
@@ -116,6 +121,9 @@ export async function appendEvent(db: PrismaClient, input: AppendInput) {
       SELECT "id" FROM "Class" WHERE "id" = ${input.classId} AND "courseId" = ${input.courseId} FOR UPDATE
     `;
     if (!sessions.length) throw new Error('Unknown course/session');
+    if (input.guard) {
+      await input.guard(tx);
+    }
     let kind = input.kind;
     let payload = input.payload ?? {};
     if (kind === 'CHECK_IN' && input.userId && !input.supersedesId) {
