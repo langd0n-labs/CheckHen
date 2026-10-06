@@ -45,7 +45,15 @@ function mockServer(fail: { record?: number; status?: boolean; offline?: boolean
       }
       if (body.action === 'record') {
         const id = `call-${posted.length}`;
-        calls = [{ id, userId: 'student-1', name: 'Alisha Moreno', outcome: body.outcome }];
+        calls = [
+          {
+            id,
+            userId: 'student-1',
+            name: 'Alisha Moreno',
+            outcome: body.outcome,
+            followUp: !!body.followUp,
+          },
+        ];
         data = {
           id,
           followUp: body.outcome === 'answered' ? `follow-up-${posted.length}` : undefined,
@@ -62,6 +70,13 @@ function mockServer(fail: { record?: number; status?: boolean; offline?: boolean
   return posted;
 }
 
+/** Click a button once it is enabled; outcome buttons stay disabled while a request runs. */
+async function tap(name: string) {
+  const button = await screen.findByRole('button', { name });
+  await waitFor(() => expect(button).toBeEnabled());
+  fireEvent.click(button);
+}
+
 beforeEach(() => {
   sessionStorage.setItem(
     'checkhen.scope',
@@ -76,11 +91,11 @@ it('completes Call to Answered in two taps and shows name and pronunciation', as
       <ColdCall />
     </MantineProvider>
   );
-  fireEvent.click(await screen.findByRole('button', { name: 'Call on someone' }));
+  await tap('Call on someone');
   expect(await screen.findByText('Alisha Moreno')).toBeInTheDocument();
   expect(screen.getByText('ale-EE-sha')).toBeInTheDocument();
   expect(screen.getByText('she/her')).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Answered' }));
+  await tap('Answered');
   await waitFor(() =>
     expect(posted).toEqual([
       { action: 'draw' },
@@ -100,9 +115,9 @@ it('undoes the last call immediately', async () => {
       <ColdCall />
     </MantineProvider>
   );
-  fireEvent.click(await screen.findByRole('button', { name: 'Call on someone' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Pass' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+  await tap('Call on someone');
+  await tap('Pass');
+  await tap('Undo');
   await waitFor(() => expect(posted.at(-1)).toEqual({ action: 'undo', eventId: 'call-2' }));
   expect(await screen.findByText('No one called yet this session.')).toBeInTheDocument();
 });
@@ -114,15 +129,15 @@ it('asks a follow-up of the same student without Absent or Skip, then returns to
       <ColdCall />
     </MantineProvider>
   );
-  fireEvent.click(await screen.findByRole('button', { name: 'Call on someone' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Answered + follow-up' }));
+  await tap('Call on someone');
+  await tap('Answered + follow-up');
   expect(await screen.findByText('Follow-up 1')).toBeInTheDocument();
   expect(screen.getByText('Alisha Moreno')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Absent' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Skip (out of the room)' })).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Answered + follow-up' }));
+  await tap('Answered + follow-up');
   expect(await screen.findByText('Follow-up 2')).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Answered' }));
+  await tap('Answered');
   await waitFor(() =>
     expect(posted.slice(1)).toEqual([
       { action: 'record', outcome: 'answered', draw: 'signed-draw', next: 'follow-up' },
@@ -140,12 +155,12 @@ it('leaves follow-ups with Done and records a skip with one tap', async () => {
       <ColdCall />
     </MantineProvider>
   );
-  fireEvent.click(await screen.findByRole('button', { name: 'Call on someone' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Answered + follow-up' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Done with follow-ups' }));
+  await tap('Call on someone');
+  await tap('Answered + follow-up');
+  await tap('Done with follow-ups');
   expect(await screen.findByRole('button', { name: 'Call on someone' })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Call on someone' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Skip (out of the room)' }));
+  await tap('Call on someone');
+  await tap('Skip (out of the room)');
   await waitFor(() =>
     expect(posted.at(-1)).toEqual({ action: 'record', outcome: 'skip', draw: 'signed-draw' })
   );
@@ -161,8 +176,8 @@ it.each([409, 400])(
         <ColdCall />
       </MantineProvider>
     );
-    fireEvent.click(await screen.findByRole('button', { name: 'Call on someone' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Answered' }));
+    await tap('Call on someone');
+    await tap('Answered');
     // The stale card is gone, so the next tap draws again instead of failing again.
     expect(await screen.findByRole('button', { name: 'Call on someone' })).toBeInTheDocument();
     expect(screen.queryByText('Alisha Moreno')).not.toBeInTheDocument();
@@ -196,16 +211,16 @@ it('starts a follow-up after a plain Answered, and undoes a follow-up from the r
       <ColdCall />
     </MantineProvider>
   );
-  fireEvent.click(await screen.findByRole('button', { name: 'Call on someone' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Answered' }));
+  await tap('Call on someone');
+  await tap('Answered');
   // A plain Answered tapped by mistake can still lead to a follow-up.
-  fireEvent.click(await screen.findByRole('button', { name: 'Ask a follow-up' }));
+  await tap('Ask a follow-up');
   expect(await screen.findByText('Follow-up 1')).toBeInTheDocument();
   expect(screen.getByText('Recorded: Answered')).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Answered + follow-up' }));
+  await tap('Answered + follow-up');
   expect(await screen.findByText('Follow-up 2')).toBeInTheDocument();
   // The run shows what was just recorded, with an Undo.
-  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  await tap('Undo');
   await waitFor(() =>
     expect(posted.slice(1)).toEqual([
       { action: 'record', outcome: 'answered', draw: 'signed-draw' },
@@ -226,8 +241,8 @@ it('keeps the card after a server error and says so at the top of the screen', a
       <ColdCall />
     </MantineProvider>
   );
-  fireEvent.click(await screen.findByRole('button', { name: 'Call on someone' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Answered' }));
+  await tap('Call on someone');
+  await tap('Answered');
   await waitFor(() =>
     expect(show).toHaveBeenCalledWith(expect.objectContaining({ position: 'top-center' }))
   );
@@ -245,8 +260,8 @@ it('keeps the card and explains when the server cannot be reached', async () => 
       <ColdCall />
     </MantineProvider>
   );
-  fireEvent.click(await screen.findByRole('button', { name: 'Call on someone' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Answered' }));
+  await tap('Call on someone');
+  await tap('Answered');
   await waitFor(() =>
     expect(show).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -286,15 +301,17 @@ it('steps back one question when an outcome is undone during a run', async () =>
       <ColdCall />
     </MantineProvider>
   );
-  fireEvent.click(await screen.findByRole('button', { name: 'Call on someone' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Answered + follow-up' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Answered + follow-up' }));
+  await tap('Call on someone');
+  await tap('Answered + follow-up');
+  // Wait for the run to start: the button is disabled until the record returns.
+  expect(await screen.findByText('Follow-up 1')).toBeInTheDocument();
+  await tap('Answered + follow-up');
   expect(await screen.findByText('Follow-up 2')).toBeInTheDocument();
   // A mistaken outcome on follow-up 1: undo it and stay with the same student.
-  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  await tap('Undo');
   expect(await screen.findByText('Follow-up 1')).toBeInTheDocument();
   expect(screen.getByText('Alisha Moreno')).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Answered' }));
+  await tap('Answered');
   await waitFor(() =>
     expect(posted.slice(1)).toEqual([
       { action: 'record', outcome: 'answered', draw: 'signed-draw', next: 'follow-up' },
@@ -304,4 +321,40 @@ it('steps back one question when an outcome is undone during a run', async () =>
       { action: 'record', outcome: 'answered', followUp: 'follow-up-2' },
     ])
   );
+});
+
+it('steps back into the run when the outcome that ended it is undone', async () => {
+  const posted = mockServer();
+  render(
+    <MantineProvider theme={theme}>
+      <ColdCall />
+    </MantineProvider>
+  );
+  await tap('Call on someone');
+  await tap('Answered + follow-up');
+  expect(await screen.findByText('Follow-up 1')).toBeInTheDocument();
+  // A Pass on the follow-up ends the run; its Undo returns to the same question.
+  await tap('Pass');
+  expect(await screen.findByText('Alisha Moreno: Pass (follow-up)')).toBeInTheDocument();
+  await tap('Undo');
+  expect(await screen.findByText('Follow-up 1')).toBeInTheDocument();
+  expect(screen.getByText('Alisha Moreno')).toBeInTheDocument();
+  await waitFor(() => expect(posted.at(-1)).toEqual({ action: 'undo', eventId: 'call-3' }));
+});
+
+it('notes invalid grade settings between calls', async () => {
+  global.fetch = jest.fn(async () => ({
+    ok: true,
+    json: async () => ({
+      present: 3,
+      calls: [],
+      configProblem: 'The target ratio must be more than 0',
+    }),
+  })) as unknown as typeof fetch;
+  render(
+    <MantineProvider theme={theme}>
+      <ColdCall />
+    </MantineProvider>
+  );
+  expect(await screen.findByText(/Some grade settings are invalid/)).toBeInTheDocument();
 });

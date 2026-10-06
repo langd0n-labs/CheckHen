@@ -903,8 +903,8 @@ Verified on 2026-10-06 (Nimbus): 28 Jest suites and 274 tests, and
 
 Verified on 2026-10-06 (Nimbus): 28 Jest suites and 276 tests, and
 `scripts/test-postgres.sh` with 37 route integration cases. One full Jest run
-of 12 had one failing test, which I could not identify or reproduce; it ran
-right after the PostgreSQL script. Open: find the intermittent test.
+of 12 had one failing test; the 98ebb6d-55a18cf review traced it to a page
+test that clicked a button while it was still disabled (fixed below).
 
 ### f513b5e m6: a follow-up Retry stays a follow-up
 
@@ -914,4 +914,26 @@ follow-up is now recorded as a free call: it counts as being called (recency)
 and resolves an outstanding Retry, but is neither an opportunity nor pass
 debt. Before this, an excluded follow-up Pass could leave a Retry outstanding
 indefinitely. Verified: 28 Jest suites and 277 tests; 37 route integration
+cases.
+
+### Review of 98ebb6d to 55a18cf: minor fixes
+
+- Flaky test: call-screen tests clicked outcome buttons that can still be
+  disabled while a request runs. Every button click in those tests now waits
+  until the button is enabled. Three consecutive full runs passed.
+- An excused Absent keeps its draw token used: only an undo frees a draw.
+- An Undo on the result line after an outcome ended a follow-up run (Pass,
+  Retry, or plain Answered) steps back into the run, like the in-run Undo.
+- Only an Absent is refused after the session ends; follow-ups are accepted
+  again, as before 128ade3.
+- Invalid saved settings: only the settings at fault take their defaults; the
+  others keep their saved values. The call screen shows a notice between
+  calls, and the course record's notice says saving replaces them.
+
+Waiting on the operator (relayed by AICP): whether a Pass on the later fresh
+draw that resolves a follow-up Retry stays free (556690a), and, depending on
+that, the case where an Absent comes between the Retry and that Pass.
+
+Verified on 2026-10-06 (Nimbus): 29 Jest suites and 281 tests in three
+consecutive runs, and `scripts/test-postgres.sh` with 39 route integration
 cases.

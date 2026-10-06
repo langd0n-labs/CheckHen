@@ -737,6 +737,37 @@ integration('route → store → attendance fold', () => {
       expect(inactive._getJSONData().message).toBe('This student can no longer be called');
     });
 
+    it('keeps an excused Absent from freeing its draw for a second Absent', async () => {
+      await student('Ola');
+      const { draw: token } = await draw();
+      const callId = (await record(token, 'absent'))._getJSONData().id;
+      (requireIdentity as jest.Mock).mockResolvedValue({ user: { id: 'instructor' }, admin: true });
+      const { req, res } = createMocks({
+        method: 'POST',
+        query: { courseId: scope.courseId },
+        body: {
+          courseId: scope.courseId,
+          action: 'excuse',
+          classId: scope.classId,
+          callId,
+          reason: 'Nurse',
+        },
+      });
+      await courseReportRoute(req as any, res as any);
+      expect(res._getStatusCode()).toBe(200);
+      const again = await record(token, 'absent');
+      expect(again._getStatusCode()).toBe(409);
+      expect(again._getJSONData().message).toBe('This call is already recorded');
+    });
+
+    it('accepts a follow-up answer after the session ends', async () => {
+      await student('Ren');
+      const { followUp } = (await record((await draw()).draw))._getJSONData();
+      await appendEvent(prisma, { ...scope, actorId: 'system', kind: 'SESSION_ENDED' });
+      const late = await call('POST', { action: 'record', outcome: 'answered', followUp });
+      expect(late._getStatusCode()).toBe(200);
+    });
+
     it('accepts the corrected outcome after an undo, for a draw and for a follow-up', async () => {
       await student('Pia');
       const { draw: token } = await draw();
@@ -903,7 +934,8 @@ integration('route → store → attendance fold', () => {
         expect(data.configProblem).toBe(
           'The lowest and highest A must be whole numbers of at least 1'
         );
-        expect(data.config).toMatchObject({ A_min: 3, A_max: 8, ratio: 0.7 });
+        // Only the A bounds fall back; the valid ratio stays in force.
+        expect(data.config).toMatchObject({ A_min: 3, A_max: 8, ratio: 0.5 });
       });
 
       it('saves only valid settings and stamps them on every CSV row', async () => {

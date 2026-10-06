@@ -62,41 +62,68 @@ export function resolveConfig(stored: unknown): ColdCallConfig {
   return config;
 }
 
-/**
- * Why a configuration cannot be saved, or null. It catches values that pass the
- * per-key checks but break the grade, such as A = 0 or a fractional A.
- */
+const whole = (value: number) => Number.isInteger(value);
+
+/** Values that pass the per-key checks but break the grade, with the keys at fault. */
+const CONFIG_RULES: {
+  keys: (keyof ColdCallConfig)[];
+  message: string;
+  broken: (config: ColdCallConfig) => boolean;
+}[] = [
+  {
+    keys: ['A_min', 'A_max'],
+    message: 'The lowest and highest A must be whole numbers of at least 1',
+    broken: (c) => !whole(c.A_min) || !whole(c.A_max) || c.A_min < 1,
+  },
+  {
+    keys: ['A_min', 'A_max'],
+    message: 'The lowest A must not exceed the highest A',
+    broken: (c) => c.A_min > c.A_max,
+  },
+  {
+    keys: ['pass_cap'],
+    message: 'The most passes that add weight must be a whole number',
+    broken: (c) => !whole(c.pass_cap),
+  },
+  {
+    keys: ['ratio'],
+    message: 'The target ratio must be more than 0',
+    broken: (c) => c.ratio <= 0,
+  },
+  {
+    keys: ['component_weight'],
+    message: 'The share of the course grade must be at most 1',
+    broken: (c) => c.component_weight > 1,
+  },
+  {
+    keys: ['minimum_weight'],
+    message: 'The lowest weight must be more than 0',
+    broken: (c) => c.minimum_weight <= 0,
+  },
+];
+
+/** Why a configuration cannot be saved, or null. */
 export function configProblem(config: ColdCallConfig): string | null {
-  const whole = (value: number) => Number.isInteger(value);
-  if (!whole(config.A_min) || !whole(config.A_max) || config.A_min < 1) {
-    return 'The lowest and highest A must be whole numbers of at least 1';
-  }
-  if (config.A_min > config.A_max) {
-    return 'The lowest A must not exceed the highest A';
-  }
-  if (!whole(config.pass_cap)) {
-    return 'The most passes that add weight must be a whole number';
-  }
-  if (config.ratio <= 0) {
-    return 'The target ratio must be more than 0';
-  }
-  if (config.component_weight > 1) {
-    return 'The share of the course grade must be at most 1';
-  }
-  if (config.minimum_weight <= 0) {
-    return 'The lowest weight must be more than 0';
-  }
-  return null;
+  return CONFIG_RULES.find((rule) => rule.broken(config))?.message ?? null;
 }
 
 /**
  * The settings in force for a course. Settings saved before validation existed
- * may break the grade; then the defaults apply and the problem is reported.
+ * may break the grade; then only the settings at fault take their defaults, and
+ * the problems are reported.
  */
 export function courseConfig(stored: unknown): { config: ColdCallConfig; problem: string | null } {
   const config = resolveConfig(stored);
-  const problem = configProblem(config);
-  return problem ? { config: { ...DEFAULT_CONFIG }, problem } : { config, problem: null };
+  const problems: string[] = [];
+  for (const rule of CONFIG_RULES) {
+    if (rule.broken(config)) {
+      for (const key of rule.keys) {
+        (config as Record<string, unknown>)[key] = DEFAULT_CONFIG[key];
+      }
+      problems.push(rule.message);
+    }
+  }
+  return { config, problem: problems.length ? problems.join('. ') : null };
 }
 
 export type CandidateFeatures = {

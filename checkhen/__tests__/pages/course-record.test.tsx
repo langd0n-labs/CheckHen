@@ -238,5 +238,5 @@ it('says when saved settings could not be used', async () => {
   );
   view();
   expect(await screen.findByText('Saved settings could not be used')).toBeInTheDocument();
-  expect(screen.getByText(/The default settings are in force/)).toBeInTheDocument();
+  expect(screen.getByText(/Those settings use their defaults/)).toBeInTheDocument();
 });

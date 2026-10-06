@@ -179,8 +179,8 @@ export default function CourseRecord() {
 
       {data.configProblem && (
         <Alert color="red" mb="md" title="Saved settings could not be used">
-          {data.configProblem}. The default settings are in force until valid settings are saved in
-          the Settings tab.
+          {data.configProblem}. Those settings use their defaults until valid values are saved in
+          the Settings tab; saving there replaces them.
         </Alert>
       )}
       <Tabs defaultValue="students">

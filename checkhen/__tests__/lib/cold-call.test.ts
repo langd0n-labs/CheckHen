@@ -357,9 +357,15 @@ describe('participation grade', () => {
 
 describe('configuration', () => {
   it('falls back to defaults and reports the problem for unusable saved settings', () => {
+    // Only the settings at fault take their defaults; the valid ratio is kept.
     expect(courseConfig({ A_min: 0, A_max: 0, ratio: 0.5 })).toEqual({
-      config: DEFAULT_CONFIG,
+      config: { ...DEFAULT_CONFIG, ratio: 0.5 },
       problem: 'The lowest and highest A must be whole numbers of at least 1',
+    });
+    expect(courseConfig({ A_min: 2.5, ratio: 0, term_meetings: 20 })).toEqual({
+      config: { ...DEFAULT_CONFIG, term_meetings: 20 },
+      problem:
+        'The lowest and highest A must be whole numbers of at least 1. The target ratio must be more than 0',
     });
     expect(courseConfig({ ratio: 0.5 })).toEqual({
       config: { ...DEFAULT_CONFIG, ratio: 0.5 },

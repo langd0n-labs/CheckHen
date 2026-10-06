@@ -157,14 +157,26 @@ async function checkDraw(
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     })
   ).map(asEvent);
+  // A call stays recorded when an excuse supersedes it; only an undo frees the draw.
+  const effective = effectiveEvents(events, scope);
+  const excused = new Set(
+    effective
+      .filter((event) => event.kind === 'COLD_CALL_EXCUSED')
+      .map((event) => event.supersedesId)
+  );
   if (
-    effectiveEvents(events, scope).some(
-      (event) => event.kind === 'COLD_CALL' && event.payload.seed === seed
+    events.some(
+      (event) =>
+        event.kind === 'COLD_CALL' &&
+        event.payload.seed === seed &&
+        (excused.has(event.id) || effective.some((current) => current.id === event.id))
     )
   ) {
     throw new ConflictError('This call is already recorded');
   }
-  if (foldEvents(events, scope).endedAt) {
+  // Session end checks everyone out, so other outcomes are already refused for
+  // presence; an Absent, which skips presence, is refused here.
+  if (outcome === 'absent' && foldEvents(events, scope).endedAt) {
     throw new ConflictError('This class session has ended');
   }
   // An absence stands even if the student already checked out; every other
@@ -190,9 +202,6 @@ async function checkFollowUp(tx: Prisma.TransactionClient, scope: EventScope, ca
   const latest = effectiveEvents(events, scope)
     .filter((event) => event.kind === 'COLD_CALL' || event.kind === 'COLD_CALL_DRAWN')
     .at(-1);
-  if (foldEvents(events, scope).endedAt) {
-    throw new ConflictError('This class session has ended');
-  }
   if (latest?.id !== callId) {
     throw new ConflictError('This follow-up is no longer current');
   }
@@ -260,6 +269,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
     return res.json({
       present: state.attendance.filter((entry) => entry.isPresent).length,
+      // Set when saved grade settings are invalid and some defaults are in use.
+      configProblem: courseConfig(
+        (await prisma.course.findUnique({ where: { id: scope.courseId } }))?.config
+      ).problem,
       calls: calls.map((call) => {
         const student = users.find((candidate) => candidate.id === call.userId);
         return {

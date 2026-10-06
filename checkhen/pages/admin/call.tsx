@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Avatar, Badge, Box, Button, Group, Stack, Text, UnstyledButton } from '@mantine/core';
+import {
+  Alert,
+  Avatar,
+  Badge,
+  Box,
+  Button,
+  Group,
+  Stack,
+  Text,
+  UnstyledButton,
+} from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { SessionScopePicker } from '@/components/SessionScopePicker';
 import { scopedFetch, selectedScope } from '@/lib/scoped-fetch';
@@ -50,6 +60,9 @@ export default function ColdCall() {
   const [student, setStudent] = useState<Card | null>(null);
   // After a plain Answered, a follow-up can still start from the result line.
   const [lastAnswered, setLastAnswered] = useState<(Card & { callId: string }) | null>(null);
+  // When an outcome ends a follow-up run, the result-line Undo steps back into the run.
+  const [undoTo, setUndoTo] = useState<{ callId: string; card: Card } | null>(null);
+  const [configProblem, setConfigProblem] = useState<string | null>(null);
   const [calls, setCalls] = useState<Call[]>([]);
   const [present, setPresent] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -77,6 +90,7 @@ export default function ColdCall() {
     const data = await response.json();
     setCalls(data.calls);
     setPresent(data.present);
+    setConfigProblem(data.configProblem ?? null);
   }, []);
 
   useEffect(() => {
@@ -101,8 +115,9 @@ export default function ColdCall() {
       } else if (response.ok) {
         const data = await response.json();
         setStudent({ ...data.student, token: data.draw, followUp: false, followUps: 0 });
-        // A new draw ends the chance to follow up the previous call.
+        // A new draw ends the chance to follow up, or step back into, the previous call.
         setLastAnswered(null);
+        setUndoTo(null);
       } else {
         await fail(response, 'Could not call on a student');
       }
@@ -141,6 +156,9 @@ export default function ColdCall() {
         // Answered + follow-up keeps the same student on screen for the next question.
         setStudent(next === 'follow-up' ? nextCard : null);
         setLastAnswered(next !== 'follow-up' && nextCard ? { ...nextCard, callId: data.id } : null);
+        setUndoTo(
+          student.followUp && next !== 'follow-up' ? { callId: data.id, card: student } : null
+        );
         await refresh();
       } else {
         // A refused record (a newer draw on another phone, or a stale card) cannot
@@ -213,6 +231,13 @@ export default function ColdCall() {
           Dashboard
         </Text>
       </Group>
+      {configProblem && !student && (
+        // Only between calls, so it never pushes the outcome buttons down.
+        <Alert color="yellow" p="xs">
+          Some grade settings are invalid, so their defaults apply. Fix them in the course
+          record&apos;s Settings tab.
+        </Alert>
+      )}
 
       <Stack
         align="center"
@@ -275,7 +300,18 @@ export default function ColdCall() {
         ) : last ? (
           <Group gap="sm" justify="center">
             <Text fz={20}>{callLabel(last)}</Text>
-            <Button variant="subtle" size="md" h={44} onClick={() => undo(last.id)}>
+            <Button
+              variant="subtle"
+              size="md"
+              h={44}
+              onClick={async () => {
+                const back = undoTo?.callId === last.id ? undoTo : null;
+                if ((await undo(last.id)) && back) {
+                  setUndoTo(null);
+                  setStudent(back.card);
+                }
+              }}
+            >
               Undo
             </Button>
             {lastAnswered?.callId === last.id && (
