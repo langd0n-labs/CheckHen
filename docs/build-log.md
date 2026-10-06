@@ -681,3 +681,36 @@ integration cases (adds: repeated Answered calls on one student, Absent
 check-out and its undo, re-check-in after Absent, Skip, follow-up double tap,
 follow-up outcomes, and a follow-up after a newer draw), the impeccable
 detector on `/admin/call` (no findings), and a Next.js production build.
+
+### M7 reviews of e66fe5e and 3896c62
+
+Both reviews approve for Thursday after these fixes, which are done:
+
+- Blocker B1 (3896c62): the call list and the follow-up check read a filtered
+  set of event kinds, and `effectiveEvents` throws when an `UNDO` targets an
+  event outside the set. Undoing an Absent (its linked `CHECK_OUT`) or
+  unhiding a chat message then broke the call list and every follow-up for
+  the meeting. Both now read every event in the session.
+- The call screen clears the student card when a record or Skip is refused
+  (400 or 409), so a stale card on a second phone cannot block calling. A
+  failed call-list request shows a notice.
+- The follow-up indicator is a high-contrast badge, readable on a projector,
+  with the follow-up count ("Follow-up 2").
+
+Verification on 2026-10-06 (Nimbus): 26 Jest suites and 249 tests, and
+`scripts/test-postgres.sh` with 22 route integration cases. The new B1 case
+fails with the old filtered query and passes with the fix.
+
+Open after M8, from these reviews, in this order:
+
+1. Retry call-back: a list of students with an outstanding Retry and a control
+   to call one back, so the outcome is recorded when it resolves.
+2. Make Absent and its check-out, and their undos, one transaction or
+   retry-safe.
+3. The remaining minor items (m2, m4, m5) and test gaps in the 3896c62 review.
+4. From the e66fe5e review: an accurate refusal when a session has no draw
+   event yet; rename or extend the two-phone test so it also covers the
+   "already recorded" path; a test with a draw and a record at the same time.
+
+Waiting on the operator: whether a Pass on a follow-up should lower the score
+and raise the next-meeting weight (review item m3).

@@ -149,14 +149,15 @@ async function checkDraw(
 
 /** Refuse a follow-up unless its call is still the latest call and no draw came after it. */
 async function checkFollowUp(tx: Prisma.TransactionClient, scope: EventScope, callId: string) {
+  // Read every kind: an UNDO may target any event, and supersession needs its target.
   const events = (
     await tx.participationEvent.findMany({
-      where: { ...scope, kind: { in: ['COLD_CALL', 'COLD_CALL_DRAWN', 'UNDO'] } },
+      where: scope,
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     })
   ).map(asEvent);
   const latest = effectiveEvents(events, scope)
-    .filter((event) => event.kind !== 'UNDO')
+    .filter((event) => event.kind === 'COLD_CALL' || event.kind === 'COLD_CALL_DRAWN')
     .at(-1);
   if (latest?.id !== callId) {
     throw new ConflictError('This follow-up is no longer current');
@@ -179,8 +180,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (action === 'status') {
     const state = await readState(prisma, scope);
+    // Read every kind: an UNDO may target any event, and supersession needs its target.
     const events = await prisma.participationEvent.findMany({
-      where: { ...scope, kind: { in: ['COLD_CALL', 'UNDO'] } },
+      where: scope,
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
     const calls = effectiveEvents(events.map(asEvent), scope).filter(

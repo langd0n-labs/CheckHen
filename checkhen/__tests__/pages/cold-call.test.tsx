@@ -1,15 +1,27 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MantineProvider } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
 import ColdCall from '@/pages/admin/call';
 import { theme } from '../../theme';
 
 type Posted = Record<string, unknown>;
 
-function mockServer() {
+function mockServer(fail: { record?: number; status?: boolean } = {}) {
   const posted: Posted[] = [];
   let calls: unknown[] = [];
   global.fetch = jest.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
     const body = init?.body ? (JSON.parse(String(init.body)) as Posted) : null;
+    if (!body && fail.status) {
+      return { ok: false, status: 500, json: async () => ({}) } as Response;
+    }
+    if (body?.action === 'record' && fail.record) {
+      posted.push(body);
+      return {
+        ok: false,
+        status: fail.record,
+        json: async () => ({ message: 'A newer draw replaced this one' }),
+      } as Response;
+    }
     let data: unknown = { present: 3, calls };
     if (body) {
       posted.push(body);
@@ -31,7 +43,10 @@ function mockServer() {
         calls = [
           { id: 'call-1', userId: 'student-1', name: 'Alisha Moreno', outcome: body.outcome },
         ];
-        data = { id: 'call-1', followUp: body.next === 'follow-up' ? 'follow-up-1' : undefined };
+        data = {
+          id: `call-${posted.length}`,
+          followUp: body.next === 'follow-up' ? `follow-up-${posted.length}` : undefined,
+        };
       }
       if (body.action === 'undo') {
         calls = [];
@@ -98,15 +113,18 @@ it('asks a follow-up of the same student without Absent or Skip, then returns to
   );
   fireEvent.click(await screen.findByRole('button', { name: 'Call on someone' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Answered + follow-up' }));
-  expect(await screen.findByText('Follow-up question')).toBeInTheDocument();
+  expect(await screen.findByText('Follow-up 1')).toBeInTheDocument();
   expect(screen.getByText('Alisha Moreno')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Absent' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Skip (out of the room)' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Answered + follow-up' }));
+  expect(await screen.findByText('Follow-up 2')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Answered' }));
   await waitFor(() =>
     expect(posted.slice(1)).toEqual([
       { action: 'record', outcome: 'answered', draw: 'signed-draw', next: 'follow-up' },
-      { action: 'record', outcome: 'answered', followUp: 'follow-up-1' },
+      { action: 'record', outcome: 'answered', followUp: 'follow-up-2', next: 'follow-up' },
+      { action: 'record', outcome: 'answered', followUp: 'follow-up-3' },
     ])
   );
   expect(await screen.findByRole('button', { name: 'Call on someone' })).toBeInTheDocument();
@@ -128,4 +146,42 @@ it('leaves follow-ups with Done and records a skip with one tap', async () => {
   await waitFor(() =>
     expect(posted.at(-1)).toEqual({ action: 'record', outcome: 'skip', draw: 'signed-draw' })
   );
+});
+
+it.each([409, 400])(
+  'clears the card and explains when a record is refused (%i)',
+  async (status) => {
+    const show = jest.spyOn(notifications, 'show');
+    mockServer({ record: status });
+    render(
+      <MantineProvider theme={theme}>
+        <ColdCall />
+      </MantineProvider>
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Call on someone' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Answered' }));
+    // The stale card is gone, so the next tap draws again instead of failing again.
+    expect(await screen.findByRole('button', { name: 'Call on someone' })).toBeInTheDocument();
+    expect(screen.queryByText('Alisha Moreno')).not.toBeInTheDocument();
+    expect(show).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'A newer draw replaced this one' })
+    );
+    show.mockRestore();
+  }
+);
+
+it('says so when the call list cannot load', async () => {
+  const show = jest.spyOn(notifications, 'show');
+  mockServer({ status: true });
+  render(
+    <MantineProvider theme={theme}>
+      <ColdCall />
+    </MantineProvider>
+  );
+  await waitFor(() =>
+    expect(show).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining('Could not load') })
+    )
+  );
+  show.mockRestore();
 });

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Avatar, Box, Button, Group, Stack, Text, UnstyledButton } from '@mantine/core';
+import { Avatar, Badge, Box, Button, Group, Stack, Text, UnstyledButton } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { SessionScopePicker } from '@/components/SessionScopePicker';
 import { scopedFetch, selectedScope } from '@/lib/scoped-fetch';
@@ -35,9 +35,9 @@ const initials = (name: string) =>
 export default function ColdCall() {
   const [scoped, setScoped] = useState<boolean | null>(null);
   // `token` is the draw token, or a follow-up token while asking the same student again.
-  const [student, setStudent] = useState<(Student & { token: string; followUp: boolean }) | null>(
-    null
-  );
+  const [student, setStudent] = useState<
+    (Student & { token: string; followUp: boolean; followUps: number }) | null
+  >(null);
   const [calls, setCalls] = useState<Call[]>([]);
   const [present, setPresent] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -50,8 +50,12 @@ export default function ColdCall() {
     });
 
   const refresh = useCallback(async () => {
-    const response = await scopedFetch('/api/admin/cold-call');
-    if (!response.ok) {
+    const response = await scopedFetch('/api/admin/cold-call').catch(() => null);
+    if (!response?.ok) {
+      notifications.show({
+        message: "Could not load this session's calls. Check the connection, then reopen the page.",
+        color: 'red',
+      });
       return;
     }
     const data = await response.json();
@@ -78,7 +82,7 @@ export default function ColdCall() {
       const response = await post({ action: 'draw' });
       if (response.ok) {
         const data = await response.json();
-        setStudent({ ...data.student, token: data.draw, followUp: false });
+        setStudent({ ...data.student, token: data.draw, followUp: false, followUps: 0 });
       } else {
         await fail(response, 'Could not call on a student');
       }
@@ -102,10 +106,18 @@ export default function ColdCall() {
       if (response.ok) {
         const data = await response.json();
         // Answered + follow-up keeps the same student on screen for the next question.
-        setStudent(data.followUp ? { ...student, token: data.followUp, followUp: true } : null);
+        setStudent(
+          data.followUp
+            ? { ...student, token: data.followUp, followUp: true, followUps: student.followUps + 1 }
+            : null
+        );
         await refresh();
       } else {
+        // A refused record (a newer draw on another phone, or a stale card) cannot
+        // succeed on retry: clear the card so the instructor can call again.
+        setStudent(null);
         await fail(response, 'Could not record the outcome');
+        await refresh();
       }
     } finally {
       setBusy(false);
@@ -171,9 +183,9 @@ export default function ColdCall() {
         {student ? (
           <>
             {student.followUp && (
-              <Text fz={18} c="dimmed">
-                Follow-up question
-              </Text>
+              <Badge size="xl" color="buBlue.7" fz={22} h={40} px="md" tt="none">
+                Follow-up {student.followUps}
+              </Badge>
             )}
             <Avatar src={student.photo} alt="" size={168} radius={168} color="buBlue">
               <Text fz={56} fw={700}>

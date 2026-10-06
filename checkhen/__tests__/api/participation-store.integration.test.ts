@@ -432,6 +432,53 @@ integration('route → store → attendance fold', () => {
       expect((await draw()).student.userId).toBe(late.id);
     });
 
+    it('keeps the call list and follow-ups working after undos of other event kinds', async () => {
+      const keen = await student('Noa');
+      // Undo an Absent: its linked CHECK_OUT gets an UNDO the call list does not show.
+      const absent = await record((await draw()).draw, 'absent');
+      await call('POST', { action: 'undo', eventId: absent._getJSONData().id });
+      // Unhide a chat message: an UNDO aimed at a CHAT_HIDDEN event.
+      const message = await appendEvent(prisma, {
+        ...scope,
+        actorId: keen.id,
+        userId: keen.id,
+        kind: 'CHAT_MESSAGE',
+        payload: { message: 'hello', anonymousName: 'Anon Noa' },
+      });
+      const hidden = await appendEvent(prisma, {
+        ...scope,
+        actorId: 'instructor',
+        userId: keen.id,
+        kind: 'CHAT_HIDDEN',
+        payload: { messageId: message.id },
+        supersedesId: message.id,
+      });
+      await appendEvent(prisma, {
+        ...scope,
+        actorId: 'instructor',
+        userId: keen.id,
+        kind: 'UNDO',
+        supersedesId: hidden.id,
+      });
+      const status = await call('GET');
+      expect(status._getStatusCode()).toBe(200);
+      expect(status._getJSONData().calls).toEqual([]);
+      const first = await call('POST', {
+        action: 'record',
+        outcome: 'answered',
+        draw: (await draw()).draw,
+        next: 'follow-up',
+      });
+      expect(first._getStatusCode()).toBe(200);
+      const followUp = await call('POST', {
+        action: 'record',
+        outcome: 'answered',
+        followUp: first._getJSONData().followUp,
+      });
+      expect(followUp._getStatusCode()).toBe(200);
+      expect((await call('GET'))._getJSONData().calls).toHaveLength(2);
+    });
+
     it('makes an absent student callable again when they check back in', async () => {
       const late = await student('Kim');
       await record((await draw()).draw, 'absent');
