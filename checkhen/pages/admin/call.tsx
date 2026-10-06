@@ -211,8 +211,8 @@ export default function ColdCall() {
         minHeight: '100dvh',
         display: 'flex',
         flexDirection: 'column',
-        padding: 16,
-        gap: 16,
+        padding: 12,
+        gap: 12,
         maxWidth: 520,
         margin: '0 auto',
       }}
@@ -248,42 +248,52 @@ export default function ColdCall() {
       >
         {student ? (
           <>
-            {student.followUp && (
-              <Badge size="xl" color="buBlue.7" fz={22} h={40} px="md" tt="none">
-                Follow-up {student.followUps}
-              </Badge>
-            )}
-            {student.recorded && (
-              <Group gap="xs" justify="center">
-                <Text fz={18}>Recorded: {outcomeLabel[student.recorded.outcome]}</Text>
-                <Button
-                  variant="subtle"
-                  h={44}
-                  disabled={busy}
-                  onClick={async () => {
-                    // Step back to the card before this outcome: same student, and its
-                    // token is valid again once the outcome is undone.
-                    const card = student;
-                    setBusy(true);
-                    try {
-                      if (await undo(card.recorded!.id)) {
-                        setStudent(card.previous ?? null);
+            {/* One row for the run state, so a small phone keeps Answered on screen. */}
+            <Group gap="xs" justify="center" wrap="wrap">
+              {student.followUp && (
+                <Badge size="xl" color="buBlue.7" fz={20} h={36} px="md" tt="none">
+                  Follow-up {student.followUps}
+                </Badge>
+              )}
+              {student.recorded && (
+                <Group gap={4} justify="center" wrap="nowrap">
+                  <Text fz={16}>Recorded: {outcomeLabel[student.recorded.outcome]}</Text>
+                  <Button
+                    variant="subtle"
+                    h={44}
+                    disabled={busy}
+                    onClick={async () => {
+                      // Step back to the card before this outcome: same student, and its
+                      // token is valid again once the outcome is undone.
+                      const card = student;
+                      setBusy(true);
+                      try {
+                        if (await undo(card.recorded!.id)) {
+                          setStudent(card.previous ?? null);
+                        }
+                      } finally {
+                        setBusy(false);
                       }
-                    } finally {
-                      setBusy(false);
-                    }
-                  }}
-                >
-                  Undo
-                </Button>
-              </Group>
-            )}
-            <Avatar src={student.photo} alt="" size={168} radius={168} color="buBlue">
-              <Text fz={56} fw={700}>
+                    }}
+                  >
+                    Undo
+                  </Button>
+                </Group>
+              )}
+            </Group>
+            {/* The photo and name shrink on short screens; the outcome buttons do not. */}
+            <Avatar
+              src={student.photo}
+              alt=""
+              size={student.followUp ? 'clamp(72px, 14dvh, 168px)' : 'clamp(88px, 19dvh, 168px)'}
+              radius={168}
+              color="buBlue"
+            >
+              <Text fz="clamp(30px, 6dvh, 56px)" fw={700}>
                 {initials(student.name)}
               </Text>
             </Avatar>
-            <Text fz={40} fw={800} lh={1.1} mt="sm">
+            <Text fz="clamp(28px, 5dvh, 40px)" fw={800} lh={1.1} mt={4}>
               {student.name}
             </Text>
             {student.pronunciation && (
@@ -349,8 +359,10 @@ export default function ColdCall() {
           )}
           <Group grow gap={12}>
             <Button
-              size="xl"
-              h={64}
+              size="lg"
+              h={56}
+              fz={18}
+              px={4}
               color="gray"
               variant="default"
               disabled={busy}
@@ -359,8 +371,10 @@ export default function ColdCall() {
               Pass
             </Button>
             <Button
-              size="xl"
-              h={64}
+              size="lg"
+              h={56}
+              fz={18}
+              px={4}
               color="yellow.4"
               c="dark.9"
               disabled={busy}
@@ -370,8 +384,10 @@ export default function ColdCall() {
             </Button>
             {!student.followUp && (
               <Button
-                size="xl"
-                h={64}
+                size="lg"
+                h={56}
+                fz={18}
+                px={4}
                 color="red.8"
                 disabled={busy}
                 onClick={() => record('absent')}
@@ -381,8 +397,8 @@ export default function ColdCall() {
             )}
           </Group>
           <Button
-            size="xl"
-            h={64}
+            size="lg"
+            h={56}
             color="green.9"
             variant="outline"
             disabled={busy}
@@ -392,7 +408,7 @@ export default function ColdCall() {
           </Button>
           <Button
             size="xl"
-            h={96}
+            h="clamp(64px, 11dvh, 96px)"
             color="green.9"
             fz={28}
             disabled={busy}

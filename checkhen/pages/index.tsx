@@ -13,6 +13,7 @@ import {
 import { signIn, signOut, useSession } from 'next-auth/react';
 import { Socket } from 'socket.io-client';
 import {
+  ActionIcon,
   Alert,
   Badge,
   Box,
@@ -29,6 +30,7 @@ import {
   Tooltip,
   useMantineTheme,
 } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { scopedFetch as fetch, selectedScope } from '@/lib/scoped-fetch';
 import { getSocket } from '@/lib/socket';
@@ -51,6 +53,8 @@ export default function HomePage() {
   const isAdmin = (session?.user as any)?.isAdmin === true;
   const router = useRouter();
   const theme = useMantineTheme();
+  // Phones get one column: compact controls above the chat.
+  const isPhone = useMediaQuery('(max-width: 48em)') ?? false;
   const ws = useRef<Socket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -486,9 +490,9 @@ export default function HomePage() {
   return (
     <Box style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
-      <Paper p="md" shadow="sm" withBorder style={{ borderRadius: 0 }}>
-        <Group justify="space-between">
-          <Group>
+      <Paper p={isPhone ? 'xs' : 'md'} shadow="sm" withBorder style={{ borderRadius: 0 }}>
+        <Group justify="space-between" wrap="nowrap">
+          <Group wrap="nowrap" gap={isPhone ? 'xs' : 'md'} style={{ minWidth: 0 }}>
             <Tooltip label="Leave class" withArrow>
               <Box
                 onClick={handleLeaveClass}
@@ -506,37 +510,70 @@ export default function HomePage() {
                 <GraduationCap size={20} color="white" />
               </Box>
             </Tooltip>
-            <div>
-              <Title order={3}>CheckHen</Title>
-              <Text size="sm" c="dimmed">
+            <div style={{ minWidth: 0 }}>
+              <Title order={isPhone ? 4 : 3}>CheckHen</Title>
+              <Text size="sm" c="dimmed" truncate>
                 {currentClassName}
               </Text>
             </div>
           </Group>
-          <Group gap="sm">
+          <Group gap={isPhone ? 4 : 'sm'} wrap="nowrap">
             {anonymousName && (
-              <Badge size="lg" variant="light" color="buBlue">
+              // The student's anonymous name never truncates; the class name does instead.
+              <Badge
+                size={isPhone ? 'md' : 'lg'}
+                variant="light"
+                color="buBlue"
+                tt="none"
+                style={{ flexShrink: 0, overflow: 'visible' }}
+                styles={{ label: { overflow: 'visible' } }}
+              >
                 {anonymousName}
               </Badge>
             )}
-            <Button
-              variant="subtle"
-              color="gray"
-              size="sm"
-              leftSection={<User size={16} />}
-              onClick={() => router.push('/profile')}
-            >
-              Profile
-            </Button>
-            <Button
-              variant="subtle"
-              color="gray"
-              size="sm"
-              leftSection={<LogOut size={16} />}
-              onClick={handleSignOut}
-            >
-              Sign Out
-            </Button>
+            {isPhone ? (
+              <>
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  size={44}
+                  aria-label="Profile"
+                  onClick={() => router.push('/profile')}
+                >
+                  <User size={20} />
+                </ActionIcon>
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  size={44}
+                  aria-label="Sign out"
+                  onClick={handleSignOut}
+                >
+                  <LogOut size={20} />
+                </ActionIcon>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="subtle"
+                  color="gray"
+                  size="sm"
+                  leftSection={<User size={16} />}
+                  onClick={() => router.push('/profile')}
+                >
+                  Profile
+                </Button>
+                <Button
+                  variant="subtle"
+                  color="gray"
+                  size="sm"
+                  leftSection={<LogOut size={16} />}
+                  onClick={handleSignOut}
+                >
+                  Sign Out
+                </Button>
+              </>
+            )}
           </Group>
         </Group>
       </Paper>
@@ -583,82 +620,123 @@ export default function HomePage() {
       )}
 
       {/* Main Content - Split screen */}
-      <Flex style={{ flex: 1, overflow: 'hidden' }}>
-        {/* Left Column - Controls (40%) */}
-        <Box
-          style={{
-            width: '40%',
-            borderRight: `1px solid ${theme.colors.gray[3]}`,
-            display: 'flex',
-            flexDirection: 'column',
-            padding: theme.spacing.md,
-          }}
-        >
-          <Stack gap="md">
-            {/* Hand Raise */}
-            <Card padding="md">
-              <Stack gap="sm">
-                <Title order={5}>Request to Speak</Title>
-                <Button
-                  size="lg"
-                  fullWidth
-                  color={handRaised ? 'warning' : 'buBlue'}
-                  leftSection={<Hand size={20} />}
-                  onClick={toggleHandRaise}
-                  disabled={!currentClassName}
-                >
-                  {handRaised ? 'Lower Hand' : 'Raise Hand'}
-                </Button>
-              </Stack>
-            </Card>
-
-            {/* Pace Signals */}
-            <Card padding="md">
-              <Stack gap="sm">
-                <Title order={5}>Class Pace Feedback</Title>
-                <Text size="sm" c="dimmed">
-                  Let your instructor know how you're doing
-                </Text>
-
-                <Group grow>
-                  <Button
-                    variant="light"
-                    color="warning"
-                    leftSection={<TrendingDown size={18} />}
-                    onClick={() => sendPaceSignal('slow_down')}
-                    disabled={!currentClassName}
-                  >
-                    Slow Down
-                  </Button>
-                  <Button
-                    variant="light"
-                    color="successGreen"
-                    leftSection={<CheckCircle size={18} />}
-                    onClick={() => sendPaceSignal('ready_to_move_on')}
-                    disabled={!currentClassName}
-                  >
-                    Ready
-                  </Button>
-                </Group>
-
-                <Group justify="center" gap="xl" mt="xs">
-                  <Group gap="xs">
-                    <TrendingDown size={16} color={theme.colors.warning[5]} />
-                    <Text size="sm" fw={600}>
-                      {paceSignals.slowDown}
-                    </Text>
-                  </Group>
-                  <Group gap="xs">
-                    <CheckCircle size={16} color={theme.colors.successGreen[5]} />
-                    <Text size="sm" fw={600}>
-                      {paceSignals.readyToMove}
-                    </Text>
-                  </Group>
-                </Group>
-              </Stack>
-            </Card>
+      <Flex
+        direction={isPhone ? 'column' : 'row'}
+        style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}
+      >
+        {isPhone ? (
+          // Phones: hand and pace as two compact rows, so the chat keeps most of the screen.
+          <Stack gap="xs" p="xs" style={{ borderBottom: `1px solid ${theme.colors.gray[3]}` }}>
+            <Button
+              size="md"
+              fullWidth
+              color={handRaised ? 'warning' : 'buBlue'}
+              leftSection={<Hand size={20} />}
+              onClick={toggleHandRaise}
+              disabled={!currentClassName}
+            >
+              {handRaised ? 'Lower Hand' : 'Raise Hand'}
+            </Button>
+            <Group grow gap="xs">
+              <Button
+                variant="light"
+                color="warning"
+                leftSection={<TrendingDown size={18} />}
+                onClick={() => sendPaceSignal('slow_down')}
+                disabled={!currentClassName}
+                aria-label={`Slow down (${paceSignals.slowDown} so far)`}
+              >
+                Slow down · {paceSignals.slowDown}
+              </Button>
+              <Button
+                variant="light"
+                color="successGreen"
+                leftSection={<CheckCircle size={18} />}
+                onClick={() => sendPaceSignal('ready_to_move_on')}
+                disabled={!currentClassName}
+                aria-label={`Ready (${paceSignals.readyToMove} so far)`}
+              >
+                Ready · {paceSignals.readyToMove}
+              </Button>
+            </Group>
           </Stack>
-        </Box>
+        ) : (
+          /* Left Column - Controls (40%) */
+          <Box
+            style={{
+              width: '40%',
+              borderRight: `1px solid ${theme.colors.gray[3]}`,
+              display: 'flex',
+              flexDirection: 'column',
+              padding: theme.spacing.md,
+            }}
+          >
+            <Stack gap="md">
+              {/* Hand Raise */}
+              <Card padding="md">
+                <Stack gap="sm">
+                  <Title order={5}>Request to Speak</Title>
+                  <Button
+                    size="lg"
+                    fullWidth
+                    color={handRaised ? 'warning' : 'buBlue'}
+                    leftSection={<Hand size={20} />}
+                    onClick={toggleHandRaise}
+                    disabled={!currentClassName}
+                  >
+                    {handRaised ? 'Lower Hand' : 'Raise Hand'}
+                  </Button>
+                </Stack>
+              </Card>
+
+              {/* Pace Signals */}
+              <Card padding="md">
+                <Stack gap="sm">
+                  <Title order={5}>Class Pace Feedback</Title>
+                  <Text size="sm" c="dimmed">
+                    Let your instructor know how you're doing
+                  </Text>
+
+                  <Group grow>
+                    <Button
+                      variant="light"
+                      color="warning"
+                      leftSection={<TrendingDown size={18} />}
+                      onClick={() => sendPaceSignal('slow_down')}
+                      disabled={!currentClassName}
+                    >
+                      Slow Down
+                    </Button>
+                    <Button
+                      variant="light"
+                      color="successGreen"
+                      leftSection={<CheckCircle size={18} />}
+                      onClick={() => sendPaceSignal('ready_to_move_on')}
+                      disabled={!currentClassName}
+                    >
+                      Ready
+                    </Button>
+                  </Group>
+
+                  <Group justify="center" gap="xl" mt="xs">
+                    <Group gap="xs">
+                      <TrendingDown size={16} color={theme.colors.warning[5]} />
+                      <Text size="sm" fw={600}>
+                        {paceSignals.slowDown}
+                      </Text>
+                    </Group>
+                    <Group gap="xs">
+                      <CheckCircle size={16} color={theme.colors.successGreen[5]} />
+                      <Text size="sm" fw={600}>
+                        {paceSignals.readyToMove}
+                      </Text>
+                    </Group>
+                  </Group>
+                </Stack>
+              </Card>
+            </Stack>
+          </Box>
+        )}
 
         {/* Right Column - Chat (60%) */}
         <Box
@@ -666,10 +744,11 @@ export default function HomePage() {
             flex: 1,
             display: 'flex',
             flexDirection: 'column',
+            minHeight: 0,
           }}
         >
-          <Paper p="md" shadow="xs" withBorder style={{ borderRadius: 0 }}>
-            <Title order={4}>Class Discussion</Title>
+          <Paper p={isPhone ? 'xs' : 'md'} shadow="xs" withBorder style={{ borderRadius: 0 }}>
+            <Title order={isPhone ? 5 : 4}>Class Discussion</Title>
             <Text size="sm" c="dimmed">
               Messages are shown with anonymous names
             </Text>

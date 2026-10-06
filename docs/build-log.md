@@ -937,3 +937,33 @@ that, the case where an Absent comes between the Retry and that Pass.
 Verified on 2026-10-06 (Nimbus): 29 Jest suites and 281 tests in three
 consecutive runs, and `scripts/test-postgres.sh` with 39 route integration
 cases.
+
+## UI readiness for operator testing (item 5)
+
+Method: the production build ran on a local port with a test-only auth secret
+and signed test sessions. Every API call was stubbed with fixtures, and the
+local Playwright image rendered each page at 375x667, 390x844, and 1280x800,
+including the call screen's drawn and follow-up states. The check measured
+whether Answered stays above the fold and whether any page scrolls
+sideways. The harness is a scratch tool and is not committed.
+
+Fixed for use in class:
+
+- Call screen at 375x667: the Pass, Retry, and Absent labels were truncated
+  ("Retr", "Abse"), and Answered sat below the fold (bottom at 703 px drawn,
+  799 px in a follow-up run). Outcome buttons now use 18 px labels in a
+  56 px row. The photo and name scale with screen height, smaller during a
+  run. The run badge and "Recorded" line share one row. Answered now ends at
+  655 px (drawn) and 658 px (run) on a 667 px screen.
+- Student page on phones: the header wrapped over the content, and the
+  two-column layout clipped "Raise Hand". Phones now get a one-row header
+  (Profile and Sign out as labeled icon buttons, the anonymous name never
+  truncated), with Raise Hand and the two pace buttons above the chat.
+- Profile on narrow phones: the pronoun choices stack vertically, so "Other"
+  is no longer cut off.
+- Course picker: the "New course" field is a styled input, and the selects
+  span the width on phones.
+
+The impeccable detector over all 20 page and component files found two
+cosmetic "side-tab" left borders, in `/admin/analytics` and `/join`. Neither
+affects use in class; both are left open.

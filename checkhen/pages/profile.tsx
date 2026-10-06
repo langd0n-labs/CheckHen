@@ -17,6 +17,7 @@ import {
   Tooltip,
   useMantineTheme,
 } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { GraduationCap, ArrowLeft, Save, Camera } from 'lucide-react';
 
@@ -24,6 +25,7 @@ const PRONOUN_OPTIONS = ['she/her', 'he/him', 'they/them', 'Other'];
 const BIO_LIMIT = 280;
 
 export default function ProfilePage() {
+  const narrow = useMediaQuery('(max-width: 26em)') ?? false;
   const { data: session, status } = useSession();
   const router = useRouter();
   const theme = useMantineTheme();
@@ -246,6 +248,8 @@ export default function ProfilePage() {
               onChange={setPronounsSelection}
               data={PRONOUN_OPTIONS}
               fullWidth
+              // Four choices do not fit side by side on a narrow phone.
+              orientation={narrow ? 'vertical' : 'horizontal'}
             />
             {pronounsSelection === 'Other' && (
               <TextInput
