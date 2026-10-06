@@ -877,3 +877,25 @@ production build, and the impeccable detector on `/admin/call` and
 
 Verified on 2026-10-06 (Nimbus): 28 Jest suites and 274 tests, and
 `scripts/test-postgres.sh` with 33 route integration cases.
+
+### Cold-call review (1642e6f to a1e6099) minor fixes
+
+- m-2: an Absent keeps every eligibility check except presence. It is
+  refused after the session ends and for a student no longer active on the
+  roster. Any record or follow-up after the session ends is refused.
+- m-1: an Undo during a follow-up run steps back to the previous question
+  with the same student, instead of ending the run. To allow this, a draw or
+  follow-up is "used" only while its call is in force: after an undo, the
+  corrected outcome can be recorded with the same token.
+- Nits: `appendEvent`'s follow-on option is renamed `alsoWrite` (a property
+  named `then` made the input a thenable), and a follow-on that carries its
+  own guard or follow-ons is refused.
+- Tests added: injected database failures inside the route's Absent and undo
+  transactions write nothing; Absent after session end and for an inactive
+  student; re-recording after an undo with a draw token and a follow-up
+  token; the "(follow-up)" label; undo inside a run.
+
+Verified on 2026-10-06 (Nimbus): 28 Jest suites and 276 tests, and
+`scripts/test-postgres.sh` with 37 route integration cases. One full Jest run
+of 12 had one failing test, which I could not identify or reproduce; it ran
+right after the PostgreSQL script. Open: find the intermittent test.

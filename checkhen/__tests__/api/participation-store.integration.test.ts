@@ -526,7 +526,7 @@ integration('route → store → attendance fold', () => {
           kind: 'COLD_CALL',
           payload: { outcome: 'absent' },
           // An undo of an event that does not exist fails inside the transaction.
-          then: async () => [
+          alsoWrite: async () => [
             {
               ...scope,
               actorId: 'instructor',
@@ -619,6 +619,137 @@ integration('route → store → attendance fold', () => {
         expect(followed._getStatusCode()).toBe(409);
         expect(followUps).toHaveLength(0);
       }
+    });
+
+    /** Make inserts that match `fails` throw inside the transaction, like a database error. */
+    const failInsert = (fails: (data: any) => boolean) => {
+      const original = prisma.$transaction.bind(prisma) as any;
+      return jest.spyOn(prisma, '$transaction').mockImplementation(((fn: any, options?: any) =>
+        typeof fn !== 'function'
+          ? original(fn, options)
+          : original(
+              (tx: any) =>
+                fn(
+                  new Proxy(tx, {
+                    get(target, prop) {
+                      const value = target[prop];
+                      if (prop !== 'participationEvent') {
+                        return typeof value === 'function' ? value.bind(target) : value;
+                      }
+                      return new Proxy(value, {
+                        get(model, key) {
+                          const method = model[key];
+                          if (key === 'create') {
+                            return (args: any) =>
+                              fails(args.data)
+                                ? Promise.reject(new Error('Injected failure'))
+                                : method.call(model, args);
+                          }
+                          return typeof method === 'function' ? method.bind(model) : method;
+                        },
+                      });
+                    },
+                  })
+                ),
+              options
+            )) as any);
+    };
+
+    it('writes neither the Absent nor its check-out when the check-out fails', async () => {
+      const lee = await student('Lee');
+      const { draw: token } = await draw();
+      const spy = failInsert((data) => data.kind === 'CHECK_OUT');
+      await expect(record(token, 'absent')).rejects.toThrow('Injected failure');
+      spy.mockRestore();
+      expect(
+        (await readEvents(prisma, scope)).filter((event) => event.kind === 'COLD_CALL')
+      ).toHaveLength(0);
+      const present = (await readState(prisma, scope)).attendance.find(
+        (entry) => entry.userId === lee.id
+      );
+      expect(present?.isPresent).toBe(true);
+      // The same tap succeeds once the failure clears, and writes both events.
+      expect((await record(token, 'absent'))._getStatusCode()).toBe(200);
+      const kinds = (await readEvents(prisma, scope)).map((event) => event.kind);
+      expect(kinds.filter((kind) => kind === 'COLD_CALL' || kind === 'CHECK_OUT')).toEqual([
+        'COLD_CALL',
+        'CHECK_OUT',
+      ]);
+    });
+
+    it('undoes neither the Absent nor its check-out when the second undo fails', async () => {
+      await student('Mo');
+      const callId = (await record((await draw()).draw, 'absent'))._getJSONData().id;
+      const checkOut = (await readEvents(prisma, scope)).find(
+        (event) => event.kind === 'CHECK_OUT' && event.payload.coldCallId === callId
+      )!;
+      const spy = failInsert((data) => data.kind === 'UNDO' && data.supersedesId === checkOut.id);
+      await expect(call('POST', { action: 'undo', eventId: callId })).rejects.toThrow(
+        'Injected failure'
+      );
+      spy.mockRestore();
+      expect(
+        (await readEvents(prisma, scope)).filter((event) => event.kind === 'UNDO')
+      ).toHaveLength(0);
+      expect((await call('POST', { action: 'undo', eventId: callId }))._getStatusCode()).toBe(200);
+      expect(
+        (await readEvents(prisma, scope)).filter((event) => event.kind === 'UNDO')
+      ).toHaveLength(2);
+    });
+
+    it('refuses an Absent after the session ended or for an inactive student', async () => {
+      const ended = await student('Ned');
+      const first = await draw();
+      await appendEvent(prisma, { ...scope, actorId: 'system', kind: 'SESSION_ENDED' });
+      const afterEnd = await record(first.draw, 'absent');
+      expect(afterEnd._getStatusCode()).toBe(409);
+      expect(afterEnd._getJSONData().message).toBe('This class session has ended');
+      // A fresh session for the inactive-student case.
+      const next = await prisma.class.create({
+        data: { courseId: scope.courseId, name: 'Next', duration: 60 },
+      });
+      const nextScope = { courseId: scope.courseId, classId: next.id };
+      (requireScope as jest.Mock).mockResolvedValue({
+        user: { id: 'instructor' },
+        selected: next,
+        scope: nextScope,
+        admin: true,
+      });
+      await appendEvent(prisma, {
+        ...nextScope,
+        actorId: ended.id,
+        userId: ended.id,
+        kind: 'CHECK_IN',
+        payload: { anonymousName: 'Anon Ned' },
+      });
+      const nextCall = async (body: Record<string, unknown>) => {
+        const { req, res } = createMocks({ method: 'POST', query: nextScope, body });
+        await coldCallRoute(req as any, res as any);
+        return res;
+      };
+      const drawn = (await nextCall({ action: 'draw' }))._getJSONData();
+      await prisma.rosterEntry.update({
+        where: { courseId_userId: { courseId: scope.courseId, userId: ended.id } },
+        data: { active: false },
+      });
+      const inactive = await nextCall({ action: 'record', outcome: 'absent', draw: drawn.draw });
+      expect(inactive._getStatusCode()).toBe(409);
+      expect(inactive._getJSONData().message).toBe('This student can no longer be called');
+    });
+
+    it('accepts the corrected outcome after an undo, for a draw and for a follow-up', async () => {
+      await student('Pia');
+      const { draw: token } = await draw();
+      const passed = await record(token, 'pass');
+      await call('POST', { action: 'undo', eventId: passed._getJSONData().id });
+      const answered = await record(token, 'answered');
+      expect(answered._getStatusCode()).toBe(200);
+      const { followUp } = answered._getJSONData();
+      const second = await call('POST', { action: 'record', outcome: 'answered', followUp });
+      await call('POST', { action: 'undo', eventId: second._getJSONData().id });
+      // The earlier follow-up token is current again once the later call is undone.
+      const corrected = await call('POST', { action: 'record', outcome: 'pass', followUp });
+      expect(corrected._getStatusCode()).toBe(200);
     });
 
     it('makes an absent student callable again when they check back in', async () => {

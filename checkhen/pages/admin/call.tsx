@@ -20,6 +20,8 @@ type Card = Student & {
   followUps: number;
   /** The call just recorded in a follow-up run, shown with an Undo. */
   recorded?: { id: string; outcome: Outcome };
+  /** The card before the last outcome; an undo in a run steps back to it. */
+  previous?: Card;
 };
 
 const callLabel = (call: Call) =>
@@ -133,6 +135,7 @@ export default function ColdCall() {
               followUp: true,
               followUps: student.followUps + 1,
               recorded: { id: data.id, outcome },
+              previous: student,
             }
           : null;
         // Answered + follow-up keeps the same student on screen for the next question.
@@ -154,17 +157,21 @@ export default function ColdCall() {
     }
   };
 
+  /** True when the call was undone. */
   const undo = async (eventId: string) => {
     const response = await post({ action: 'undo', eventId });
     if (!response) {
       unreachable();
-    } else if (response.ok) {
-      // An undone call cannot be followed up.
-      setLastAnswered((previous) => (previous?.callId === eventId ? null : previous));
-      await refresh();
-    } else {
-      await fail(response, 'Could not undo the call');
+      return false;
     }
+    if (!response.ok) {
+      await fail(response, 'Could not undo the call');
+      return false;
+    }
+    // An undone call cannot be followed up.
+    setLastAnswered((previous) => (previous?.callId === eventId ? null : previous));
+    await refresh();
+    return true;
   };
 
   if (scoped === null) {
@@ -228,10 +235,18 @@ export default function ColdCall() {
                   variant="subtle"
                   h={44}
                   disabled={busy}
-                  onClick={() => {
-                    const id = student.recorded!.id;
-                    setStudent(null);
-                    undo(id);
+                  onClick={async () => {
+                    // Step back to the card before this outcome: same student, and its
+                    // token is valid again once the outcome is undone.
+                    const card = student;
+                    setBusy(true);
+                    try {
+                      if (await undo(card.recorded!.id)) {
+                        setStudent(card.previous ?? null);
+                      }
+                    } finally {
+                      setBusy(false);
+                    }
                   }}
                 >
                   Undo

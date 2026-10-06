@@ -213,7 +213,9 @@ it('starts a follow-up after a plain Answered, and undoes a follow-up from the r
       { action: 'undo', eventId: 'call-3' },
     ])
   );
-  expect(await screen.findByRole('button', { name: 'Call on someone' })).toBeInTheDocument();
+  // The undo steps back to the previous question with the same student.
+  expect(await screen.findByText('Follow-up 1')).toBeInTheDocument();
+  expect(screen.getByText('Alisha Moreno')).toBeInTheDocument();
 });
 
 it('keeps the card after a server error and says so at the top of the screen', async () => {
@@ -255,4 +257,51 @@ it('keeps the card and explains when the server cannot be reached', async () => 
   );
   expect(screen.getByText('Alisha Moreno')).toBeInTheDocument();
   show.mockRestore();
+});
+
+it('labels follow-up calls in the call list', async () => {
+  global.fetch = jest.fn(async () => ({
+    ok: true,
+    json: async () => ({
+      present: 3,
+      calls: [
+        { id: 'c1', userId: 's', name: 'Alisha Moreno', outcome: 'answered' },
+        { id: 'c2', userId: 's', name: 'Alisha Moreno', outcome: 'pass', followUp: true },
+      ],
+    }),
+  })) as unknown as typeof fetch;
+  render(
+    <MantineProvider theme={theme}>
+      <ColdCall />
+    </MantineProvider>
+  );
+  expect(await screen.findByText('Alisha Moreno: Pass (follow-up)')).toBeInTheDocument();
+  expect(screen.getByText('Alisha Moreno: Answered')).toBeInTheDocument();
+});
+
+it('steps back one question when an outcome is undone during a run', async () => {
+  const posted = mockServer();
+  render(
+    <MantineProvider theme={theme}>
+      <ColdCall />
+    </MantineProvider>
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Call on someone' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Answered + follow-up' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Answered + follow-up' }));
+  expect(await screen.findByText('Follow-up 2')).toBeInTheDocument();
+  // A mistaken outcome on follow-up 1: undo it and stay with the same student.
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(await screen.findByText('Follow-up 1')).toBeInTheDocument();
+  expect(screen.getByText('Alisha Moreno')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Answered' }));
+  await waitFor(() =>
+    expect(posted.slice(1)).toEqual([
+      { action: 'record', outcome: 'answered', draw: 'signed-draw', next: 'follow-up' },
+      { action: 'record', outcome: 'answered', followUp: 'follow-up-2', next: 'follow-up' },
+      { action: 'undo', eventId: 'call-3' },
+      // The earlier follow-up token is used again for the corrected outcome.
+      { action: 'record', outcome: 'answered', followUp: 'follow-up-2' },
+    ])
+  );
 });

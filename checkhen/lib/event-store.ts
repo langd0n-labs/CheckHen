@@ -36,7 +36,7 @@ type AppendInput = EventScope & {
   /** Runs inside the session lock before the write; throw ConflictError to refuse it. */
   guard?: (tx: Prisma.TransactionClient) => Promise<void>;
   /** Returns more events for the same session, written in the same transaction. */
-  then?: (tx: Prisma.TransactionClient, event: ParticipationEvent) => Promise<AppendInput[]>;
+  alsoWrite?: (tx: Prisma.TransactionClient, event: ParticipationEvent) => Promise<AppendInput[]>;
 };
 
 /** A guard refused an append because the session state changed. */
@@ -151,9 +151,13 @@ export async function appendEvent(db: PrismaClient, input: AppendInput) {
     }
     const event = await writeEvent(tx, input);
     // Follow-on events commit or fail with the first one.
-    for (const next of input.then ? await input.then(tx, event) : []) {
+    for (const next of input.alsoWrite ? await input.alsoWrite(tx, event) : []) {
       if (next.courseId !== input.courseId || next.classId !== input.classId) {
         throw new Error('Follow-on events must stay in the same session');
+      }
+      // A follow-on is written as given; its own guard or follow-ons would be ignored.
+      if (next.guard || next.alsoWrite) {
+        throw new Error('A follow-on event cannot have its own guard or follow-ons');
       }
       validatePayload(next.kind, next.payload ?? {});
       await writeEvent(tx, next);

@@ -48,7 +48,12 @@ async function courseMeetings(db: Db, scope: EventScope) {
 }
 
 /** Checked-in, active-roster students who may be called now. */
-async function eligibleStudents(db: Db, scope: EventScope) {
+/**
+ * Students who may be called now. With `requirePresent` false (an Absent), a
+ * student who checked in this session but has since checked out still counts.
+ * An ended session has no one to call.
+ */
+async function eligibleStudents(db: Db, scope: EventScope, requirePresent = true) {
   const { meetings, current } = await courseMeetings(db, scope);
   const active = new Set(
     (
@@ -58,8 +63,12 @@ async function eligibleStudents(db: Db, scope: EventScope) {
       })
     ).map((entry) => entry.userId)
   );
-  const present = foldEvents(meetings[current].events, scope)
-    .attendance.filter((entry) => entry.isPresent && active.has(entry.userId))
+  const state = foldEvents(meetings[current].events, scope);
+  if (state.endedAt) {
+    return [];
+  }
+  const present = state.attendance
+    .filter((entry) => (entry.isPresent || !requirePresent) && active.has(entry.userId))
     .map((entry) => entry.userId);
   return eligibility(meetings, current, present).filter((entry) => entry.eligible);
 }
@@ -140,17 +149,30 @@ async function checkDraw(
   ) {
     throw new ConflictError('A newer draw replaced this one');
   }
-  const recorded = await tx.participationEvent.findMany({
-    where: { ...scope, kind: 'COLD_CALL' },
-    select: { payload: true },
-  });
-  if (recorded.some((event) => (event.payload as { seed?: number }).seed === seed)) {
+  // Only a call still in force uses up the draw: after an undo, the instructor
+  // may record the corrected outcome for the same draw.
+  const events = (
+    await tx.participationEvent.findMany({
+      where: scope,
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    })
+  ).map(asEvent);
+  if (
+    effectiveEvents(events, scope).some(
+      (event) => event.kind === 'COLD_CALL' && event.payload.seed === seed
+    )
+  ) {
     throw new ConflictError('This call is already recorded');
   }
-  // An absence stands even if the student already checked out: that is what Absent records.
+  if (foldEvents(events, scope).endedAt) {
+    throw new ConflictError('This class session has ended');
+  }
+  // An absence stands even if the student already checked out; every other
+  // eligibility rule (roster, session) still applies.
   if (
-    outcome !== 'absent' &&
-    !(await eligibleStudents(tx, scope)).some((entry) => entry.userId === userId)
+    !(await eligibleStudents(tx, scope, outcome !== 'absent')).some(
+      (entry) => entry.userId === userId
+    )
   ) {
     throw new ConflictError('This student can no longer be called');
   }
@@ -168,6 +190,9 @@ async function checkFollowUp(tx: Prisma.TransactionClient, scope: EventScope, ca
   const latest = effectiveEvents(events, scope)
     .filter((event) => event.kind === 'COLD_CALL' || event.kind === 'COLD_CALL_DRAWN')
     .at(-1);
+  if (foldEvents(events, scope).endedAt) {
+    throw new ConflictError('This class session has ended');
+  }
   if (latest?.id !== callId) {
     throw new ConflictError('This follow-up is no longer current');
   }
@@ -304,7 +329,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             ? checkDraw(tx, scope, token.seed, token.userId, outcome)
             : checkFollowUp(tx, scope, token.callId),
         // Absent means the student left early: check them out in the same transaction.
-        then: async (tx, call) =>
+        alsoWrite: async (tx, call) =>
           outcome === 'absent' && (await isPresent(tx, scope, call.userId!))
             ? [
                 {
@@ -353,7 +378,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           }
         },
         // A mistaken Absent must not leave the student checked out: undo both together.
-        then: async (tx) => {
+        alsoWrite: async (tx) => {
           const linked = await linkedCheckOut(tx, scope, target);
           return linked
             ? [
