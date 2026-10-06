@@ -70,6 +70,16 @@ export default function StudentHelp() {
           ),
         },
         {
+          id: 'called-on',
+          title: 'Being called on',
+          body: (
+            <Text>
+              Your instructor may call on you during class. No student screen shows anything about
+              these calls.
+            </Text>
+          ),
+        },
+        {
           id: 'profile',
           title: 'Your profile and who sees it',
           body: (

@@ -18,11 +18,19 @@ const anchors = () => Array.from(document.querySelectorAll('section')).map((sect
 
 it('gives each student topic an anchor and marks exam mode as unfinished', () => {
   view(StudentHelp);
-  expect(anchors()).toEqual(['checking-in', 'chat', 'hands-and-pace', 'profile', 'exam-mode']);
+  expect(anchors()).toEqual([
+    'checking-in',
+    'chat',
+    'hands-and-pace',
+    'called-on',
+    'profile',
+    'exam-mode',
+  ]);
   const exam = document.getElementById('exam-mode')!;
   expect(within(exam).getByText(/Do not use it in class yet/)).toBeInTheDocument();
-  // The participation-rules section is on hold with the operator.
-  expect(screen.queryByText(/opportunit/i)).not.toBeInTheDocument();
+  // Operator decision 2026-10-06: no participation or grading rules for students.
+  expect(screen.getByText(/No student screen shows anything about/)).toBeInTheDocument();
+  expect(screen.queryByText(/opportunit|score|grade/i)).not.toBeInTheDocument();
 });
 
 it('covers the dashboard, cold calling, and exam mode for instructors, not the course record', () => {

@@ -34,6 +34,10 @@ Branch: build/m0-m2. Scope: M0 through M5, then M7 and M8.
   follow-up Pass that resolves an outstanding Retry. A later fresh draw that
   resolves a follow-up Retry is an ordinary call: a Pass on it is an
   opportunity and pass debt. Relayed by AICP.
+- 2026-10-06, operator: the student help page explains no participation or
+  grading rules. It says only that the instructor may call on students in
+  class and that no student screen shows anything about cold calls. Relayed
+  by AICP.
 - 2026-10-06, operator, help pages: describe exam mode's intended behavior and
   mark it "being finished; do not use in class yet"; write "a volunteer answer
   is an acknowledged raised hand" as the rule, to be reviewed in the UI; leave
@@ -995,8 +999,9 @@ on the outline:
 
 Both exam sections describe the intended behavior and say "being finished; do
 not use in class yet". The volunteer rule is written as an acknowledged
-raised hand. On hold, per the operator: the student participation-rules
-section and the instructor course-record section. `/admin/analytics` is left
+raised hand. The student page has a "Being called on" section
+with no grading rules (operator decision). On hold: the instructor
+course-record section, pending the grading-scope decision. `/admin/analytics` is left
 out as legacy. Each page has a section list and anchors; the help pages hide
 the course picker. Rendered at 375x667 and 1280x800 with no sideways scroll.
 Verified: 30 Jest suites and 285 tests.
