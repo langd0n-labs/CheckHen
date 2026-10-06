@@ -18,6 +18,7 @@ const base: CandidateFeatures = {
   retryOutstanding: false,
   neverCalled: false,
   volunteered: false,
+  calledToday: false,
 };
 const config = DEFAULT_CONFIG;
 
@@ -62,6 +63,7 @@ describe('sampler weights', () => {
     expect(weight({ ...base, retryOutstanding: true }, config)).toBe(3);
     expect(weight({ ...base, neverCalled: true }, config)).toBe(2);
     expect(weight({ ...base, volunteered: true }, config)).toBeCloseTo(0.6);
+    expect(weight({ ...base, calledToday: true }, config)).toBeCloseTo(0.2);
   });
 
   it('multiplies factors together', () => {
@@ -175,19 +177,66 @@ describe('eligibility', () => {
     expect(eligibility(meetings.slice(0, 2), 1, ['a'])[0].sessionsSinceCalled).toBe(0);
   });
 
-  it('excludes students called today unless a retry is outstanding, and absent students', () => {
+  it('keeps students called today callable at reduced weight and excludes absent students', () => {
+    // Operator decision 2026-10-05: being called does not take a student off the hook.
     const today = [
       call('m1', 'a', 'answered'),
       call('m1', 'b', 'retry'),
       call('m1', 'c', 'absent'),
     ];
     const result = eligibility([meeting('m1', today)], 0, ['a', 'b', 'c', 'd']);
-    expect(result.map((entry) => [entry.userId, entry.eligible])).toEqual([
-      ['a', false],
-      ['b', true],
-      ['c', false],
-      ['d', true],
+    expect(result.map((entry) => [entry.userId, entry.eligible, entry.calledToday])).toEqual([
+      ['a', true, true],
+      // An outstanding retry takes the retry weight, not the same-lecture damping.
+      ['b', true, false],
+      ['c', false, false],
+      ['d', true, false],
     ]);
+    expect(weight(result[0], config)).toBeCloseTo(0.2);
+    expect(weight(result[1], config)).toBe(3);
+  });
+
+  it('makes an absent student callable again after they check in', () => {
+    const events = [
+      event('m1', 'a', 'CHECK_IN', { anonymousName: 'A' }),
+      call('m1', 'a', 'absent'),
+      event('m1', 'a', 'CHECK_OUT'),
+    ];
+    expect(eligibility([meeting('m1', events)], 0, ['a'])[0].eligible).toBe(false);
+    events.push(event('m1', 'a', 'CHECK_IN', { anonymousName: 'A' }));
+    expect(eligibility([meeting('m1', events)], 0, ['a'])[0].eligible).toBe(true);
+  });
+
+  it('treats a skip as if the call never happened', () => {
+    const result = eligibility([meeting('m1', [call('m1', 'a', 'skip')])], 0, ['a']);
+    expect(result[0]).toMatchObject({ eligible: true, calledToday: false, neverCalled: true });
+    expect(grades([meeting('m1', [call('m1', 'a', 'skip')])], ['a'], config)[0]).toMatchObject({
+      opportunities: 0,
+      score: null,
+    });
+  });
+
+  it('counts each answer in a run of follow-ups but the run once for recency', () => {
+    const run = [
+      call('m1', 'a', 'answered'),
+      event('m1', 'a', 'COLD_CALL', { outcome: 'answered', followUpOf: 'x' }),
+      event('m1', 'a', 'COLD_CALL', { outcome: 'answered', followUpOf: 'y' }),
+    ];
+    const meetings = [meeting('m1', run), meeting('m2', []), meeting('m3', [])];
+    expect(grades(meetings.slice(0, 1), ['a'], config)[0]).toMatchObject({
+      answers: 3,
+      opportunities: 3,
+    });
+    const single = [
+      meeting('m1', [call('m1', 'b', 'answered')]),
+      meeting('m2', []),
+      meeting('m3', []),
+    ];
+    // Three answers in meeting 1 and one answer in meeting 1 give the same recency at meeting 3.
+    expect(eligibility(meetings, 2, ['a'])[0].sessionsSinceCalled).toBe(
+      eligibility(single, 2, ['b'])[0].sessionsSinceCalled
+    );
+    expect(eligibility(meetings, 2, ['a'])[0].sessionsSinceCalled).toBe(1);
   });
 
   it('ignores undone calls and marks volunteers for today', () => {

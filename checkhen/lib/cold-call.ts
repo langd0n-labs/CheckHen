@@ -1,8 +1,11 @@
 /** F6 cold calling: sampler, eligibility, and participation grade. Pure functions only. */
 import { effectiveEvents, type ParticipationEvent } from './events';
 
-export type ColdCallOutcome = 'answered' | 'pass' | 'retry' | 'absent';
-export const OUTCOMES: ColdCallOutcome[] = ['answered', 'pass', 'retry', 'absent'];
+/** Skip: the student is briefly out of the room. It is recorded but changes nothing. */
+export type ColdCallOutcome = 'answered' | 'pass' | 'retry' | 'absent' | 'skip';
+export const OUTCOMES: ColdCallOutcome[] = ['answered', 'pass', 'retry', 'absent', 'skip'];
+/** A follow-up continues with the student just called, who is in the room. */
+export const FOLLOW_UP_OUTCOMES: ColdCallOutcome[] = ['answered', 'pass', 'retry'];
 
 export type ColdCallConfig = {
   pass_cap: number;
@@ -11,6 +14,8 @@ export type ColdCallConfig = {
   retry_multiplier: number;
   never_called_multiplier: number;
   volunteer_damping: number;
+  /** Operator decision 2026-10-05: a student called this meeting stays callable at reduced weight. */
+  called_today_damping: number;
   minimum_weight: number;
   ratio: number;
   A_min: number;
@@ -27,6 +32,7 @@ export const DEFAULT_CONFIG: ColdCallConfig = {
   retry_multiplier: 3.0,
   never_called_multiplier: 2.0,
   volunteer_damping: 0.6,
+  called_today_damping: 0.2,
   minimum_weight: 0.01,
   ratio: 0.7,
   A_min: 3,
@@ -63,6 +69,8 @@ export type CandidateFeatures = {
   retryOutstanding: boolean;
   neverCalled: boolean;
   volunteered: boolean;
+  /** Called earlier in this meeting, with no retry outstanding. */
+  calledToday: boolean;
 };
 
 export function weight(features: CandidateFeatures, config: ColdCallConfig): number {
@@ -72,7 +80,8 @@ export function weight(features: CandidateFeatures, config: ColdCallConfig): num
     (1 + config.recency_multiplier * features.sessionsSinceCalled) *
     (features.retryOutstanding ? config.retry_multiplier : 1) *
     (features.neverCalled ? config.never_called_multiplier : 1) *
-    (features.volunteered ? config.volunteer_damping : 1);
+    (features.volunteered ? config.volunteer_damping : 1) *
+    (features.calledToday ? config.called_today_damping : 1);
   return Number.isFinite(value) ? Math.max(value, config.minimum_weight) : config.minimum_weight;
 }
 
@@ -116,35 +125,47 @@ export function select(
 /** One class meeting of the course, in meeting order, with its raw events. */
 export type Meeting = { classId: string; courseId: string; events: ParticipationEvent[] };
 
-type Record_ = { calls: { outcome: ColdCallOutcome; meeting: number }[]; volunteers: number[] };
+type Record_ = {
+  /** `order` is the event's position in its meeting, to compare with check-ins. */
+  calls: { outcome: ColdCallOutcome; meeting: number; order: number }[];
+  volunteers: number[];
+  /** Position of the latest check-in in each meeting. */
+  checkIns: Map<number, number>;
+};
 
 function records(meetings: Meeting[]): Map<string, Record_> {
   const byStudent = new Map<string, Record_>();
   const entry = (userId: string) => {
     if (!byStudent.has(userId)) {
-      byStudent.set(userId, { calls: [], volunteers: [] });
+      byStudent.set(userId, { calls: [], volunteers: [], checkIns: new Map() });
     }
     return byStudent.get(userId)!;
   };
   meetings.forEach((meeting, index) => {
-    for (const event of effectiveEvents(meeting.events, meeting)) {
+    effectiveEvents(meeting.events, meeting).forEach((event, order) => {
       if (!event.userId) {
-        continue;
+        return;
       }
+      // A skip changes nothing, so it never enters the record.
       if (
         event.kind === 'COLD_CALL' &&
+        event.payload.outcome !== 'skip' &&
         OUTCOMES.includes(event.payload.outcome as ColdCallOutcome)
       ) {
         entry(event.userId).calls.push({
           outcome: event.payload.outcome as ColdCallOutcome,
           meeting: index,
+          order,
         });
+      }
+      if (event.kind === 'CHECK_IN') {
+        entry(event.userId).checkIns.set(index, order);
       }
       // An instructor acknowledging a raised hand records a volunteer answer.
       if (event.kind === 'HAND_ACKNOWLEDGED') {
         entry(event.userId).volunteers.push(index);
       }
-    }
+    });
   });
   return byStudent;
 }
@@ -153,7 +174,8 @@ export type Eligibility = CandidateFeatures & { eligible: boolean };
 
 /**
  * Sampler features for each present student at the meeting `current` (an index
- * into `meetings`). Absent outcomes do not count as being called.
+ * into `meetings`). Absent outcomes do not count as being called. A student
+ * marked absent is ineligible until they check in again.
  */
 export function eligibility(
   meetings: Meeting[],
@@ -162,7 +184,11 @@ export function eligibility(
 ): Eligibility[] {
   const history = records(meetings.slice(0, current + 1));
   return present.map((userId) => {
-    const record = history.get(userId) ?? { calls: [], volunteers: [] };
+    const record: Record_ = history.get(userId) ?? {
+      calls: [],
+      volunteers: [],
+      checkIns: new Map(),
+    };
     let passesOutstanding = 0;
     let lastCalled: number | null = null;
     let retryOutstanding = false;
@@ -170,7 +196,7 @@ export function eligibility(
     let absentToday = false;
     for (const call of record.calls) {
       if (call.outcome === 'absent') {
-        if (call.meeting === current) {
+        if (call.meeting === current && call.order > (record.checkIns.get(current) ?? -1)) {
           absentToday = true;
         }
         continue;
@@ -196,7 +222,8 @@ export function eligibility(
       retryOutstanding,
       neverCalled: lastCalled === null,
       volunteered: record.volunteers.includes(current),
-      eligible: !absentToday && (!calledToday || retryOutstanding),
+      calledToday: calledToday && !retryOutstanding,
+      eligible: !absentToday,
     };
   });
 }
@@ -234,7 +261,11 @@ export function grades(
   const held = meetings.length;
   const term = config.term_meetings ?? held;
   const counts = roster.map((userId) => {
-    const record = history.get(userId) ?? { calls: [], volunteers: [] };
+    const record: Record_ = history.get(userId) ?? {
+      calls: [],
+      volunteers: [],
+      checkIns: new Map(),
+    };
     const count = (outcome: ColdCallOutcome) =>
       record.calls.filter((call) => call.outcome === outcome).length;
     const answers = count('answered');

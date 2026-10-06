@@ -72,10 +72,12 @@ export function validatePayload(kind: EventKind, payload: Record<string, unknown
     throw new Error('Invalid cold-call seed');
   }
   if (kind === 'COLD_CALL') {
-    if (!['answered', 'pass', 'retry', 'absent'].includes(payload.outcome as string))
+    if (!['answered', 'pass', 'retry', 'absent', 'skip'].includes(payload.outcome as string))
       throw new Error('Invalid cold-call outcome');
     if (payload.seed !== undefined && !Number.isInteger(payload.seed))
       throw new Error('Invalid cold-call seed');
+    if (payload.followUpOf !== undefined && typeof payload.followUpOf !== 'string')
+      throw new Error('Invalid follow-up target');
   }
   if (kind === 'EXAM_ENDED') requiredString('examId');
   if (kind === 'EXAM_EXCUSED') {

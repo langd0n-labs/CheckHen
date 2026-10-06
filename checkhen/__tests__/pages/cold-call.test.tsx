@@ -31,7 +31,7 @@ function mockServer() {
         calls = [
           { id: 'call-1', userId: 'student-1', name: 'Alisha Moreno', outcome: body.outcome },
         ];
-        data = { id: 'call-1' };
+        data = { id: 'call-1', followUp: body.next === 'follow-up' ? 'follow-up-1' : undefined };
       }
       if (body.action === 'undo') {
         calls = [];
@@ -87,4 +87,45 @@ it('undoes the last call immediately', async () => {
   fireEvent.click(await screen.findByRole('button', { name: 'Undo' }));
   await waitFor(() => expect(posted.at(-1)).toEqual({ action: 'undo', eventId: 'call-1' }));
   expect(await screen.findByText('No one called yet this session.')).toBeInTheDocument();
+});
+
+it('asks a follow-up of the same student without Absent or Skip, then returns to calling', async () => {
+  const posted = mockServer();
+  render(
+    <MantineProvider theme={theme}>
+      <ColdCall />
+    </MantineProvider>
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Call on someone' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Answered + follow-up' }));
+  expect(await screen.findByText('Follow-up question')).toBeInTheDocument();
+  expect(screen.getByText('Alisha Moreno')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Absent' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Skip (out of the room)' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Answered' }));
+  await waitFor(() =>
+    expect(posted.slice(1)).toEqual([
+      { action: 'record', outcome: 'answered', draw: 'signed-draw', next: 'follow-up' },
+      { action: 'record', outcome: 'answered', followUp: 'follow-up-1' },
+    ])
+  );
+  expect(await screen.findByRole('button', { name: 'Call on someone' })).toBeInTheDocument();
+});
+
+it('leaves follow-ups with Done and records a skip with one tap', async () => {
+  const posted = mockServer();
+  render(
+    <MantineProvider theme={theme}>
+      <ColdCall />
+    </MantineProvider>
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Call on someone' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Answered + follow-up' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Done with follow-ups' }));
+  expect(await screen.findByRole('button', { name: 'Call on someone' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Call on someone' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Skip (out of the room)' }));
+  await waitFor(() =>
+    expect(posted.at(-1)).toEqual({ action: 'record', outcome: 'skip', draw: 'signed-draw' })
+  );
 });

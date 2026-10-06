@@ -295,8 +295,8 @@ integration('route → store → attendance fold', () => {
       });
       const recorded = await record(drawn.draw);
       expect(recorded._getStatusCode()).toBe(200);
-      // Called today with no retry outstanding: no one is left to call.
-      expect((await call('POST', { action: 'draw' }))._getStatusCode()).toBe(409);
+      // Being called does not take a student off the hook for the rest of the meeting.
+      expect((await draw()).student.userId).toBe(user.id);
       const callId = recorded._getJSONData().id;
       expect((await call('POST', { action: 'undo', eventId: callId }))._getStatusCode()).toBe(200);
       expect((await call('GET'))._getJSONData().calls).toEqual([]);
@@ -387,6 +387,7 @@ integration('route → store → attendance fold', () => {
       const { seed } = await draw();
       const expired = signed({
         ...scope,
+        kind: 'draw',
         userId: ada.id,
         seed,
         issuedAt: Date.now() - 31 * 60 * 1000,
@@ -398,6 +399,7 @@ integration('route → store → attendance fold', () => {
       const elsewhere = signed({
         courseId: scope.courseId,
         classId: other.id,
+        kind: 'draw',
         userId: ada.id,
         seed,
         issuedAt: Date.now(),
@@ -406,7 +408,9 @@ integration('route → store → attendance fold', () => {
       // The genuine token for this session's latest draw still records.
       expect(
         (
-          await record(signed({ ...scope, userId: ada.id, seed, issuedAt: Date.now() }))
+          await record(
+            signed({ ...scope, kind: 'draw', userId: ada.id, seed, issuedAt: Date.now() })
+          )
         )._getStatusCode()
       ).toBe(200);
     });
@@ -415,10 +419,78 @@ integration('route → store → attendance fold', () => {
       const late = await student('Lee');
       const absent = await record((await draw()).draw, 'absent');
       expect(absent._getStatusCode()).toBe(200);
+      // Absent means the student left: they are checked out and cannot be drawn.
+      const present = async () =>
+        (await readState(prisma, scope)).attendance.find((entry) => entry.userId === late.id)
+          ?.isPresent;
+      expect(await present()).toBe(false);
       expect((await call('POST', { action: 'draw' }))._getStatusCode()).toBe(409);
       const eventId = absent._getJSONData().id;
       expect((await call('POST', { action: 'undo', eventId }))._getStatusCode()).toBe(200);
+      // Undoing a mistaken Absent also undoes its check-out.
+      expect(await present()).toBe(true);
       expect((await draw()).student.userId).toBe(late.id);
+    });
+
+    it('makes an absent student callable again when they check back in', async () => {
+      const late = await student('Kim');
+      await record((await draw()).draw, 'absent');
+      expect((await call('POST', { action: 'draw' }))._getStatusCode()).toBe(409);
+      await appendEvent(prisma, {
+        ...scope,
+        actorId: late.id,
+        userId: late.id,
+        kind: 'CHECK_IN',
+        payload: { anonymousName: 'Anon Kim' },
+      });
+      expect((await draw()).student.userId).toBe(late.id);
+    });
+
+    it('records a skip that changes nothing', async () => {
+      const away = await student('Sol');
+      const skipped = await record((await draw()).draw, 'skip');
+      expect(skipped._getStatusCode()).toBe(200);
+      expect((await draw()).student.userId).toBe(away.id);
+      expect((await call('GET'))._getJSONData().calls).toEqual([
+        expect.objectContaining({ userId: away.id, outcome: 'skip' }),
+      ]);
+    });
+
+    it('records follow-ups on the same student, each counted, and refuses stale ones', async () => {
+      const keen = await student('Ari');
+      const first = await call('POST', {
+        action: 'record',
+        outcome: 'answered',
+        draw: (await draw()).draw,
+        next: 'follow-up',
+      });
+      const { id: firstId, followUp } = first._getJSONData();
+      expect(followUp).toEqual(expect.any(String));
+      const followUpRecord = (outcome: string, token = followUp, next?: string) =>
+        call('POST', { action: 'record', outcome, followUp: token, next });
+      // Absent and Skip are not follow-up outcomes.
+      expect((await followUpRecord('absent'))._getStatusCode()).toBe(400);
+      expect((await followUpRecord('skip'))._getStatusCode()).toBe(400);
+      // A double tap on one follow-up records once.
+      const pair = await Promise.all([
+        followUpRecord('answered', followUp, 'follow-up'),
+        followUpRecord('pass'),
+      ]);
+      expect(statuses(pair)).toEqual([200, 409]);
+      const calls = (await readEvents(prisma, scope)).filter((event) => event.kind === 'COLD_CALL');
+      expect(calls).toHaveLength(2);
+      expect(calls[1]).toMatchObject({ userId: keen.id, payload: { followUpOf: firstId } });
+      // A newer draw ends the run: an outstanding follow-up token is refused.
+      const third = await call('POST', {
+        action: 'record',
+        outcome: 'answered',
+        draw: (await draw()).draw,
+        next: 'follow-up',
+      });
+      await draw();
+      const late = await followUpRecord('answered', third._getJSONData().followUp);
+      expect(late._getStatusCode()).toBe(409);
+      expect(late._getJSONData().message).toBe('This follow-up is no longer current');
     });
 
     it('undoes a call once when two phones undo it together', async () => {

@@ -12,6 +12,21 @@ Branch: build/m0-m2. Scope: M0 through M5, then M7 and M8.
   screens. Run `/impeccable audit` on them before each milestone report; fix
   only findings that affect use in class and list the rest as open items. Do
   not enable impeccable hooks. Relayed by AICP.
+- 2026-10-05, operator, cold-call outcomes. These replace the brief's
+  eligibility rule and AICP's relayed "call again" wording:
+  - A student called earlier in the meeting stays callable at reduced weight
+    (`called_today_damping`, default 0.2, to tune in practice), so being called
+    does not take them off the hook.
+  - Answered + follow-up records an Answered call and keeps the same student on
+    screen for a deeper or variant question. Each question is its own event and
+    counts toward participation; the run counts once for recency. Follow-ups
+    offer Answered, Answered + follow-up, Pass, and Retry.
+  - Skip (student briefly out of the room) is recorded and changes nothing.
+  - Absent means the student left early: it counts as an absence and checks
+    the student out. Excused absences come with M8.
+  - Retry is the same question asked again later; the instructor records the
+    outcome once it resolves.
+  - No separate wrong-answer outcome: an attempt is Answered.
 - 2026-10-03: Use Podman for this build session. Defer Docker testing.
 - 2026-10-03: A configurable test hostname may use fishjump.com, rfkill.dev,
   or rfkill.com. Test hostname: checkhen.rfkill.dev.
@@ -565,8 +580,9 @@ Interpretations where the brief is silent:
 - A volunteer answer is an acknowledged raised hand (`HAND_ACKNOWLEDGED`).
   "The student volunteered" means a hand was acknowledged in this meeting.
 - `passes_outstanding` counts passes since the student's last Answered call.
-- An Absent outcome makes the student ineligible for the rest of the meeting.
-  It does not count as being called for recency or retry.
+- An Absent outcome makes the student ineligible until they check in again.
+  It does not count as being called for recency or retry. (Superseded by the
+  operator's outcome decisions above: Absent also checks the student out.)
 - `sessions_since_called` counts the meetings between the last call and this
   one: a student called in meeting 1 and sampled in meeting 3 has 1. A student
   never called counts as called before meeting 1, so all earlier meetings
@@ -638,3 +654,30 @@ Verification on 2026-10-05 (Nimbus): TypeScript, 26 Jest suites and 239 tests,
 and `scripts/test-postgres.sh` with 18 route integration cases (adds: earlier
 token after a newer draw, expired token, token for another session, and Absent
 then Undo making the student callable again).
+
+### Operator cold-call outcomes: follow-up, skip, absent check-out
+
+Implements the operator's 2026-10-05 outcome decisions (see Operator
+decisions). Changes:
+
+- Eligibility no longer removes a student called earlier in the meeting. The
+  weight takes `called_today_damping` (0.2) unless a retry is outstanding,
+  which takes the retry multiplier instead.
+- "Answered + follow-up" returns a signed follow-up token. A follow-up record
+  must name the session's latest call, with no newer draw, checked inside the
+  session lock. Its event carries `followUpOf`.
+- Skip is a `COLD_CALL` with outcome `skip`; eligibility and grades ignore it.
+- Absent appends a `CHECK_OUT` linked to the call (`coldCallId`). Undoing the
+  Absent call also undoes that check-out, so a mistaken Absent does not leave
+  the student checked out. A student marked absent becomes callable again when
+  they check in.
+- The call screen adds "Skip (out of the room)" for a fresh draw and "Done with
+  follow-ups" during a run, apart from the outcome buttons; Absent and Skip are
+  hidden during follow-ups.
+
+Verification on 2026-10-05 (Nimbus): TypeScript, ESLint on the changed files,
+26 Jest suites and 244 tests, `scripts/test-postgres.sh` with 21 route
+integration cases (adds: repeated Answered calls on one student, Absent
+check-out and its undo, re-check-in after Absent, Skip, follow-up double tap,
+follow-up outcomes, and a follow-up after a newer draw), the impeccable
+detector on `/admin/call` (no findings), and a Next.js production build.

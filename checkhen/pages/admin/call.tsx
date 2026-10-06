@@ -5,7 +5,7 @@ import { notifications } from '@mantine/notifications';
 import { SessionScopePicker } from '@/components/SessionScopePicker';
 import { scopedFetch, selectedScope } from '@/lib/scoped-fetch';
 
-type Outcome = 'answered' | 'pass' | 'retry' | 'absent';
+type Outcome = 'answered' | 'pass' | 'retry' | 'absent' | 'skip';
 type Student = {
   userId: string;
   name: string;
@@ -20,6 +20,7 @@ const outcomeLabel: Record<Outcome, string> = {
   pass: 'Pass',
   retry: 'Retry',
   absent: 'Absent',
+  skip: 'Skipped',
 };
 
 const initials = (name: string) =>
@@ -33,7 +34,10 @@ const initials = (name: string) =>
 /** I3: the instructor's in-class phone screen. Call on someone, then one outcome tap. */
 export default function ColdCall() {
   const [scoped, setScoped] = useState<boolean | null>(null);
-  const [student, setStudent] = useState<(Student & { draw: string }) | null>(null);
+  // `token` is the draw token, or a follow-up token while asking the same student again.
+  const [student, setStudent] = useState<(Student & { token: string; followUp: boolean }) | null>(
+    null
+  );
   const [calls, setCalls] = useState<Call[]>([]);
   const [present, setPresent] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -74,7 +78,7 @@ export default function ColdCall() {
       const response = await post({ action: 'draw' });
       if (response.ok) {
         const data = await response.json();
-        setStudent({ ...data.student, draw: data.draw });
+        setStudent({ ...data.student, token: data.draw, followUp: false });
       } else {
         await fail(response, 'Could not call on a student');
       }
@@ -83,7 +87,7 @@ export default function ColdCall() {
     }
   };
 
-  const record = async (outcome: Outcome) => {
+  const record = async (outcome: Outcome, next?: 'follow-up') => {
     if (!student) {
       return;
     }
@@ -92,10 +96,13 @@ export default function ColdCall() {
       const response = await post({
         action: 'record',
         outcome,
-        draw: student.draw,
+        [student.followUp ? 'followUp' : 'draw']: student.token,
+        next,
       });
       if (response.ok) {
-        setStudent(null);
+        const data = await response.json();
+        // Answered + follow-up keeps the same student on screen for the next question.
+        setStudent(data.followUp ? { ...student, token: data.followUp, followUp: true } : null);
         await refresh();
       } else {
         await fail(response, 'Could not record the outcome');
@@ -163,6 +170,11 @@ export default function ColdCall() {
       >
         {student ? (
           <>
+            {student.followUp && (
+              <Text fz={18} c="dimmed">
+                Follow-up question
+              </Text>
+            )}
             <Avatar src={student.photo} alt="" size={168} radius={168} color="buBlue">
               <Text fz={56} fw={700}>
                 {initials(student.name)}
@@ -200,6 +212,16 @@ export default function ColdCall() {
 
       {student ? (
         <Stack gap={12}>
+          {/* The secondary action sits apart from the outcomes so it is not tapped by habit. */}
+          {student.followUp ? (
+            <Button variant="subtle" h={44} disabled={busy} onClick={() => setStudent(null)}>
+              Done with follow-ups
+            </Button>
+          ) : (
+            <Button variant="subtle" h={44} disabled={busy} onClick={() => record('skip')}>
+              Skip (out of the room)
+            </Button>
+          )}
           <Group grow gap={12}>
             <Button
               size="xl"
@@ -221,10 +243,28 @@ export default function ColdCall() {
             >
               Retry
             </Button>
-            <Button size="xl" h={64} color="red.8" disabled={busy} onClick={() => record('absent')}>
-              Absent
-            </Button>
+            {!student.followUp && (
+              <Button
+                size="xl"
+                h={64}
+                color="red.8"
+                disabled={busy}
+                onClick={() => record('absent')}
+              >
+                Absent
+              </Button>
+            )}
           </Group>
+          <Button
+            size="xl"
+            h={64}
+            color="green.9"
+            variant="outline"
+            disabled={busy}
+            onClick={() => record('answered', 'follow-up')}
+          >
+            Answered + follow-up
+          </Button>
           <Button
             size="xl"
             h={96}

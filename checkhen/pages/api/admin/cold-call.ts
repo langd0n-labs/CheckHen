@@ -3,6 +3,7 @@ import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import {
   eligibility,
+  FOLLOW_UP_OUTCOMES,
   OUTCOMES,
   resolveConfig,
   seededRandom,
@@ -71,15 +72,22 @@ function drawSecret() {
   return secret;
 }
 
-/** The draw token binds a record to one draw of one student in one session. */
-function signDraw(scope: EventScope, userId: string, seed: number): string {
-  const body = Buffer.from(
-    JSON.stringify({ ...scope, userId, seed, issuedAt: Date.now() })
-  ).toString('base64url');
+type Token =
+  | { kind: 'draw'; userId: string; seed: number }
+  | { kind: 'follow-up'; userId: string; callId: string };
+
+/**
+ * A draw token binds a record to one draw of one student in one session. A
+ * follow-up token binds the next question to the call it follows.
+ */
+function sign(scope: EventScope, token: Token): string {
+  const body = Buffer.from(JSON.stringify({ ...scope, ...token, issuedAt: Date.now() })).toString(
+    'base64url'
+  );
   return `${body}.${createHmac('sha256', drawSecret()).update(body).digest('base64url')}`;
 }
 
-function readDraw(token: unknown, scope: EventScope) {
+function readToken(token: unknown, scope: EventScope): Token | null {
   if (typeof token !== 'string') {
     return null;
   }
@@ -92,17 +100,67 @@ function readDraw(token: unknown, scope: EventScope) {
   if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
     return null;
   }
-  const draw = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+  const value = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
   if (
-    draw.courseId !== scope.courseId ||
-    draw.classId !== scope.classId ||
-    typeof draw.userId !== 'string' ||
-    !Number.isInteger(draw.seed) ||
-    Date.now() - draw.issuedAt > DRAW_LIFETIME_MS
+    value.courseId !== scope.courseId ||
+    value.classId !== scope.classId ||
+    typeof value.userId !== 'string' ||
+    !(Date.now() - value.issuedAt <= DRAW_LIFETIME_MS)
   ) {
     return null;
   }
-  return draw as { userId: string; seed: number };
+  if (value.kind === 'draw' && Number.isInteger(value.seed)) {
+    return { kind: 'draw', userId: value.userId, seed: value.seed };
+  }
+  if (value.kind === 'follow-up' && typeof value.callId === 'string') {
+    return { kind: 'follow-up', userId: value.userId, callId: value.callId };
+  }
+  return null;
+}
+
+/** Refuse a draw token unless it is the session's latest, unused draw of an eligible student. */
+async function checkDraw(
+  tx: Prisma.TransactionClient,
+  scope: EventScope,
+  seed: number,
+  userId: string
+) {
+  const latest = await tx.participationEvent.findFirst({
+    where: { ...scope, kind: 'COLD_CALL_DRAWN' },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+  });
+  if (
+    (latest?.payload as { seed?: number } | undefined)?.seed !== seed ||
+    latest?.userId !== userId
+  ) {
+    throw new ConflictError('A newer draw replaced this one');
+  }
+  const recorded = await tx.participationEvent.findMany({
+    where: { ...scope, kind: 'COLD_CALL' },
+    select: { payload: true },
+  });
+  if (recorded.some((event) => (event.payload as { seed?: number }).seed === seed)) {
+    throw new ConflictError('This call is already recorded');
+  }
+  if (!(await eligibleStudents(tx, scope)).some((entry) => entry.userId === userId)) {
+    throw new ConflictError('This student can no longer be called');
+  }
+}
+
+/** Refuse a follow-up unless its call is still the latest call and no draw came after it. */
+async function checkFollowUp(tx: Prisma.TransactionClient, scope: EventScope, callId: string) {
+  const events = (
+    await tx.participationEvent.findMany({
+      where: { ...scope, kind: { in: ['COLD_CALL', 'COLD_CALL_DRAWN', 'UNDO'] } },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    })
+  ).map(asEvent);
+  const latest = effectiveEvents(events, scope)
+    .filter((event) => event.kind !== 'UNDO')
+    .at(-1);
+  if (latest?.id !== callId) {
+    throw new ConflictError('This follow-up is no longer current');
+  }
 }
 
 const studentName = (user: { displayName: string | null; email: string }) =>
@@ -167,7 +225,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const student = await prisma.user.findUnique({ where: { id: selected } });
     return res.json({
       seed,
-      draw: signDraw(scope, selected, seed),
+      draw: sign(scope, { kind: 'draw', userId: selected, seed }),
       eligible: candidates.length,
       student: {
         userId: selected,
@@ -181,42 +239,46 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (action === 'record') {
     const { outcome } = req.body ?? {};
-    const draw = readDraw(req.body?.draw, scope);
-    if (!draw || !OUTCOMES.includes(outcome as ColdCallOutcome)) {
+    const token = readToken(req.body?.draw ?? req.body?.followUp, scope);
+    const allowed = token?.kind === 'follow-up' ? FOLLOW_UP_OUTCOMES : OUTCOMES;
+    if (!token || !allowed.includes(outcome as ColdCallOutcome)) {
       return res.status(400).json({ message: 'Call on a student first' });
     }
     try {
       const event = await appendEvent(prisma, {
         ...scope,
         actorId: user.id,
-        userId: draw.userId,
+        userId: token.userId,
         kind: 'COLD_CALL',
-        payload: { outcome, seed: draw.seed },
+        payload:
+          token.kind === 'draw'
+            ? { outcome, seed: token.seed }
+            : { outcome, followUpOf: token.callId },
         // Checked inside the session lock, so two phones or a double tap cannot both record.
-        guard: async (tx) => {
-          const latest = await tx.participationEvent.findFirst({
-            where: { ...scope, kind: 'COLD_CALL_DRAWN' },
-            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-          });
-          if (
-            (latest?.payload as { seed?: number } | undefined)?.seed !== draw.seed ||
-            latest?.userId !== draw.userId
-          ) {
-            throw new ConflictError('A newer draw replaced this one');
-          }
-          const recorded = await tx.participationEvent.findMany({
-            where: { ...scope, kind: 'COLD_CALL' },
-            select: { payload: true },
-          });
-          if (recorded.some((event) => (event.payload as { seed?: number }).seed === draw.seed)) {
-            throw new ConflictError('This call is already recorded');
-          }
-          if (!(await eligibleStudents(tx, scope)).some((entry) => entry.userId === draw.userId)) {
-            throw new ConflictError('This student can no longer be called');
-          }
-        },
+        guard: (tx) =>
+          token.kind === 'draw'
+            ? checkDraw(tx, scope, token.seed, token.userId)
+            : checkFollowUp(tx, scope, token.callId),
       });
-      return res.json({ id: event.id });
+      if (outcome === 'absent') {
+        // The student left early: end their attendance until they check in again.
+        const state = await readState(prisma, scope);
+        if (state.attendance.some((entry) => entry.userId === token.userId && entry.isPresent)) {
+          await appendEvent(prisma, {
+            ...scope,
+            actorId: user.id,
+            userId: token.userId,
+            kind: 'CHECK_OUT',
+            // Undoing the Absent call also undoes this check-out.
+            payload: { coldCallId: event.id },
+          });
+        }
+      }
+      const followUp =
+        req.body?.next === 'follow-up' && outcome === 'answered'
+          ? sign(scope, { kind: 'follow-up', userId: token.userId, callId: event.id })
+          : undefined;
+      return res.json({ id: event.id, followUp });
     } catch (error) {
       if (error instanceof ConflictError) {
         return res.status(409).json({ message: error.message });
@@ -252,6 +314,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(409).json({ message: error.message });
       }
       throw error;
+    }
+    // An Absent call checked the student out; a mistaken Absent must not leave them out.
+    const checkOuts = await prisma.participationEvent.findMany({
+      where: { ...scope, kind: 'CHECK_OUT', userId: target.userId },
+    });
+    const linked = checkOuts.find(
+      (event) => (event.payload as { coldCallId?: string }).coldCallId === target.id
+    );
+    if (
+      linked &&
+      !(await prisma.participationEvent.findFirst({ where: { ...scope, supersedesId: linked.id } }))
+    ) {
+      await appendEvent(prisma, {
+        ...scope,
+        actorId: user.id,
+        userId: target.userId,
+        kind: 'UNDO',
+        supersedesId: linked.id,
+      });
     }
     return res.json({ ok: true });
   }
