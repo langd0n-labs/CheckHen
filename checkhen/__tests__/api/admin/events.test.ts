@@ -36,14 +36,18 @@ beforeEach(() => {
 });
 
 describe('POST /api/admin/events', () => {
-  it.each(['COLD_CALL', 'EXAM_STARTED', 'EXAM_ENDED', 'EXAM_FAILED', 'EXAM_EXCUSED'])(
-    'refuses a %s event',
-    async (kind) => {
-      const res = await post({ kind, payload: { outcome: 'answered', examId: 'exam' } });
-      expect(res._getStatusCode()).toBe(400);
-      expect(appendEvent).not.toHaveBeenCalled();
-    }
-  );
+  it.each([
+    'COLD_CALL',
+    'COLD_CALL_DRAWN',
+    'EXAM_STARTED',
+    'EXAM_ENDED',
+    'EXAM_FAILED',
+    'EXAM_EXCUSED',
+  ])('refuses a %s event', async (kind) => {
+    const res = await post({ kind, payload: { outcome: 'answered', examId: 'exam' } });
+    expect(res._getStatusCode()).toBe(400);
+    expect(appendEvent).not.toHaveBeenCalled();
+  });
 
   it.each([
     ['an undo of a cold call', 'call'],

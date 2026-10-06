@@ -23,7 +23,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   // Exam and cold-call events change only through their own controls, which
   // validate state (the exam network, the drawn student) that this endpoint cannot.
-  const guarded = (value: string) => value === 'COLD_CALL' || value.startsWith('EXAM_');
+  const guarded = (value: string) => value.startsWith('COLD_CALL') || value.startsWith('EXAM_');
   if (guarded(kind)) {
     return res.status(400).json({ message: 'Use the exam or cold-call controls' });
   }

@@ -579,9 +579,10 @@ Interpretations where the brief is silent:
   projection uses the meetings held so far.
 - A score with no opportunities is empty, or 1 when counted volunteer answers
   exist.
-- Only the outcome is recorded. A draw with no outcome leaves no event. The
-  draw returns a signed token (session, student, seed, 30-minute lifetime);
-  recording requires it.
+- Each draw is a `COLD_CALL_DRAWN` event with its seed; it has no grade
+  effect. The draw returns a signed token (session, student, seed, 30-minute
+  lifetime); recording requires it and requires that it be the session's latest
+  draw, so a newer draw on any phone replaces earlier ones.
 
 | M7 acceptance check | Result |
 | --- | --- |
@@ -623,3 +624,17 @@ Verification on 2026-10-05 (Nimbus): TypeScript, ESLint on the new code,
 integration cases: forged, missing, and stale draw tokens; a double tap; two
 phones; concurrent undo; empty and one-student rosters), and a Next.js
 production build.
+
+### M7 second review: superseded draws
+
+The review of `267d5a1` found that an earlier draw's token stayed valid after
+a newer draw. Each draw is now a `COLD_CALL_DRAWN` event (migration
+`20261006010000_cold_call_draw`); inside the session lock, a record must match
+the latest draw's seed and student. Repeated calls on one student (the
+review's decision B) and the Absent and Skip outcomes are waiting for the
+operator's definitions.
+
+Verification on 2026-10-05 (Nimbus): TypeScript, 26 Jest suites and 239 tests,
+and `scripts/test-postgres.sh` with 18 route integration cases (adds: earlier
+token after a newer draw, expired token, token for another session, and Absent
+then Undo making the student callable again).

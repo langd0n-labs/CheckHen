@@ -156,6 +156,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!selected) {
       return res.status(409).json({ message: 'No eligible students' });
     }
+    // The latest draw is authoritative: recording any earlier draw's token is refused.
+    await appendEvent(prisma, {
+      ...scope,
+      actorId: user.id,
+      userId: selected,
+      kind: 'COLD_CALL_DRAWN',
+      payload: { seed },
+    });
     const student = await prisma.user.findUnique({ where: { id: selected } });
     return res.json({
       seed,
@@ -186,6 +194,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         payload: { outcome, seed: draw.seed },
         // Checked inside the session lock, so two phones or a double tap cannot both record.
         guard: async (tx) => {
+          const latest = await tx.participationEvent.findFirst({
+            where: { ...scope, kind: 'COLD_CALL_DRAWN' },
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          });
+          if (
+            (latest?.payload as { seed?: number } | undefined)?.seed !== draw.seed ||
+            latest?.userId !== draw.userId
+          ) {
+            throw new ConflictError('A newer draw replaced this one');
+          }
           const recorded = await tx.participationEvent.findMany({
             where: { ...scope, kind: 'COLD_CALL' },
             select: { payload: true },

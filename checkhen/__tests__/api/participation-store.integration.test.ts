@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import { createMocks } from 'node-mocks-http';
 import { appendEvent, readEvents, readState } from '@/lib/event-store';
 import { examAgent } from '@/lib/exam-control';
@@ -361,6 +361,64 @@ integration('route → store → attendance fold', () => {
       const res = await record(stale.draw);
       expect(res._getStatusCode()).toBe(409);
       expect(res._getJSONData().message).toBe('This student can no longer be called');
+    });
+
+    /** A token signed like the route's, for binding and expiry checks. */
+    const signed = (fields: Record<string, unknown>) => {
+      const body = Buffer.from(JSON.stringify(fields)).toString('base64url');
+      return (
+        body + '.' + createHmac('sha256', process.env.AUTH_SECRET!).update(body).digest('base64url')
+      );
+    };
+
+    it('refuses an earlier draw after a newer one', async () => {
+      await student('Ada');
+      await student('Ben');
+      const earlier = await draw();
+      const newer = await draw();
+      const res = await record(earlier.draw);
+      expect(res._getStatusCode()).toBe(409);
+      expect(res._getJSONData().message).toBe('A newer draw replaced this one');
+      expect((await record(newer.draw))._getStatusCode()).toBe(200);
+    });
+
+    it('refuses an expired token and a token for another session', async () => {
+      const ada = await student('Ada');
+      const { seed } = await draw();
+      const expired = signed({
+        ...scope,
+        userId: ada.id,
+        seed,
+        issuedAt: Date.now() - 31 * 60 * 1000,
+      });
+      expect((await record(expired))._getStatusCode()).toBe(400);
+      const other = await prisma.class.create({
+        data: { courseId: scope.courseId, name: 'Other', duration: 60 },
+      });
+      const elsewhere = signed({
+        courseId: scope.courseId,
+        classId: other.id,
+        userId: ada.id,
+        seed,
+        issuedAt: Date.now(),
+      });
+      expect((await record(elsewhere))._getStatusCode()).toBe(400);
+      // The genuine token for this session's latest draw still records.
+      expect(
+        (
+          await record(signed({ ...scope, userId: ada.id, seed, issuedAt: Date.now() }))
+        )._getStatusCode()
+      ).toBe(200);
+    });
+
+    it('makes a student callable again after an Absent call is undone', async () => {
+      const late = await student('Lee');
+      const absent = await record((await draw()).draw, 'absent');
+      expect(absent._getStatusCode()).toBe(200);
+      expect((await call('POST', { action: 'draw' }))._getStatusCode()).toBe(409);
+      const eventId = absent._getJSONData().id;
+      expect((await call('POST', { action: 'undo', eventId }))._getStatusCode()).toBe(200);
+      expect((await draw()).student.userId).toBe(late.id);
     });
 
     it('undoes a call once when two phones undo it together', async () => {
