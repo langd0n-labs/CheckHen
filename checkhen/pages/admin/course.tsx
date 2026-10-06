@@ -314,8 +314,8 @@ export default function CourseRecord() {
             <Stack gap="xs">
               {report.absences.map((absence) => (
                 <Group key={absence.callId} gap="md" wrap="wrap" align="center">
-                  <Text w={80}>{date(absence.startedAt)}</Text>
-                  <Text w={200} fw={600}>
+                  <Text miw={64}>{date(absence.startedAt)}</Text>
+                  <Text fw={600} style={{ flex: '1 1 160px' }}>
                     {absence.name}
                   </Text>
                   {absence.excused ? (
@@ -349,7 +349,7 @@ export default function CourseRecord() {
                           const value = event.currentTarget.value;
                           setReasons((previous) => ({ ...previous, [absence.callId]: value }));
                         }}
-                        w={260}
+                        style={{ flex: '1 1 200px', maxWidth: 320 }}
                       />
                       <Button
                         variant="light"

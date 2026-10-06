@@ -839,8 +839,8 @@ excuse, refused second undo, and a new excuse).
   a notice. Each Excuse and Undo-excuse button names the student and date.
   The empty score has visually hidden text for screen readers.
 
-Open: fixed pixel widths in the absences list (m9). Review m6 is fixed (see
-"f513b5e m6" below).
+Review m6 and m9 are fixed (see "f513b5e m6" below; the absences list now
+sizes its date, name, and reason with flexible widths instead of fixed pixels).
 
 Verified on 2026-10-06 (Nimbus): 28 Jest suites and 269 tests, and
 `scripts/test-postgres.sh` with 30 route integration cases.
