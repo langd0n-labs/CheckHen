@@ -130,6 +130,10 @@ async function checkDraw(
     where: { ...scope, kind: 'COLD_CALL_DRAWN' },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
   });
+  // A token issued before draws were recorded has no draw event to match.
+  if (!latest) {
+    throw new ConflictError('This draw is no longer valid. Call on someone again.');
+  }
   if (
     (latest?.payload as { seed?: number } | undefined)?.seed !== seed ||
     latest?.userId !== userId

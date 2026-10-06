@@ -333,21 +333,56 @@ integration('route → store → attendance fold', () => {
       expect((await call('POST', { action: 'record', outcome: 'answered' }))._getStatusCode()).toBe(
         400
       );
-      // A double tap on one draw records once.
-      expect(statuses(await Promise.all([record(token), record(token, 'pass')]))).toEqual([
-        200, 409,
-      ]);
+      // A double tap on one draw records once; the second tap fails on the used draw.
+      const taps = await Promise.all([record(token), record(token, 'pass')]);
+      expect(statuses(taps)).toEqual([200, 409]);
+      expect(taps.find((res: any) => res._getStatusCode() === 409)!._getJSONData().message).toBe(
+        'This call is already recorded'
+      );
       expect((await call('GET'))._getJSONData().calls).toHaveLength(1);
     });
 
-    it('lets only one of two phones record the same student', async () => {
+    it("refuses the older of two phones' draws of the same student", async () => {
       await student('Grace');
       const first = await draw();
       const second = await draw();
       expect(second.student.userId).toBe(first.student.userId);
-      expect(statuses(await Promise.all([record(first.draw), record(second.draw)]))).toEqual([
-        200, 409,
+      const both = await Promise.all([record(first.draw), record(second.draw)]);
+      expect(statuses(both)).toEqual([200, 409]);
+      // The second draw replaced the first, so the first phone is the one refused.
+      expect(both[0]._getJSONData().message).toBe('A newer draw replaced this one');
+    });
+
+    it('refuses a draw token from a session with no recorded draws', async () => {
+      const ada = await student('Ada');
+      const res = await record(
+        signed({ ...scope, kind: 'draw', userId: ada.id, seed: 7, issuedAt: Date.now() })
+      );
+      expect(res._getStatusCode()).toBe(409);
+      expect(res._getJSONData().message).toBe(
+        'This draw is no longer valid. Call on someone again.'
+      );
+    });
+
+    it('orders a draw and a record that run at the same time', async () => {
+      await student('Ada');
+      await student('Ben');
+      const pending = await draw();
+      const [recorded] = await Promise.all([
+        record(pending.draw),
+        call('POST', { action: 'draw' }),
       ]);
+      const events = await readEvents(prisma, scope);
+      const draws = events.filter((event) => event.kind === 'COLD_CALL_DRAWN');
+      const calls = events.filter((event) => event.kind === 'COLD_CALL');
+      if (recorded._getStatusCode() === 200) {
+        // The record won the lock: it follows its own draw and precedes the new one.
+        expect(calls).toHaveLength(1);
+        expect(calls[0].createdAt.getTime()).toBeLessThan(draws.at(-1)!.createdAt.getTime());
+      } else {
+        expect(recorded._getJSONData().message).toBe('A newer draw replaced this one');
+        expect(calls).toHaveLength(0);
+      }
     });
 
     it('refuses a stale draw for a student who is no longer eligible', async () => {

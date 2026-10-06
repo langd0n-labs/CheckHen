@@ -737,9 +737,12 @@ Open after M8, from these reviews, in this order:
      after check-out, a follow-up racing a draw, the generic endpoint refusing
      a linked check-out, and the call-screen follow-up and undo paths.
      Verified by 28 Jest suites and 262 tests and 29 route integration cases.
-4. From the e66fe5e review: an accurate refusal when a session has no draw
-   event yet; rename or extend the two-phone test so it also covers the
-   "already recorded" path; a test with a draw and a record at the same time.
+4. Done (e66fe5e review items 3 to 5): a token for a session with no draw
+   event is refused with "This draw is no longer valid. Call on someone
+   again."; the two-phone test is renamed and checks the newer-draw message,
+   and the double-tap test checks the "already recorded" message; a new test
+   runs a draw and a record at the same time. Verified by 28 Jest suites and
+   271 tests and 32 route integration cases.
 
 Review item m3 is decided (see Operator decisions, 2026-10-06): a Pass on a
 follow-up neither lowers the score nor adds pass debt. Implemented; verified
