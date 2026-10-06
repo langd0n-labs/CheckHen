@@ -27,6 +27,12 @@ Branch: build/m0-m2. Scope: M0 through M5, then M7 and M8.
   - Retry is the same question asked again later; the instructor records the
     outcome once it resolves.
   - No separate wrong-answer outcome: an attempt is Answered.
+- 2026-10-06, operator: a Retry student comes back by chance, at the retry
+  weight, until user testing says otherwise. No call-back control.
+- 2026-10-06, operator: the call screen (I3) is the instructor's private phone
+  view and is not designed for projection; the brief projects only I5 and I6.
+  A projected cold-call view, if one is ever built, shows who is called and
+  never the outcome.
 - 2026-10-03: Use Podman for this build session. Defer Docker testing.
 - 2026-10-03: A configurable test hostname may use fishjump.com, rfkill.dev,
   or rfkill.com. Test hostname: checkhen.rfkill.dev.
@@ -703,8 +709,8 @@ fails with the old filtered query and passes with the fix.
 
 Open after M8, from these reviews, in this order:
 
-1. Retry call-back: a list of students with an outstanding Retry and a control
-   to call one back, so the outcome is recorded when it resolves.
+1. (Dropped by operator decision 2026-10-06: Retry call-back. A Retry student
+   returns by chance at the retry weight.)
 2. Make Absent and its check-out, and their undos, one transaction or
    retry-safe.
 3. The remaining minor items (m2, m4, m5) and test gaps in the 3896c62 review.
