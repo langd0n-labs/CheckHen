@@ -839,8 +839,8 @@ excuse, refused second undo, and a new excuse).
   a notice. Each Excuse and Undo-excuse button names the student and date.
   The empty score has visually hidden text for screen readers.
 
-Open: a Pass on a fresh draw that resolves a follow-up Retry counts as pass
-debt (review m6, rare); fixed pixel widths in the absences list (m9).
+Open: fixed pixel widths in the absences list (m9). Review m6 is fixed (see
+"f513b5e m6" below).
 
 Verified on 2026-10-06 (Nimbus): 28 Jest suites and 269 tests, and
 `scripts/test-postgres.sh` with 30 route integration cases.
@@ -899,3 +899,13 @@ Verified on 2026-10-06 (Nimbus): 28 Jest suites and 276 tests, and
 `scripts/test-postgres.sh` with 37 route integration cases. One full Jest run
 of 12 had one failing test, which I could not identify or reproduce; it ran
 right after the PostgreSQL script. Open: find the intermittent test.
+
+### f513b5e m6: a follow-up Retry stays a follow-up
+
+The call that resolves a Retry on a follow-up question is a fresh draw, but it
+asks the same stretch question, so a Pass on it costs nothing. A Pass on a
+follow-up is now recorded as a free call: it counts as being called (recency)
+and resolves an outstanding Retry, but is neither an opportunity nor pass
+debt. Before this, an excluded follow-up Pass could leave a Retry outstanding
+indefinitely. Verified: 28 Jest suites and 277 tests; 37 route integration
+cases.

@@ -164,7 +164,8 @@ export type Meeting = { classId: string; courseId: string; events: Participation
 
 type Record_ = {
   /** `order` is the event's position in its meeting, to compare with check-ins. */
-  calls: { outcome: ColdCallOutcome; meeting: number; order: number }[];
+  /** `free`: a Pass on a follow-up. It is a call, but neither an opportunity nor pass debt. */
+  calls: { outcome: ColdCallOutcome; meeting: number; order: number; free: boolean }[];
   volunteers: number[];
   /** Meetings of absences the instructor excused. They are not opportunities. */
   excused: number[];
@@ -180,25 +181,33 @@ function records(meetings: Meeting[]): Map<string, Record_> {
     }
     return byStudent.get(userId)!;
   };
+  // Students whose outstanding Retry was on a follow-up question. The call that
+  // resolves it is a fresh draw but asks the same stretch question.
+  const followUpRetry = new Set<string>();
   meetings.forEach((meeting, index) => {
     effectiveEvents(meeting.events, meeting).forEach((event, order) => {
       if (!event.userId) {
         return;
       }
-      // A skip changes nothing, so it never enters the record. Neither does a Pass on
-      // a follow-up (operator decision 2026-10-06): a stretch question earns credit
-      // when answered and costs nothing when passed.
-      const followUpPass = event.payload.outcome === 'pass' && !!event.payload.followUpOf;
-      if (
-        event.kind === 'COLD_CALL' &&
-        event.payload.outcome !== 'skip' &&
-        !followUpPass &&
-        OUTCOMES.includes(event.payload.outcome as ColdCallOutcome)
-      ) {
+      // A skip changes nothing, so it never enters the record. A Pass on a follow-up
+      // (operator decision 2026-10-06) enters as a free call: it is a call for recency
+      // and resolves a Retry, but costs no opportunity and adds no pass debt. A call
+      // that resolves a follow-up Retry asks the same follow-up question.
+      const isCall = event.kind === 'COLD_CALL' && event.payload.outcome !== 'skip';
+      const followUp = !!event.payload.followUpOf || (isCall && followUpRetry.has(event.userId));
+      if (isCall) {
+        if (event.payload.outcome === 'retry' && followUp) {
+          followUpRetry.add(event.userId);
+        } else {
+          followUpRetry.delete(event.userId);
+        }
+      }
+      if (isCall && OUTCOMES.includes(event.payload.outcome as ColdCallOutcome)) {
         entry(event.userId).calls.push({
           outcome: event.payload.outcome as ColdCallOutcome,
           meeting: index,
           order,
+          free: event.payload.outcome === 'pass' && followUp,
         });
       }
       // The excuse supersedes the Absent call, so the absence leaves the record.
@@ -257,7 +266,7 @@ export function eligibility(
       if (call.outcome === 'answered') {
         passesOutstanding = 0;
       }
-      if (call.outcome === 'pass') {
+      if (call.outcome === 'pass' && !call.free) {
         passesOutstanding += 1;
       }
     }
@@ -317,7 +326,7 @@ export function grades(
       checkIns: new Map(),
     };
     const count = (outcome: ColdCallOutcome) =>
-      record.calls.filter((call) => call.outcome === outcome).length;
+      record.calls.filter((call) => call.outcome === outcome && !call.free).length;
     const answers = count('answered');
     return {
       userId,
