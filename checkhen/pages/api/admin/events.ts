@@ -23,8 +23,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   // Exam and cold-call events change only through their own controls, which
   // validate state (the exam network, the drawn student) that this endpoint cannot.
-  const guarded = (value: string) => value.startsWith('COLD_CALL') || value.startsWith('EXAM_');
-  if (guarded(kind)) {
+  // That includes the check-out an Absent call writes, which carries its call's ID.
+  const guarded = (value: string, data: unknown) =>
+    value.startsWith('COLD_CALL') ||
+    value.startsWith('EXAM_') ||
+    (value === 'CHECK_OUT' && !!data && typeof data === 'object' && 'coldCallId' in data);
+  if (guarded(kind, payload)) {
     return res.status(400).json({ message: 'Use the exam or cold-call controls' });
   }
   // Follow the whole chain, so an undo of an undo cannot reinstate a guarded event.
@@ -32,9 +36,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   while (targetId) {
     const target = await prisma.participationEvent.findFirst({
       where: { ...context.scope, id: targetId },
-      select: { kind: true, supersedesId: true },
+      select: { kind: true, payload: true, supersedesId: true },
     });
-    if (target && guarded(target.kind)) {
+    if (target && guarded(target.kind, target.payload)) {
       return res.status(400).json({ message: 'Use the exam or cold-call controls' });
     }
     targetId = target?.supersedesId ?? null;

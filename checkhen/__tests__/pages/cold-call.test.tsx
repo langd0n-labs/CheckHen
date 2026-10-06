@@ -40,12 +40,11 @@ function mockServer(fail: { record?: number; status?: boolean } = {}) {
         };
       }
       if (body.action === 'record') {
-        calls = [
-          { id: 'call-1', userId: 'student-1', name: 'Alisha Moreno', outcome: body.outcome },
-        ];
+        const id = `call-${posted.length}`;
+        calls = [{ id, userId: 'student-1', name: 'Alisha Moreno', outcome: body.outcome }];
         data = {
-          id: `call-${posted.length}`,
-          followUp: body.next === 'follow-up' ? `follow-up-${posted.length}` : undefined,
+          id,
+          followUp: body.outcome === 'answered' ? `follow-up-${posted.length}` : undefined,
         };
       }
       if (body.action === 'undo') {
@@ -100,7 +99,7 @@ it('undoes the last call immediately', async () => {
   fireEvent.click(await screen.findByRole('button', { name: 'Call on someone' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Pass' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Undo' }));
-  await waitFor(() => expect(posted.at(-1)).toEqual({ action: 'undo', eventId: 'call-1' }));
+  await waitFor(() => expect(posted.at(-1)).toEqual({ action: 'undo', eventId: 'call-2' }));
   expect(await screen.findByText('No one called yet this session.')).toBeInTheDocument();
 });
 
@@ -184,4 +183,31 @@ it('says so when the call list cannot load', async () => {
     )
   );
   show.mockRestore();
+});
+
+it('starts a follow-up after a plain Answered, and undoes a follow-up from the run', async () => {
+  const posted = mockServer();
+  render(
+    <MantineProvider theme={theme}>
+      <ColdCall />
+    </MantineProvider>
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Call on someone' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Answered' }));
+  // A plain Answered tapped by mistake can still lead to a follow-up.
+  fireEvent.click(await screen.findByRole('button', { name: 'Ask a follow-up' }));
+  expect(await screen.findByText('Follow-up 1')).toBeInTheDocument();
+  expect(screen.getByText('Recorded: Answered')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Answered + follow-up' }));
+  expect(await screen.findByText('Follow-up 2')).toBeInTheDocument();
+  // The run shows what was just recorded, with an Undo.
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  await waitFor(() =>
+    expect(posted.slice(1)).toEqual([
+      { action: 'record', outcome: 'answered', draw: 'signed-draw' },
+      { action: 'record', outcome: 'answered', followUp: 'follow-up-2', next: 'follow-up' },
+      { action: 'undo', eventId: 'call-3' },
+    ])
+  );
+  expect(await screen.findByRole('button', { name: 'Call on someone' })).toBeInTheDocument();
 });

@@ -521,6 +521,71 @@ integration('route → store → attendance fold', () => {
       );
     });
 
+    it('keeps follow-ups counted and labeled when the first call of the run is undone', async () => {
+      const ari = await student('Ari');
+      const first = await record((await draw()).draw);
+      const { id: firstId, followUp } = first._getJSONData();
+      const second = await call('POST', { action: 'record', outcome: 'answered', followUp });
+      expect(second._getStatusCode()).toBe(200);
+      expect((await call('POST', { action: 'undo', eventId: firstId }))._getStatusCode()).toBe(200);
+      // The follow-up was a real question: it stays, marked as a follow-up.
+      expect((await call('GET'))._getJSONData().calls).toEqual([
+        expect.objectContaining({ userId: ari.id, outcome: 'answered', followUp: true }),
+      ]);
+      (requireIdentity as jest.Mock).mockResolvedValue({ user: { id: 'instructor' }, admin: true });
+      const { req, res } = createMocks({ method: 'GET', query: { courseId: scope.courseId } });
+      await courseReportRoute(req as any, res as any);
+      expect(
+        res._getJSONData().report.students.find((row: any) => row.userId === ari.id)
+      ).toMatchObject({ answers: 1, opportunities: 1 });
+    });
+
+    it('records an Absent for a student who already checked out', async () => {
+      const gone = await student('Ida');
+      const drawn = await draw();
+      await appendEvent(prisma, { ...scope, actorId: gone.id, userId: gone.id, kind: 'CHECK_OUT' });
+      expect((await record(drawn.draw, 'absent'))._getStatusCode()).toBe(200);
+      // No second check-out: the student was already out.
+      const checkOuts = (await readEvents(prisma, scope)).filter(
+        (event) => event.kind === 'CHECK_OUT' && event.userId === gone.id
+      );
+      expect(checkOuts).toHaveLength(1);
+      // Other outcomes still need the student present.
+      await appendEvent(prisma, {
+        ...scope,
+        actorId: gone.id,
+        userId: gone.id,
+        kind: 'CHECK_IN',
+        payload: { anonymousName: 'Anon Ida' },
+      });
+      const again = await draw();
+      await appendEvent(prisma, { ...scope, actorId: gone.id, userId: gone.id, kind: 'CHECK_OUT' });
+      expect((await record(again.draw, 'answered'))._getStatusCode()).toBe(409);
+    });
+
+    it('never records a follow-up after a draw that ran at the same time', async () => {
+      await student('Bo');
+      await student('Cy');
+      const { followUp } = (await record((await draw()).draw))._getJSONData();
+      const [followed] = await Promise.all([
+        call('POST', { action: 'record', outcome: 'answered', followUp }),
+        call('POST', { action: 'draw' }),
+      ]);
+      const events = await readEvents(prisma, scope);
+      const lastDraw = events.filter((event) => event.kind === 'COLD_CALL_DRAWN').at(-1)!;
+      const followUps = events.filter(
+        (event) => event.kind === 'COLD_CALL' && event.payload.followUpOf
+      );
+      if (followed._getStatusCode() === 200) {
+        // The follow-up won the lock: it precedes the new draw.
+        expect(followUps).toHaveLength(1);
+        expect(followUps[0].createdAt.getTime()).toBeLessThan(lastDraw.createdAt.getTime());
+      } else {
+        expect(followed._getStatusCode()).toBe(409);
+        expect(followUps).toHaveLength(0);
+      }
+    });
+
     it('makes an absent student callable again when they check back in', async () => {
       const late = await student('Kim');
       await record((await draw()).draw, 'absent');

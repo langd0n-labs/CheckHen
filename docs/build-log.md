@@ -720,7 +720,22 @@ Open after M8, from these reviews, in this order:
    ordered and limited to the recording instructor's check-outs. Verified by
    28 Jest suites and 260 tests and 26 route integration cases (adds: a failing
    follow-on writes nothing; Absent and its undo each as one step).
-3. The remaining minor items (m2, m4, m5) and test gaps in the 3896c62 review.
+3. Done (3896c62 review m2, m4, m5 and test gaps):
+   - m2: the generic `admin/events` endpoint refuses a `CHECK_OUT` that carries
+     a `coldCallId`, and any supersession chain that reaches one, so an Absent's
+     check-out can be neither forged nor undone outside the call screen.
+   - m4: undoing the first call of a follow-up run keeps the follow-ups, which
+     were real questions; they stay counted and are labeled "(follow-up)" in
+     the call list.
+   - m5: every Answered returns a follow-up token, so after a plain Answered
+     the result line offers "Ask a follow-up". During a run the screen shows
+     the outcome just recorded with an Undo.
+   - An Absent is recorded even if the student already checked out; other
+     outcomes still need the student present.
+   - Tests added: undoing the first call of a run (list and grades), Absent
+     after check-out, a follow-up racing a draw, the generic endpoint refusing
+     a linked check-out, and the call-screen follow-up and undo paths.
+     Verified by 28 Jest suites and 262 tests and 29 route integration cases.
 4. From the e66fe5e review: an accurate refusal when a session has no draw
    event yet; rename or extend the two-phone test so it also covers the
    "already recorded" path; a test with a draw and a record at the same time.

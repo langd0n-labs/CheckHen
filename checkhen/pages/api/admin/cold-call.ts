@@ -123,7 +123,8 @@ async function checkDraw(
   tx: Prisma.TransactionClient,
   scope: EventScope,
   seed: number,
-  userId: string
+  userId: string,
+  outcome: ColdCallOutcome
 ) {
   const latest = await tx.participationEvent.findFirst({
     where: { ...scope, kind: 'COLD_CALL_DRAWN' },
@@ -142,7 +143,11 @@ async function checkDraw(
   if (recorded.some((event) => (event.payload as { seed?: number }).seed === seed)) {
     throw new ConflictError('This call is already recorded');
   }
-  if (!(await eligibleStudents(tx, scope)).some((entry) => entry.userId === userId)) {
+  // An absence stands even if the student already checked out: that is what Absent records.
+  if (
+    outcome !== 'absent' &&
+    !(await eligibleStudents(tx, scope)).some((entry) => entry.userId === userId)
+  ) {
     throw new ConflictError('This student can no longer be called');
   }
 }
@@ -236,6 +241,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           userId: call.userId,
           name: student ? studentName(student) : call.userId,
           outcome: call.payload.outcome,
+          followUp: typeof call.payload.followUpOf === 'string',
           createdAt: call.createdAt,
         };
       }),
@@ -294,7 +300,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         // Checked inside the session lock, so two phones or a double tap cannot both record.
         guard: (tx) =>
           token.kind === 'draw'
-            ? checkDraw(tx, scope, token.seed, token.userId)
+            ? checkDraw(tx, scope, token.seed, token.userId, outcome)
             : checkFollowUp(tx, scope, token.callId),
         // Absent means the student left early: check them out in the same transaction.
         then: async (tx, call) =>
@@ -311,8 +317,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               ]
             : [],
       });
+      // Every Answered can lead to a follow-up, so a plain Answered tapped by mistake
+      // can still start one from the result line.
       const followUp =
-        req.body?.next === 'follow-up' && outcome === 'answered'
+        outcome === 'answered'
           ? sign(scope, { kind: 'follow-up', userId: token.userId, callId: event.id })
           : undefined;
       return res.json({ id: event.id, followUp });

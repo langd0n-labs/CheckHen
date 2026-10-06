@@ -13,11 +13,15 @@ jest.mock('@/lib/event-store', () => ({
 jest.mock('@/lib/prisma', () => ({ prisma: { participationEvent: { findFirst: jest.fn() } } }));
 
 const scope = { courseId: 'course-a', classId: 'session-a' };
-const stored: Record<string, { kind: string; supersedesId: string | null }> = {
+const stored: Record<
+  string,
+  { kind: string; payload?: Record<string, unknown>; supersedesId: string | null }
+> = {
   call: { kind: 'COLD_CALL', supersedesId: null },
   undoCall: { kind: 'UNDO', supersedesId: 'call' },
   fail: { kind: 'EXAM_FAILED', supersedesId: null },
   chat: { kind: 'CHAT_MESSAGE', supersedesId: null },
+  absentCheckOut: { kind: 'CHECK_OUT', payload: { coldCallId: 'call' }, supersedesId: null },
 };
 
 const post = async (body: Record<string, unknown>) => {
@@ -57,6 +61,16 @@ describe('POST /api/admin/events', () => {
   ])('refuses %s', async (_label, supersedesId) => {
     const res = await post({ kind: 'UNDO', supersedesId });
     expect(res._getStatusCode()).toBe(400);
+    expect(appendEvent).not.toHaveBeenCalled();
+  });
+
+  it('refuses a forged Absent check-out and an undo of a real one', async () => {
+    expect(
+      (await post({ kind: 'CHECK_OUT', payload: { coldCallId: 'call' } }))._getStatusCode()
+    ).toBe(400);
+    expect((await post({ kind: 'UNDO', supersedesId: 'absentCheckOut' }))._getStatusCode()).toBe(
+      400
+    );
     expect(appendEvent).not.toHaveBeenCalled();
   });
 

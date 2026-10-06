@@ -13,7 +13,17 @@ type Student = {
   pronouns: string | null;
   photo: string | null;
 };
-type Call = { id: string; userId: string; name: string; outcome: Outcome };
+type Call = { id: string; userId: string; name: string; outcome: Outcome; followUp?: boolean };
+type Card = Student & {
+  token: string;
+  followUp: boolean;
+  followUps: number;
+  /** The call just recorded in a follow-up run, shown with an Undo. */
+  recorded?: { id: string; outcome: Outcome };
+};
+
+const callLabel = (call: Call) =>
+  `${call.name}: ${outcomeLabel[call.outcome]}${call.followUp ? ' (follow-up)' : ''}`;
 
 const outcomeLabel: Record<Outcome, string> = {
   answered: 'Answered',
@@ -35,9 +45,9 @@ const initials = (name: string) =>
 export default function ColdCall() {
   const [scoped, setScoped] = useState<boolean | null>(null);
   // `token` is the draw token, or a follow-up token while asking the same student again.
-  const [student, setStudent] = useState<
-    (Student & { token: string; followUp: boolean; followUps: number }) | null
-  >(null);
+  const [student, setStudent] = useState<Card | null>(null);
+  // After a plain Answered, a follow-up can still start from the result line.
+  const [lastAnswered, setLastAnswered] = useState<(Card & { callId: string }) | null>(null);
   const [calls, setCalls] = useState<Call[]>([]);
   const [present, setPresent] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -83,6 +93,8 @@ export default function ColdCall() {
       if (response.ok) {
         const data = await response.json();
         setStudent({ ...data.student, token: data.draw, followUp: false, followUps: 0 });
+        // A new draw ends the chance to follow up the previous call.
+        setLastAnswered(null);
       } else {
         await fail(response, 'Could not call on a student');
       }
@@ -105,12 +117,18 @@ export default function ColdCall() {
       });
       if (response.ok) {
         const data = await response.json();
+        const nextCard: Card | null = data.followUp
+          ? {
+              ...student,
+              token: data.followUp,
+              followUp: true,
+              followUps: student.followUps + 1,
+              recorded: { id: data.id, outcome },
+            }
+          : null;
         // Answered + follow-up keeps the same student on screen for the next question.
-        setStudent(
-          data.followUp
-            ? { ...student, token: data.followUp, followUp: true, followUps: student.followUps + 1 }
-            : null
-        );
+        setStudent(next === 'follow-up' ? nextCard : null);
+        setLastAnswered(next !== 'follow-up' && nextCard ? { ...nextCard, callId: data.id } : null);
         await refresh();
       } else {
         // A refused record (a newer draw on another phone, or a stale card) cannot
@@ -127,6 +145,8 @@ export default function ColdCall() {
   const undo = async (eventId: string) => {
     const response = await post({ action: 'undo', eventId });
     if (response.ok) {
+      // An undone call cannot be followed up.
+      setLastAnswered((previous) => (previous?.callId === eventId ? null : previous));
       await refresh();
     } else {
       await fail(response, 'Could not undo the call');
@@ -187,6 +207,23 @@ export default function ColdCall() {
                 Follow-up {student.followUps}
               </Badge>
             )}
+            {student.recorded && (
+              <Group gap="xs" justify="center">
+                <Text fz={18}>Recorded: {outcomeLabel[student.recorded.outcome]}</Text>
+                <Button
+                  variant="subtle"
+                  h={44}
+                  disabled={busy}
+                  onClick={() => {
+                    const id = student.recorded!.id;
+                    setStudent(null);
+                    undo(id);
+                  }}
+                >
+                  Undo
+                </Button>
+              </Group>
+            )}
             <Avatar src={student.photo} alt="" size={168} radius={168} color="buBlue">
               <Text fz={56} fw={700}>
                 {initials(student.name)}
@@ -208,12 +245,23 @@ export default function ColdCall() {
           </>
         ) : last ? (
           <Group gap="sm" justify="center">
-            <Text fz={20}>
-              {last.name}: {outcomeLabel[last.outcome]}
-            </Text>
+            <Text fz={20}>{callLabel(last)}</Text>
             <Button variant="subtle" size="md" h={44} onClick={() => undo(last.id)}>
               Undo
             </Button>
+            {lastAnswered?.callId === last.id && (
+              <Button
+                variant="subtle"
+                size="md"
+                h={44}
+                onClick={() => {
+                  setStudent(lastAnswered);
+                  setLastAnswered(null);
+                }}
+              >
+                Ask a follow-up
+              </Button>
+            )}
           </Group>
         ) : (
           <Text fz={20} c="dimmed">
@@ -304,9 +352,7 @@ export default function ColdCall() {
             .reverse()
             .map((call) => (
               <Group key={call.id} justify="space-between" wrap="nowrap">
-                <Text size="md">
-                  {call.name}: {outcomeLabel[call.outcome]}
-                </Text>
+                <Text size="md">{callLabel(call)}</Text>
                 <UnstyledButton
                   onClick={() => undo(call.id)}
                   style={{ minHeight: 44, padding: '0 12px' }}
