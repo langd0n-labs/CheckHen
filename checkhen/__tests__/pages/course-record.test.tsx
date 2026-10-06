@@ -39,7 +39,8 @@ const payload = {
         name: 'Week 1',
         startedAt: '2026-09-01T14:00:00Z',
         checkedIn: 30,
-        calls: 6,
+        questions: 6,
+        excusedAbsences: 0,
         answers: 4,
         absences: 1,
         volunteerAnswers: 2,
@@ -118,7 +119,7 @@ it('links both CSV exports for the course', async () => {
 it('excuses an absence with a reason', async () => {
   view();
   fireEvent.click(await screen.findByRole('tab', { name: /Absences/ }));
-  const button = await screen.findByRole('button', { name: 'Excuse' });
+  const button = await screen.findByRole('button', { name: /^Excuse Ada on/ });
   expect(button).toBeDisabled();
   fireEvent.change(screen.getByLabelText(/Reason to excuse Ada/), {
     target: { value: 'Nurse visit' },
@@ -158,10 +159,27 @@ it('undoes an excuse', async () => {
   view();
   fireEvent.click(await screen.findByRole('tab', { name: /Absences/ }));
   expect(await screen.findByText('Excused: Nurse visit')).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Undo excuse' }));
+  fireEvent.click(screen.getByRole('button', { name: /^Undo the excuse for Ada on/ }));
   await waitFor(() =>
     expect(posted).toEqual([
       { courseId: 'course-1', action: 'unexcuse', classId: 'm1', callId: 'call-10' },
     ])
   );
+});
+
+it('keeps a cleared setting empty and blocks saving until it has a value', async () => {
+  view();
+  fireEvent.click(await screen.findByRole('tab', { name: 'Settings' }));
+  fireEvent.change(await screen.findByLabelText('Lowest A'), { target: { value: '' } });
+  expect(await screen.findByText('Enter a value, or the default 3')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled();
+});
+
+it('offers a retry when the record cannot load', async () => {
+  (global.fetch as jest.Mock).mockImplementationOnce(
+    async () => ({ ok: false, json: async () => ({}) }) as Response
+  );
+  view();
+  fireEvent.click(await screen.findByRole('button', { name: 'Try again' }));
+  expect(await screen.findByText(/Target: A = 3 answers this term/)).toBeInTheDocument();
 });

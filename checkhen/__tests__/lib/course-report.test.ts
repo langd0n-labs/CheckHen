@@ -37,6 +37,24 @@ const sessions = [
   { classId: 'm2', name: 'Week 2', startedAt: new Date('2026-09-08T14:00:00Z') },
 ];
 
+/** The first meeting of build(), on its own. */
+function firstMeeting(): Meeting {
+  const absentB = call('m1', 'b', 'absent');
+  return {
+    courseId: 'course',
+    classId: 'm1',
+    events: [
+      checkIn('m1', 'a'),
+      checkIn('m1', 'b'),
+      checkIn('m1', 'c'),
+      call('m1', 'a', 'answered'),
+      absentB,
+      event('m1', 'b', 'COLD_CALL_EXCUSED', { reason: 'Nurse visit' }, absentB.id),
+      event('m1', 'c', 'HAND_RAISED'),
+    ],
+  };
+}
+
 function build() {
   const absentB = call('m1', 'b', 'absent');
   const absentC = call('m2', 'c', 'absent');
@@ -113,19 +131,63 @@ describe('course report', () => {
       expect.objectContaining({
         classId: 'm1',
         checkedIn: 3,
-        calls: 1,
+        // The answered call and the excused absence; the skip is not a question.
+        questions: 2,
         answers: 1,
         absences: 0,
+        excusedAbsences: 1,
         volunteerAnswers: 1,
         examFails: 0,
       }),
-      expect.objectContaining({ classId: 'm2', checkedIn: 2, calls: 2, absences: 1, examFails: 1 }),
+      expect.objectContaining({
+        classId: 'm2',
+        checkedIn: 2,
+        questions: 2,
+        absences: 1,
+        excusedAbsences: 0,
+        examFails: 1,
+      }),
     ]);
     expect(report.absences).toEqual([
       expect.objectContaining({ userId: 'b', excused: true, reason: 'Nurse visit', classId: 'm1' }),
       expect.objectContaining({ userId: 'c', excused: false, reason: null, classId: 'm2' }),
     ]);
   });
+});
+
+it('leaves out students who are not active on the roster', () => {
+  const report = courseReport(
+    [firstMeeting()],
+    sessions.slice(0, 1),
+    roster.slice(0, 1),
+    DEFAULT_CONFIG
+  );
+  // Only Ada is active: Ben's excused absence and Cal's hand are not in the record.
+  expect(report.students.map((row) => row.userId)).toEqual(['a']);
+  expect(report.absences).toEqual([]);
+  expect(report.sessions[0]).toMatchObject({ checkedIn: 1, questions: 1, excusedAbsences: 0 });
+});
+
+it('counts follow-up questions per session, but a follow-up Pass is not an opportunity', () => {
+  const first = call('m1', 'a', 'answered');
+  const meetingWithRun: Meeting = {
+    courseId: 'course',
+    classId: 'm1',
+    events: [
+      checkIn('m1', 'a'),
+      first,
+      event('m1', 'a', 'COLD_CALL', { outcome: 'answered', followUpOf: first.id }),
+      event('m1', 'a', 'COLD_CALL', { outcome: 'pass', followUpOf: first.id }),
+    ],
+  };
+  const report = courseReport(
+    [meetingWithRun],
+    sessions.slice(0, 1),
+    roster.slice(0, 1),
+    DEFAULT_CONFIG
+  );
+  expect(report.sessions[0].questions).toBe(3);
+  expect(report.students[0]).toMatchObject({ answers: 2, passes: 0, opportunities: 2 });
 });
 
 it('counts exam fails from every exam in a meeting', () => {

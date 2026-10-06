@@ -740,16 +740,37 @@ integration('route → store → attendance fold', () => {
           ratio: 0.5,
           A_min: 3,
         });
-        for (const config of [
-          { ratio: -1 },
-          { A: 5 },
-          { A_min: 9, A_max: 4 },
-          { term_meetings: 2.5 },
-        ]) {
-          expect((await report('POST', { action: 'config', config }))._getStatusCode()).toBe(400);
-        }
+        const refused = async (config: Record<string, unknown>) => {
+          const res = await report('POST', { action: 'config', config });
+          expect(res._getStatusCode()).toBe(400);
+          return res._getJSONData().message;
+        };
+        expect(await refused({ ratio: -1 })).toBe('Enter a number of at least 0 for ratio');
+        expect(await refused({ A: 5 })).toBe('Unknown setting: A');
+        expect(await refused({ A_min: 9, A_max: 4 })).toBe(
+          'The lowest A must not exceed the highest A'
+        );
+        expect(await refused({ A_min: 0, A_max: 0 })).toBe(
+          'The lowest and highest A must be whole numbers of at least 1'
+        );
+        expect(await refused({ A_max: 2.5 })).toBe(
+          'The lowest and highest A must be whole numbers of at least 1'
+        );
+        expect(await refused({ ratio: 0 })).toBe('The target ratio must be more than 0');
+        expect(await refused({ component_weight: 2 })).toBe(
+          'The share of the course grade must be at most 1'
+        );
+        expect(await refused({ term_meetings: 2.5 })).toBe(
+          'Meetings in the term must be a whole number of at least 1, or empty'
+        );
+        // A partial body keeps the settings it leaves out.
+        const partial = await report('POST', { action: 'config', config: { ratio: 0.6 } });
+        expect(partial._getJSONData().config).toMatchObject({ term_meetings: 26, ratio: 0.6 });
+        await report('POST', { action: 'config', config: { ratio: 0.5 } });
         const csv = await report('GET', undefined, { format: 'csv', view: 'students' });
         expect(csv._getHeaders()['content-type']).toBe('text/csv; charset=utf-8');
+        // A byte-order mark makes Excel read the file as UTF-8.
+        expect(String(csv._getData()).startsWith('\uFEFFstudent_id,')).toBe(true);
         const [header, ...rows] = String(csv._getData()).trim().split('\r\n');
         const columns = header.split(',');
         expect(rows.length).toBeGreaterThan(0);

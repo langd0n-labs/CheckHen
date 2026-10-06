@@ -62,6 +62,33 @@ export function resolveConfig(stored: unknown): ColdCallConfig {
   return config;
 }
 
+/**
+ * Why a configuration cannot be saved, or null. It catches values that pass the
+ * per-key checks but break the grade, such as A = 0 or a fractional A.
+ */
+export function configProblem(config: ColdCallConfig): string | null {
+  const whole = (value: number) => Number.isInteger(value);
+  if (!whole(config.A_min) || !whole(config.A_max) || config.A_min < 1) {
+    return 'The lowest and highest A must be whole numbers of at least 1';
+  }
+  if (config.A_min > config.A_max) {
+    return 'The lowest A must not exceed the highest A';
+  }
+  if (!whole(config.pass_cap)) {
+    return 'The most passes that add weight must be a whole number';
+  }
+  if (config.ratio <= 0) {
+    return 'The target ratio must be more than 0';
+  }
+  if (config.component_weight > 1) {
+    return 'The share of the course grade must be at most 1';
+  }
+  if (config.minimum_weight <= 0) {
+    return 'The lowest weight must be more than 0';
+  }
+  return null;
+}
+
 export type CandidateFeatures = {
   userId: string;
   passesOutstanding: number;

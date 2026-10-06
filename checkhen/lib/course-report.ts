@@ -31,9 +31,11 @@ export type SessionRow = {
   name: string;
   startedAt: Date;
   checkedIn: number;
-  calls: number;
+  /** Every recorded question, follow-ups included; skips are not questions. */
+  questions: number;
   answers: number;
   absences: number;
+  excusedAbsences: number;
   volunteerAnswers: number;
   examFails: number;
 };
@@ -79,18 +81,23 @@ export function courseReport(
   const sessionRows: SessionRow[] = [];
   const absences: AbsenceRow[] = [];
 
+  // The record covers students active on the roster; inactive students' events are left out.
+  const active = new Set(roster.map((student) => student.userId));
   meetings.forEach((meeting, index) => {
     const session = sessions[index];
-    const effective = effectiveEvents(meeting.events, meeting);
+    const effective = effectiveEvents(meeting.events, meeting).filter(
+      (event) => !event.userId || active.has(event.userId)
+    );
     const checkedIn = new Set(
       effective.filter((event) => event.kind === 'CHECK_IN').map((event) => event.userId!)
     );
     for (const userId of Array.from(checkedIn)) {
       attended.set(userId, (attended.get(userId) ?? 0) + 1);
     }
-    let calls = 0;
+    let questions = 0;
     let answers = 0;
     let absent = 0;
+    let excused = 0;
     let volunteers = 0;
     for (const event of effective) {
       if (!event.userId) {
@@ -103,7 +110,7 @@ export function courseReport(
         volunteers += 1;
       }
       if (event.kind === 'COLD_CALL' && event.payload.outcome !== 'skip') {
-        calls += 1;
+        questions += 1;
         answers += event.payload.outcome === 'answered' ? 1 : 0;
       }
       const row = {
@@ -117,7 +124,10 @@ export function courseReport(
         absent += 1;
         absences.push({ ...row, callId: event.id, excused: false, reason: null });
       }
+      // The excuse replaces its Absent call in the log, so count that call here.
       if (event.kind === 'COLD_CALL_EXCUSED') {
+        questions += 1;
+        excused += 1;
         absences.push({
           ...row,
           callId: event.supersedesId!,
@@ -143,9 +153,10 @@ export function courseReport(
       name: session.name,
       startedAt: session.startedAt,
       checkedIn: checkedIn.size,
-      calls,
+      questions,
       answers,
       absences: absent,
+      excusedAbsences: excused,
       volunteerAnswers: volunteers,
       examFails: fails,
     });
@@ -265,9 +276,10 @@ export function sessionsCsv(report: CourseReport, config: ColdCallConfig, export
       'session',
       'started_at',
       'checked_in',
-      'cold_calls',
+      'questions_asked',
       'answers',
       'absences',
+      'excused_absences',
       'volunteer_answers',
       'exam_fails',
       ...header,
@@ -277,9 +289,10 @@ export function sessionsCsv(report: CourseReport, config: ColdCallConfig, export
       row.name,
       row.startedAt.toISOString(),
       row.checkedIn,
-      row.calls,
+      row.questions,
       row.answers,
       row.absences,
+      row.excusedAbsences,
       row.volunteerAnswers,
       row.examFails,
       ...values,

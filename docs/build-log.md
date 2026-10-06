@@ -813,3 +813,28 @@ projector.
 Verified on 2026-10-06 (Nimbus): 28 Jest suites and 264 tests, and
 `scripts/test-postgres.sh` with 30 route integration cases (adds: excuse, undo
 excuse, refused second undo, and a new excuse).
+
+### M8 review (f513b5e): course record minor fixes
+
+- Session totals include excused absences: "Questions asked" counts every
+  recorded question (follow-ups included, skips not), and an excused Absent
+  call counts as a question and in a new Excused column. The Sessions tab
+  says that a follow-up Pass is a question but not an opportunity. The
+  sessions CSV renames `cold_calls` to `questions_asked` and adds
+  `excused_absences`.
+- The whole record, including the absences list and session totals, covers
+  only students active on the roster.
+- Settings: a body is merged into the current settings, so omitted keys keep
+  their values. Each refusal names the problem, including A of 0 or a
+  fraction, a ratio of 0, a grade share above 1, and the lowest A above the
+  highest. A cleared field stays empty, shows the default, and blocks saving.
+- Both CSVs begin with a UTF-8 byte-order mark for Excel.
+- A failed load shows "Try again"; a save that cannot reach the server shows
+  a notice. Each Excuse and Undo-excuse button names the student and date.
+  The empty score has visually hidden text for screen readers.
+
+Open: a Pass on a fresh draw that resolves a follow-up Retry counts as pass
+debt (review m6, rare); fixed pixel widths in the absences list (m9).
+
+Verified on 2026-10-06 (Nimbus): 28 Jest suites and 269 tests, and
+`scripts/test-postgres.sh` with 30 route integration cases.

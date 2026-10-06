@@ -14,6 +14,7 @@ import {
   Text,
   TextInput,
   Title,
+  VisuallyHidden,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import type { ColdCallConfig } from '@/lib/cold-call';
@@ -48,7 +49,9 @@ const date = (value: string | Date) =>
   new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 const percent = (value: number | null) =>
   value === null ? (
-    <span aria-label="No score yet: no opportunities">–</span>
+    <>
+      –<VisuallyHidden>No score yet: no opportunities</VisuallyHidden>
+    </>
   ) : (
     `${Math.round(value * 100)}%`
   );
@@ -60,14 +63,15 @@ export default function CourseRecord() {
   const [draft, setDraft] = useState<Record<string, number | null>>({});
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   const load = useCallback(async (id: string) => {
-    const response = await fetch(`/api/admin/course-report?courseId=${encodeURIComponent(id)}`);
-    if (!response.ok) {
-      notifications.show({
-        message: 'Could not load the course record. Reload the page to try again.',
-        color: 'red',
-      });
+    setFailed(false);
+    const response = await fetch(
+      `/api/admin/course-report?courseId=${encodeURIComponent(id)}`
+    ).catch(() => null);
+    if (!response?.ok) {
+      setFailed(true);
       return;
     }
     const payload: Payload = await response.json();
@@ -93,7 +97,14 @@ export default function CourseRecord() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ courseId, ...body }),
-      });
+      }).catch(() => null);
+      if (!response) {
+        notifications.show({
+          message: 'Could not reach CheckHen. Check the connection, then try again.',
+          color: 'red',
+        });
+        return;
+      }
       const result = await response.json().catch(() => ({}));
       notifications.show(
         response.ok
@@ -117,7 +128,14 @@ export default function CourseRecord() {
     );
   }
   if (!data) {
-    return (
+    return failed ? (
+      <Group p="md">
+        <Text>Could not load the course record.</Text>
+        <Button variant="light" onClick={() => load(courseId)}>
+          Try again
+        </Button>
+      </Group>
+    ) : (
       <Text p="md" c="dimmed">
         Loading the course record…
       </Text>
@@ -187,6 +205,7 @@ export default function CourseRecord() {
                     <Table.Th ta="right">Answers</Table.Th>
                     <Table.Th ta="right">Passes</Table.Th>
                     <Table.Th ta="right">Absences</Table.Th>
+                    <Table.Th ta="right">Excused</Table.Th>
                     <Table.Th ta="right">Volunteered</Table.Th>
                     <Table.Th ta="right">Opportunities</Table.Th>
                     <Table.Th ta="right">Score</Table.Th>
@@ -236,6 +255,10 @@ export default function CourseRecord() {
         </Tabs.Panel>
 
         <Tabs.Panel value="sessions">
+          <Text mb="sm" c="dimmed">
+            Questions include follow-ups. A Pass on a follow-up is a question but not an
+            opportunity, so these totals can exceed the students&apos; opportunities.
+          </Text>
           {report.sessions.length ? (
             <Table.ScrollContainer minWidth={720}>
               <Table striped>
@@ -244,7 +267,7 @@ export default function CourseRecord() {
                     <Table.Th>Date</Table.Th>
                     <Table.Th>Session</Table.Th>
                     <Table.Th ta="right">Checked in</Table.Th>
-                    <Table.Th ta="right">Cold calls</Table.Th>
+                    <Table.Th ta="right">Questions asked</Table.Th>
                     <Table.Th ta="right">Answers</Table.Th>
                     <Table.Th ta="right">Volunteered</Table.Th>
                     <Table.Th ta="right">Absences</Table.Th>
@@ -257,10 +280,11 @@ export default function CourseRecord() {
                       <Table.Td>{date(session.startedAt)}</Table.Td>
                       <Table.Td>{session.name}</Table.Td>
                       <Table.Td ta="right">{session.checkedIn}</Table.Td>
-                      <Table.Td ta="right">{session.calls}</Table.Td>
+                      <Table.Td ta="right">{session.questions}</Table.Td>
                       <Table.Td ta="right">{session.answers}</Table.Td>
                       <Table.Td ta="right">{session.volunteerAnswers}</Table.Td>
                       <Table.Td ta="right">{session.absences}</Table.Td>
+                      <Table.Td ta="right">{session.excusedAbsences}</Table.Td>
                       <Table.Td ta="right">{session.examFails}</Table.Td>
                     </Table.Tr>
                   ))}
@@ -291,6 +315,7 @@ export default function CourseRecord() {
                       <Button
                         variant="subtle"
                         disabled={busy}
+                        aria-label={`Undo the excuse for ${absence.name} on ${date(absence.startedAt)}`}
                         onClick={() =>
                           post(
                             {
@@ -319,6 +344,7 @@ export default function CourseRecord() {
                       />
                       <Button
                         variant="light"
+                        aria-label={`Excuse ${absence.name} on ${date(absence.startedAt)}`}
                         disabled={busy || !reasons[absence.callId]?.trim()}
                         onClick={() =>
                           post(
@@ -363,15 +389,15 @@ export default function CourseRecord() {
                 min={key === 'term_meetings' ? 1 : 0}
                 step={step}
                 allowDecimal={step < 1}
+                error={
+                  draft[key] === null && key !== 'term_meetings'
+                    ? `Enter a value, or the default ${data.defaults[key]}`
+                    : undefined
+                }
                 onChange={(value) =>
                   setDraft((previous) => ({
                     ...previous,
-                    [key]:
-                      value === ''
-                        ? key === 'term_meetings'
-                          ? null
-                          : previous[key]
-                        : Number(value),
+                    [key]: value === '' ? null : Number(value),
                   }))
                 }
               />
@@ -380,6 +406,7 @@ export default function CourseRecord() {
           <Button
             mt="lg"
             loading={busy}
+            disabled={SETTINGS.some(({ key }) => key !== 'term_meetings' && draft[key] === null)}
             onClick={() => post({ action: 'config', config: draft }, 'Settings saved')}
           >
             Save settings

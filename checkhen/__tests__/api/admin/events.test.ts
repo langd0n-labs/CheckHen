@@ -21,6 +21,7 @@ const stored: Record<
   undoCall: { kind: 'UNDO', supersedesId: 'call' },
   fail: { kind: 'EXAM_FAILED', supersedesId: null },
   chat: { kind: 'CHAT_MESSAGE', supersedesId: null },
+  excuse: { kind: 'COLD_CALL_EXCUSED', supersedesId: 'call' },
   absentCheckOut: { kind: 'CHECK_OUT', payload: { coldCallId: 'call' }, supersedesId: null },
 };
 
@@ -58,6 +59,7 @@ describe('POST /api/admin/events', () => {
     ['an undo of a cold call', 'call'],
     ['an undo of an exam fail', 'fail'],
     ['an undo of an undone cold call', 'undoCall'],
+    ['an undo of an excused absence', 'excuse'],
   ])('refuses %s', async (_label, supersedesId) => {
     const res = await post({ kind: 'UNDO', supersedesId });
     expect(res._getStatusCode()).toBe(400);

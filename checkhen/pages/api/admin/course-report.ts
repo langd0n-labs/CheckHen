@@ -1,5 +1,11 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { DEFAULT_CONFIG, resolveConfig, type ColdCallConfig, type Meeting } from '@/lib/cold-call';
+import {
+  configProblem,
+  DEFAULT_CONFIG,
+  resolveConfig,
+  type ColdCallConfig,
+  type Meeting,
+} from '@/lib/cold-call';
 import { courseReport, sessionsCsv, studentsCsv } from '@/lib/course-report';
 import { appendEvent, asEvent, ConflictError, isEffective } from '@/lib/event-store';
 import { prisma } from '@/lib/prisma';
@@ -45,19 +51,33 @@ async function loadReport(courseId: string, config: ColdCallConfig) {
   );
 }
 
-/** Accept only known keys, and only values the grade code would use as given. */
-function validConfig(value: unknown): ColdCallConfig | null {
+/**
+ * Merge the given settings into the course's current ones. Unknown keys and
+ * unusable values are refused with a message the instructor can act on.
+ */
+function mergeConfig(
+  value: unknown,
+  current: ColdCallConfig
+): { config: ColdCallConfig } | { problem: string } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return null;
+    return { problem: 'Send the settings as an object' };
   }
-  const entries = Object.entries(value as Record<string, unknown>);
-  if (entries.some(([key]) => !(key in DEFAULT_CONFIG))) {
-    return null;
+  for (const [key, given] of Object.entries(value as Record<string, unknown>)) {
+    if (!(key in DEFAULT_CONFIG)) {
+      return { problem: `Unknown setting: ${key}` };
+    }
+    if (key === 'term_meetings') {
+      if (given !== null && !(Number.isInteger(given) && (given as number) > 0)) {
+        return { problem: 'Meetings in the term must be a whole number of at least 1, or empty' };
+      }
+    } else if (typeof given !== 'number' || !Number.isFinite(given) || given < 0) {
+      return { problem: `Enter a number of at least 0 for ${key}` };
+    }
   }
-  const config = resolveConfig(value);
-  return entries.every(([key, given]) => config[key as keyof ColdCallConfig] === given)
-    ? config
-    : null;
+  // Keys left out keep their current values.
+  const config = { ...current, ...(value as Partial<ColdCallConfig>) };
+  const problem = configProblem(config);
+  return problem ? { problem } : { config };
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -90,7 +110,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const date = exportedAt.toISOString().slice(0, 10);
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename="checkhen-${view}-${date}.csv"`);
-      return res.status(200).send(csv);
+      // The byte-order mark makes Excel read the file as UTF-8, so accented names survive.
+      return res.status(200).send(`\uFEFF${csv}`);
     }
     return res.json({
       course: { id: course.id, name: course.name },
@@ -101,15 +122,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   if (req.body?.action === 'config') {
-    const next = validConfig(req.body.config);
-    if (!next) {
-      return res.status(400).json({ message: 'Check the settings: one is not a valid value' });
+    const merged = mergeConfig(req.body.config, config);
+    if ('problem' in merged) {
+      return res.status(400).json({ message: merged.problem });
     }
-    if (next.A_min > next.A_max) {
-      return res.status(400).json({ message: 'The lowest A must not exceed the highest A' });
-    }
-    await prisma.course.update({ where: { id: course.id }, data: { config: next } });
-    return res.json({ config: next });
+    await prisma.course.update({ where: { id: course.id }, data: { config: merged.config } });
+    return res.json({ config: merged.config });
   }
 
   if (req.body?.action === 'excuse') {
