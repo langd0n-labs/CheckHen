@@ -307,7 +307,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           if (
             await tx.participationEvent.findFirst({ where: { ...scope, supersedesId: target.id } })
           ) {
-            throw new ConflictError('Call already undone');
+            throw new ConflictError('Call already undone or excused');
           }
         },
       });

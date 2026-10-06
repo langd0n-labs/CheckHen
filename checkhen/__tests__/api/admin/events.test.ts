@@ -39,6 +39,7 @@ describe('POST /api/admin/events', () => {
   it.each([
     'COLD_CALL',
     'COLD_CALL_DRAWN',
+    'COLD_CALL_EXCUSED',
     'EXAM_STARTED',
     'EXAM_ENDED',
     'EXAM_FAILED',

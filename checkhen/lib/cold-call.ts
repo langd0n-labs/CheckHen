@@ -129,6 +129,8 @@ type Record_ = {
   /** `order` is the event's position in its meeting, to compare with check-ins. */
   calls: { outcome: ColdCallOutcome; meeting: number; order: number }[];
   volunteers: number[];
+  /** Meetings of absences the instructor excused. They are not opportunities. */
+  excused: number[];
   /** Position of the latest check-in in each meeting. */
   checkIns: Map<number, number>;
 };
@@ -137,7 +139,7 @@ function records(meetings: Meeting[]): Map<string, Record_> {
   const byStudent = new Map<string, Record_>();
   const entry = (userId: string) => {
     if (!byStudent.has(userId)) {
-      byStudent.set(userId, { calls: [], volunteers: [], checkIns: new Map() });
+      byStudent.set(userId, { calls: [], volunteers: [], excused: [], checkIns: new Map() });
     }
     return byStudent.get(userId)!;
   };
@@ -157,6 +159,10 @@ function records(meetings: Meeting[]): Map<string, Record_> {
           meeting: index,
           order,
         });
+      }
+      // The excuse supersedes the Absent call, so the absence leaves the record.
+      if (event.kind === 'COLD_CALL_EXCUSED') {
+        entry(event.userId).excused.push(index);
       }
       if (event.kind === 'CHECK_IN') {
         entry(event.userId).checkIns.set(index, order);
@@ -187,6 +193,7 @@ export function eligibility(
     const record: Record_ = history.get(userId) ?? {
       calls: [],
       volunteers: [],
+      excused: [],
       checkIns: new Map(),
     };
     let passesOutstanding = 0;
@@ -233,6 +240,7 @@ export type ParticipationGrade = {
   answers: number;
   passes: number;
   absences: number;
+  excusedAbsences: number;
   volunteerAnswers: number;
   opportunities: number;
   projectedAnswers: number;
@@ -264,6 +272,7 @@ export function grades(
     const record: Record_ = history.get(userId) ?? {
       calls: [],
       volunteers: [],
+      excused: [],
       checkIns: new Map(),
     };
     const count = (outcome: ColdCallOutcome) =>
@@ -274,6 +283,7 @@ export function grades(
       answers,
       passes: count('pass'),
       absences: count('absent'),
+      excusedAbsences: record.excused.length,
       volunteerAnswers: record.volunteers.length,
       projectedAnswers: held ? answers * (term / held) : 0,
     };

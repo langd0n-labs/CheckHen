@@ -20,6 +20,7 @@ export type EventKind =
   | 'DEVICE_UNBOUND'
   | 'COLD_CALL'
   | 'COLD_CALL_DRAWN'
+  | 'COLD_CALL_EXCUSED'
   | 'UNDO';
 
 export type ParticipationEvent = {

@@ -714,3 +714,58 @@ Open after M8, from these reviews, in this order:
 
 Waiting on the operator: whether a Pass on a follow-up should lower the score
 and raise the next-meeting weight (review item m3).
+
+## M8 — analytics and scoring: implemented; independent review pending
+
+`/admin/course` is the course record (I4), opened from the dashboard's "Course
+record" button for the selected course. It shows the provisional target `A`
+(never editable), meetings held, and four tabs:
+
+- Students: sessions attended, answers, passes, absences (with excused
+  absences), volunteer answers (with the cap that counts), opportunities,
+  score, and exam fails (with excused fails).
+- Sessions: per meeting, checked in, cold calls, answers, volunteer answers,
+  absences, and exam fails.
+- Absences: every Absent call, with an Excuse control that takes a reason.
+- Settings: every grade and sampler setting, with its default. Meetings in the
+  term may be left empty to project from the meetings held.
+
+`lib/course-report.ts` computes the record from the event log with `grades()`;
+it reads only named kinds, so `COLD_CALL_DRAWN` and skips have no effect.
+`/api/admin/course-report` serves the record, two CSV exports (students and
+sessions), settings changes, and excuses.
+
+Excused absences: `COLD_CALL_EXCUSED` (migration
+`20261006020000_cold_call_excused`) supersedes the student's Absent call with
+a reason. The Absent call stays in the log; while excused it is not an
+opportunity. An excused absence cannot be undone from the call screen. The
+check-out the Absent wrote stays, since the student did leave.
+
+Interpretations:
+
+- The record covers students active on the roster. Inactive students are not
+  graded or exported.
+- Each CSV row carries every setting in force (`config_*` columns) and the
+  export time, so a file stays self-describing when rows are copied out. Text
+  that a spreadsheet would run as a formula is prefixed with `'`.
+- The student export lists the components the brief names (answers, passes,
+  absences, opportunities, `A` in force) with the score, never the score alone.
+- Settings are saved only when every value is valid; the lowest `A` may not
+  exceed the highest.
+
+| M8 acceptance check | Result |
+| --- | --- |
+| Attendance, participation, and exam events per student and per session | PASS: `__tests__/lib/course-report.test.ts` checks a hand-built two-meeting course (attendance, answers, passes, excused and unexcused absences, volunteers, exam fails and excused fails, per-session totals). The PostgreSQL route test checks the record before and after an excuse. `__tests__/pages/course-record.test.tsx` checks the student table. |
+| CSV export with the configuration stamp | PASS: unit tests check every `config_*` column on every student and session row, the component columns, and CSV quoting and formula neutralizing. The route test saves settings, downloads both CSVs, and checks the stamped values on each row. |
+
+Verification on 2026-10-06 (Nimbus): TypeScript, ESLint on the new files,
+28 Jest suites and 259 tests, `scripts/test-postgres.sh` with 24 route
+integration cases (adds: excuse flow with refusals, settings validation, and
+both CSV exports), and a Next.js production build.
+
+`/impeccable audit` of `/admin/course` and `/admin/call`: the detector reported
+no findings. Fixed: the course record showed a blank page while loading, and an
+empty score was an unlabeled dash. Open: settings fields revert silently when
+cleared (other than meetings in the term); fixed pixel widths in the absences
+list; no `PRODUCT.md` or `DESIGN.md`; not checked in a browser on a phone or a
+projector.

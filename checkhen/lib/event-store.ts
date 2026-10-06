@@ -24,6 +24,7 @@ const kinds: EventKind[] = [
   'DEVICE_UNBOUND',
   'COLD_CALL',
   'COLD_CALL_DRAWN',
+  'COLD_CALL_EXCUSED',
   'UNDO',
 ];
 type AppendInput = EventScope & {
@@ -68,6 +69,9 @@ export function validatePayload(kind: EventKind, payload: Record<string, unknown
       throw new Error('Invalid exam configuration');
   }
   if (kind === 'EXAM_FAILED') requiredString('examId');
+  if (kind === 'COLD_CALL_EXCUSED') {
+    requiredString('reason');
+  }
   if (kind === 'COLD_CALL_DRAWN' && !Number.isInteger(payload.seed)) {
     throw new Error('Invalid cold-call seed');
   }
@@ -189,6 +193,9 @@ export async function appendEvent(db: PrismaClient, input: AppendInput) {
     if (kind === 'STUDENT_MUTED' && !input.userId) throw new Error('Mute requires a student');
     if (kind === 'CHAT_HIDDEN' && !input.supersedesId) throw new Error('Hide requires a message');
     if (kind === 'EXAM_EXCUSED' && !input.supersedesId) throw new Error('Excuse requires a fail');
+    if (kind === 'COLD_CALL_EXCUSED' && !input.supersedesId) {
+      throw new Error('Excuse requires an absence');
+    }
     if (input.supersedesId) {
       const previous = await tx.participationEvent.findFirst({
         where: { id: input.supersedesId, courseId: input.courseId, classId: input.classId },
@@ -204,10 +211,17 @@ export async function appendEvent(db: PrismaClient, input: AppendInput) {
         previous.kind === 'EXAM_FAILED' &&
         payload.examId === (previous.payload as Record<string, unknown>).examId &&
         input.userId === previous.userId;
+      // An excused absence supersedes the student's Absent call; both stay in the log.
+      const excusesAbsence =
+        kind === 'COLD_CALL_EXCUSED' &&
+        previous.kind === 'COLD_CALL' &&
+        (previous.payload as Record<string, unknown>).outcome === 'absent' &&
+        input.userId === previous.userId;
       if (
         kind !== 'UNDO' &&
         !hidesMessage &&
         !excusesFail &&
+        !excusesAbsence &&
         (kind !== previous.kind || input.userId !== previous.userId)
       ) {
         throw new Error('A correction must preserve event kind and student');
@@ -216,6 +230,9 @@ export async function appendEvent(db: PrismaClient, input: AppendInput) {
         throw new Error('Hide must target a message by that student');
       if (kind === 'EXAM_EXCUSED' && !excusesFail)
         throw new Error('Excuse must target a fail by that student');
+      if (kind === 'COLD_CALL_EXCUSED' && !excusesAbsence) {
+        throw new Error('Excuse must target an absence by that student');
+      }
     } else if (kind === 'UNDO') {
       throw new Error('Undo requires a target event');
     }

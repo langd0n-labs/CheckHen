@@ -10,9 +10,10 @@ import {
   revokeStudentDevices,
 } from '@/lib/portal-binding';
 import { prisma } from '@/lib/prisma';
-import { requireScope } from '@/lib/request-scope';
+import { requireIdentity, requireScope } from '@/lib/request-scope';
 import { expireSessions } from '@/lib/session-expiry';
 import coldCallRoute from '@/pages/api/admin/cold-call';
+import courseReportRoute from '@/pages/api/admin/course-report';
 import examRoute from '@/pages/api/admin/exam';
 import fetchAllChat from '@/pages/api/admin/fetch-all-chat';
 import hideChat from '@/pages/api/admin/hide-chat';
@@ -23,7 +24,7 @@ import checkOut from '@/pages/api/student/check-out';
 import reBind from '@/pages/api/student/re-bind';
 import sendChat from '@/pages/api/student/send-chat';
 
-jest.mock('@/lib/request-scope', () => ({ requireScope: jest.fn() }));
+jest.mock('@/lib/request-scope', () => ({ requireScope: jest.fn(), requireIdentity: jest.fn() }));
 jest.mock('@/lib/portal-binding', () => ({
   bindDevice: jest.fn(),
   revokeDevice: jest.fn(),
@@ -538,6 +539,99 @@ integration('route → store → attendance fold', () => {
       const late = await followUpRecord('answered', third._getJSONData().followUp);
       expect(late._getStatusCode()).toBe(409);
       expect(late._getJSONData().message).toBe('This follow-up is no longer current');
+    });
+
+    describe('course record', () => {
+      const report = async (method: 'GET' | 'POST', body?: Record<string, unknown>, query = {}) => {
+        const { req, res } = createMocks({
+          method,
+          query: { courseId: scope.courseId, ...query },
+          body: body && { courseId: scope.courseId, ...body },
+        });
+        await courseReportRoute(req as any, res as any);
+        return res;
+      };
+      beforeEach(() => {
+        (requireIdentity as jest.Mock).mockResolvedValue({
+          user: { id: 'instructor' },
+          admin: true,
+        });
+      });
+
+      it('excuses an absence, keeps both events, and drops it from opportunities', async () => {
+        const eve = await student('Eve');
+        const absent = await record((await draw()).draw, 'absent');
+        const callId = absent._getJSONData().id;
+        const before = (await report('GET'))._getJSONData().report;
+        expect(before.students.find((row: any) => row.userId === eve.id)).toMatchObject({
+          absences: 1,
+          opportunities: 1,
+        });
+        const excuse = (reason: string, id = callId) =>
+          report('POST', { action: 'excuse', classId: scope.classId, callId: id, reason });
+        expect((await excuse(''))._getStatusCode()).toBe(400);
+        expect((await excuse('Nurse visit'))._getStatusCode()).toBe(200);
+        expect((await excuse('Again'))._getStatusCode()).toBe(409);
+        // Eve left (checked out); a second student gives a call that is not an absence.
+        await student('Gus');
+        const answered = await record((await draw()).draw, 'answered');
+        expect((await excuse('Not an absence', answered._getJSONData().id))._getStatusCode()).toBe(
+          404
+        );
+        const after = (await report('GET'))._getJSONData().report;
+        expect(after.students.find((row: any) => row.userId === eve.id)).toMatchObject({
+          absences: 0,
+          excusedAbsences: 1,
+          answers: 0,
+          opportunities: 0,
+        });
+        expect(after.absences).toEqual([
+          expect.objectContaining({ callId, excused: true, reason: 'Nurse visit' }),
+        ]);
+        const events = await readEvents(prisma, scope);
+        expect(events.find((event) => event.id === callId)?.kind).toBe('COLD_CALL');
+        expect(events.find((event) => event.kind === 'COLD_CALL_EXCUSED')?.supersedesId).toBe(
+          callId
+        );
+        // An excused absence cannot then be undone from the call screen.
+        expect((await call('POST', { action: 'undo', eventId: callId }))._getStatusCode()).toBe(
+          409
+        );
+      });
+
+      it('saves only valid settings and stamps them on every CSV row', async () => {
+        await student('Fay');
+        const saved = await report('POST', {
+          action: 'config',
+          config: { term_meetings: 26, ratio: 0.5 },
+        });
+        expect(saved._getStatusCode()).toBe(200);
+        expect(saved._getJSONData().config).toMatchObject({
+          term_meetings: 26,
+          ratio: 0.5,
+          A_min: 3,
+        });
+        for (const config of [
+          { ratio: -1 },
+          { A: 5 },
+          { A_min: 9, A_max: 4 },
+          { term_meetings: 2.5 },
+        ]) {
+          expect((await report('POST', { action: 'config', config }))._getStatusCode()).toBe(400);
+        }
+        const csv = await report('GET', undefined, { format: 'csv', view: 'students' });
+        expect(csv._getHeaders()['content-type']).toBe('text/csv; charset=utf-8');
+        const [header, ...rows] = String(csv._getData()).trim().split('\r\n');
+        const columns = header.split(',');
+        expect(rows.length).toBeGreaterThan(0);
+        for (const row of rows) {
+          const cells = row.split(',');
+          expect(cells[columns.indexOf('config_term_meetings')]).toBe('26');
+          expect(cells[columns.indexOf('config_ratio')]).toBe('0.5');
+        }
+        const sessionsCsv = await report('GET', undefined, { format: 'csv', view: 'sessions' });
+        expect(String(sessionsCsv._getData())).toContain(scope.classId);
+      });
     });
 
     it('undoes a call once when two phones undo it together', async () => {
