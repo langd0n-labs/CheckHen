@@ -75,6 +75,7 @@ export default function HomePage() {
   const [classEnded, setClassEnded] = useState(false);
   const prevClassNameRef = useRef('');
   const isCheckedInRef = useRef(false);
+  const examActiveRef = useRef(false);
 
   // Keep ref in sync with isCheckedIn state for use in closures
   useEffect(() => {
@@ -232,6 +233,7 @@ export default function HomePage() {
     const response = await fetch('/api/student/exam-status');
     if (!response.ok) return;
     const result = await response.json();
+    examActiveRef.current = !!result.exam;
     setExamState(
       result.exam
         ? { domains: result.exam.domains, failed: !!result.fail, excused: !!result.fail?.excused }
@@ -344,7 +346,8 @@ export default function HomePage() {
     const classId = currentClassId;
     ws.current = getSocket(classId);
     const heartbeat = () => {
-      if (isCheckedInRef.current) ws.current?.emit('exam-heartbeat');
+      // Heartbeats are exam evidence only; outside an exam they would just load the agent.
+      if (isCheckedInRef.current && examActiveRef.current) ws.current?.emit('exam-heartbeat');
     };
     ws.current?.on('connect', heartbeat);
     heartbeat();

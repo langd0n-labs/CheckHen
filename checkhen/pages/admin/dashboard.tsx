@@ -683,15 +683,21 @@ export default function AdminDashboard() {
                     <Button
                       size="xs"
                       loading={examBusy}
-                      onClick={() =>
-                        examAction('start', {
-                          domains: examDomains
-                            .split(',')
-                            .map((value) => value.trim())
-                            .filter(Boolean),
-                          thresholdSeconds: Number(examThreshold),
-                        })
-                      }
+                      onClick={() => {
+                        const domains = examDomains
+                          .split(',')
+                          .map((value) => value.trim())
+                          .filter(Boolean);
+                        // Exam mode restricts the whole class network; never start it by accident.
+                        if (
+                          !window.confirm(
+                            `Start exam mode? Students can reach only: ${domains.join(', ') || '(none)'}. ` +
+                              `A disconnect longer than ${examThreshold} seconds fails automatically.`
+                          )
+                        )
+                          return;
+                        examAction('start', { domains, thresholdSeconds: Number(examThreshold) });
+                      }}
                     >
                       Start exam
                     </Button>

@@ -92,6 +92,10 @@ async function main() {
       heartbeatRequests[0].signature,
       createHmac('sha256', secret).update(heartbeatRequests[0].body).digest('hex')
     );
+    // A burst from one student within the interval is not forwarded to the agent.
+    for (let burst = 0; burst < 5; burst += 1) first.emit('exam-heartbeat');
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    assert.equal(heartbeatRequests.length, 1);
     let aEvents = 0;
     let bEvents = 0;
     first.on('fetch-messages', () => {

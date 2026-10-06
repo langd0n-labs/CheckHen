@@ -103,8 +103,13 @@ io.on("connection", socket => {
       const url = process.env.PORTAL_AGENT_URL;
       const secret = process.env.PORTAL_CONTROL_SECRET;
       if (!url || !secret) return;
-      const body = JSON.stringify({ courseId: socket.data.courseId, classId: socket.data.classId,
-        userId: socket.data.userId, timestamp: Date.now() });
+      // One forwarded heartbeat per student per interval, however many sockets they open.
+      const key = `${room}:${socket.data.userId}`;
+      const now = Date.now();
+      if (now - (lastHeartbeat.get(key) ?? 0) < HEARTBEAT_INTERVAL_MS) return;
+      lastHeartbeat.set(key, now);
+      const body = JSON.stringify({ courseId: socket.data.courseId,
+        classId: socket.data.classId, userId: socket.data.userId, timestamp: now });
       const signature = createHmac("sha256", secret).update(body).digest("hex");
       try {
         await fetch(`${url.replace(/\/$/, "")}/exam-heartbeat`, { method: "POST", body,
@@ -114,6 +119,13 @@ io.on("connection", socket => {
     });
   }
 });
+
+const HEARTBEAT_INTERVAL_MS = 4000;
+const lastHeartbeat = new Map<string, number>();
+setInterval(() => {
+  const cutoff = Date.now() - HEARTBEAT_INTERVAL_MS;
+  for (const [key, sent] of lastHeartbeat) if (sent < cutoff) lastHeartbeat.delete(key);
+}, 60000);
 
 const notifications: Record<string, string> = {
   HAND_RAISED: "user-hand-update", HAND_LOWERED: "user-hand-update",

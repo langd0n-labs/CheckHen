@@ -1,9 +1,13 @@
 # Build log
 
-Branch: build/m0-m2. Scope: M0 through M5.
+Branch: build/m0-m2. Scope: M0 through M5, then M7 and M8.
 
 ## Operator decisions
 
+- 2026-10-05: Class on Thursday 2026-10-08 needs M0 to M4, M7, and M8. M3
+  attendance is optional for that class; M5 exam mode is not needed. Order:
+  fix M5 review finding 5, build M7, build M8, then the M5 fix backlog below.
+  M6 follows. Relayed by AICP.
 - 2026-10-03: Use Podman for this build session. Defer Docker testing.
 - 2026-10-03: A configurable test hostname may use fishjump.com, rfkill.dev,
   or rfkill.com. Test hostname: checkhen.rfkill.dev.
@@ -490,3 +494,48 @@ open as previously recorded.
 The first local production build exited zero. A repeat after the final UI
 change compiled and generated static pages, but its redirected log write hit
 the sandbox's `/tmp` quota and the shell exited nonzero.
+
+### M5 review: finding 5 fixed; fix backlog open
+
+The independent review of `738ea01` rejected M5. Per the 2026-10-05 operator
+decision, only finding 5 is fixed before M7 and M8:
+
+- Students send `exam-heartbeat` only while their exam status shows an active
+  exam. An ordinary class sends none.
+- The socket server forwards at most one heartbeat per student per 4 seconds,
+  across all of that student's sockets. The socket integration test sends a
+  burst and checks that one request reaches the agent.
+- Starting an exam now asks the instructor to confirm the allowlist and
+  threshold. Without a started exam, the agent's `exam_gate` chains stay
+  empty, so an ordinary class never passes through the exam gate.
+
+Verification on 2026-10-05 (Nimbus): TypeScript checks for app and socket
+server, 23 Jest suites and 208 tests, and `scripts/test-postgres.sh`
+(event store, legacy migration, route integration, socket isolation with the
+heartbeat burst check) passed.
+
+M5 fix backlog, after M8. Branch `m5-fix-pass-wip` (`ee96c76`) holds an
+unfinished, unreviewed pass over these items. Its Python unit tests pass;
+nothing else on it has run.
+
+1. Blocker: the 5-second station grace lets a 31-second drop pass, and the
+   unit test asserts that wrong threshold. hostapd's 300-second default
+   inactivity keeps a vanished station listed.
+2. A timed-out exam start leaves the filter applied with no way to release it.
+   Stop and session end should call `exam-stop` unconditionally.
+3. An excused student cannot fail again in the same exam.
+4. Allowlist addresses come from the laptop resolver and are replaced every
+   30 seconds; CDN-hosted sites can fail. Use dnsmasq `nftset`.
+6. The generic `admin/events` endpoint accepts `EXAM_*` events and `UNDO` of
+   them.
+7. A failed `iw` call counts every device as disconnected.
+8. A heartbeat is accepted without proof that it came through the AP (M6
+   topology).
+9. The signature does not cover the agent action.
+10. An exam with an unreportable fail cannot be stopped.
+11. Fails disappear from the instructor view after the exam ends.
+12. `docs/network-filtering.md` describes the old Pi and iptables design.
+
+Test gaps from the review: the station-list path, the start-timeout path,
+re-fail after excuse, `EXAM_*` through `admin/events`, `iw` failure,
+post-stop cleanup reachability, and heartbeat load against the agent.
