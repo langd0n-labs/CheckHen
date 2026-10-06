@@ -208,19 +208,32 @@ describe('eligibility', () => {
     expect(eligibility([meeting('m1', events)], 0, ['a'])[0].eligible).toBe(true);
   });
 
-  it('treats the call that resolves a follow-up Retry as the same follow-up question', () => {
+  it('counts a Pass on the fresh draw that resolves a follow-up Retry as ordinary', () => {
     const first = call('m1', 'a', 'answered');
     const retry = event('m1', 'a', 'COLD_CALL', { outcome: 'retry', followUpOf: first.id });
-    // The Retry is resolved by a fresh draw in the next meeting, with a Pass.
+    // Operator decision 2026-10-06: the Retry is resolved by a fresh draw in the next
+    // meeting, and a Pass on that draw is an ordinary Pass.
     const meetings = [meeting('m1', [first, retry]), meeting('m2', [call('m2', 'a', 'pass')])];
-    expect(grades(meetings, ['a'], config)[0]).toMatchObject({ passes: 0, opportunities: 1 });
+    expect(grades(meetings, ['a'], config)[0]).toMatchObject({ passes: 1, opportunities: 2 });
     expect(eligibility([...meetings, meeting('m3', [])], 2, ['a'])[0]).toMatchObject({
+      passesOutstanding: 1,
+      retryOutstanding: false,
+    });
+  });
+
+  it('lets a free follow-up Pass resolve an outstanding Retry', () => {
+    const first = call('m1', 'a', 'answered');
+    const events = [
+      first,
+      event('m1', 'a', 'COLD_CALL', { outcome: 'retry', followUpOf: first.id }),
+      event('m1', 'a', 'COLD_CALL', { outcome: 'pass', followUpOf: first.id }),
+    ];
+    const meetings = [meeting('m1', events), meeting('m2', [])];
+    expect(grades(meetings, ['a'], config)[0]).toMatchObject({ passes: 0, opportunities: 1 });
+    expect(eligibility(meetings, 1, ['a'])[0]).toMatchObject({
       passesOutstanding: 0,
       retryOutstanding: false,
     });
-    // A later Pass on a fresh question still counts.
-    const later = [...meetings, meeting('m3', [call('m3', 'a', 'pass')])];
-    expect(grades(later, ['a'], config)[0]).toMatchObject({ passes: 1, opportunities: 2 });
   });
 
   it('does not count a Pass on a follow-up as an opportunity or pass debt', () => {

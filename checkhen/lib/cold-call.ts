@@ -208,9 +208,6 @@ function records(meetings: Meeting[]): Map<string, Record_> {
     }
     return byStudent.get(userId)!;
   };
-  // Students whose outstanding Retry was on a follow-up question. The call that
-  // resolves it is a fresh draw but asks the same stretch question.
-  const followUpRetry = new Set<string>();
   meetings.forEach((meeting, index) => {
     effectiveEvents(meeting.events, meeting).forEach((event, order) => {
       if (!event.userId) {
@@ -218,17 +215,11 @@ function records(meetings: Meeting[]): Map<string, Record_> {
       }
       // A skip changes nothing, so it never enters the record. A Pass on a follow-up
       // (operator decision 2026-10-06) enters as a free call: it is a call for recency
-      // and resolves a Retry, but costs no opportunity and adds no pass debt. A call
-      // that resolves a follow-up Retry asks the same follow-up question.
+      // and resolves a Retry, but costs no opportunity and adds no pass debt. A later
+      // fresh draw that resolves a follow-up Retry is an ordinary call (operator,
+      // 2026-10-06): a Pass on it counts.
       const isCall = event.kind === 'COLD_CALL' && event.payload.outcome !== 'skip';
-      const followUp = !!event.payload.followUpOf || (isCall && followUpRetry.has(event.userId));
-      if (isCall) {
-        if (event.payload.outcome === 'retry' && followUp) {
-          followUpRetry.add(event.userId);
-        } else {
-          followUpRetry.delete(event.userId);
-        }
-      }
+      const followUp = !!event.payload.followUpOf;
       if (isCall && OUTCOMES.includes(event.payload.outcome as ColdCallOutcome)) {
         entry(event.userId).calls.push({
           outcome: event.payload.outcome as ColdCallOutcome,

@@ -30,6 +30,15 @@ Branch: build/m0-m2. Scope: M0 through M5, then M7 and M8.
 - 2026-10-06, operator (review item m3): a Pass on a follow-up question is
   recorded but is neither an opportunity nor pass debt. A follow-up is a
   stretch question: answering earns credit, passing costs nothing.
+- 2026-10-06, operator: a Pass on a follow-up question stays free, including a
+  follow-up Pass that resolves an outstanding Retry. A later fresh draw that
+  resolves a follow-up Retry is an ordinary call: a Pass on it is an
+  opportunity and pass debt. Relayed by AICP.
+- 2026-10-06, operator, help pages: describe exam mode's intended behavior and
+  mark it "being finished; do not use in class yet"; write "a volunteer answer
+  is an acknowledged raised hand" as the rule, to be reviewed in the UI; leave
+  `/admin/analytics` out as legacy. The student grading section and the
+  course-record section are on hold. Relayed by AICP.
 - 2026-10-06, operator: undoing the first call of a follow-up run keeps the
   follow-ups, which stay counted and labeled "(follow-up)". The operator will
   watch whether the case occurs in class. Relayed by AICP.
@@ -930,9 +939,10 @@ cases.
   others keep their saved values. The call screen shows a notice between
   calls, and the course record's notice says saving replaces them.
 
-Waiting on the operator (relayed by AICP): whether a Pass on the later fresh
-draw that resolves a follow-up Retry stays free (556690a), and, depending on
-that, the case where an Absent comes between the Retry and that Pass.
+Decided on 2026-10-06 (see Operator decisions): the Pass on a later fresh draw
+that resolves a follow-up Retry counts as an ordinary Pass. The rule 556690a
+added for it is removed; the free follow-up Pass that resolves a Retry stays.
+The case of an Absent between the Retry and that Pass no longer applies.
 
 Verified on 2026-10-06 (Nimbus): 29 Jest suites and 281 tests in three
 consecutive runs, and `scripts/test-postgres.sh` with 39 route integration
