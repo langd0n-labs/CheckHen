@@ -22,6 +22,7 @@ const kinds: EventKind[] = [
   'SESSION_ENDED',
   'DEVICE_BOUND',
   'DEVICE_UNBOUND',
+  'COLD_CALL',
   'UNDO',
 ];
 type AppendInput = EventScope & {
@@ -61,6 +62,12 @@ export function validatePayload(kind: EventKind, payload: Record<string, unknown
       throw new Error('Invalid exam configuration');
   }
   if (kind === 'EXAM_FAILED') requiredString('examId');
+  if (kind === 'COLD_CALL') {
+    if (!['answered', 'pass', 'retry', 'absent'].includes(payload.outcome as string))
+      throw new Error('Invalid cold-call outcome');
+    if (payload.seed !== undefined && !Number.isInteger(payload.seed))
+      throw new Error('Invalid cold-call seed');
+  }
   if (kind === 'EXAM_ENDED') requiredString('examId');
   if (kind === 'EXAM_EXCUSED') {
     requiredString('examId');

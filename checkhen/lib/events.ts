@@ -18,6 +18,7 @@ export type EventKind =
   | 'SESSION_ENDED'
   | 'DEVICE_BOUND'
   | 'DEVICE_UNBOUND'
+  | 'COLD_CALL'
   | 'UNDO';
 
 export type ParticipationEvent = {

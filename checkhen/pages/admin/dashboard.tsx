@@ -489,6 +489,9 @@ export default function AdminDashboard() {
             >
               My Profile
             </Button>
+            <Button variant="light" onClick={() => router.push('/admin/call')}>
+              Cold call
+            </Button>
             <Button variant="light" onClick={() => router.push('/admin/analytics')}>
               Analytics
             </Button>

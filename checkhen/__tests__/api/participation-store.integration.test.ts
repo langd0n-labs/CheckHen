@@ -12,6 +12,7 @@ import {
 import { prisma } from '@/lib/prisma';
 import { requireScope } from '@/lib/request-scope';
 import { expireSessions } from '@/lib/session-expiry';
+import coldCallRoute from '@/pages/api/admin/cold-call';
 import examRoute from '@/pages/api/admin/exam';
 import fetchAllChat from '@/pages/api/admin/fetch-all-chat';
 import hideChat from '@/pages/api/admin/hide-chat';
@@ -234,6 +235,48 @@ integration('route → store → attendance fold', () => {
     });
   });
 
+  it('draws, records, and undoes a cold call through the event log', async () => {
+    await invoke(checkIn, '172.16.77.20');
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { displayName: 'Alisha', namePronunciation: 'ale-EE-sha' },
+    });
+    (requireScope as jest.Mock).mockResolvedValue({
+      user: { id: 'instructor' },
+      selected,
+      scope,
+      admin: true,
+    });
+    const call = async (method: 'GET' | 'POST', body?: Record<string, unknown>) => {
+      const { req, res } = createMocks({ method, query: scope, body });
+      await coldCallRoute(req as any, res as any);
+      return res;
+    };
+    const drawn = await call('POST', { action: 'draw' });
+    expect(drawn._getStatusCode()).toBe(200);
+    const { seed, student } = drawn._getJSONData();
+    expect(student).toMatchObject({ userId: user.id, name: 'Alisha', pronunciation: 'ale-EE-sha' });
+    const recorded = await call('POST', {
+      action: 'record',
+      userId: user.id,
+      outcome: 'answered',
+      seed,
+    });
+    expect(recorded._getStatusCode()).toBe(200);
+    // Called today with no retry outstanding: no one is left to call.
+    expect((await call('POST', { action: 'draw' }))._getStatusCode()).toBe(409);
+    const callId = recorded._getJSONData().id;
+    expect((await call('POST', { action: 'undo', eventId: callId }))._getStatusCode()).toBe(200);
+    expect((await call('GET'))._getJSONData().calls).toEqual([]);
+    expect((await call('POST', { action: 'draw' }))._getStatusCode()).toBe(200);
+    const events = await readEvents(prisma, scope);
+    expect(events.find((event) => event.id === callId)).toMatchObject({
+      kind: 'COLD_CALL',
+      payload: { outcome: 'answered', seed },
+    });
+    expect(events.find((event) => event.kind === 'UNDO')?.supersedesId).toBe(callId);
+  });
+
   it('hides a stored message and mutes its student without deleting facts', async () => {
     await invoke(checkIn, '172.16.77.20');
     const request = async (handler: typeof checkIn, body: Record<string, unknown>) => {
@@ -305,7 +348,9 @@ integration('route → store → attendance fold', () => {
       });
     }
     (revokeSessionDevices as jest.Mock).mockImplementation(async (selectedScope) => {
-      if (selectedScope.classId === failing.id) throw new Error('Agent unavailable for this class');
+      if (selectedScope.classId === failing.id) {
+        throw new Error('Agent unavailable for this class');
+      }
     });
     const log = jest.spyOn(console, 'error').mockImplementation(() => {});
     try {

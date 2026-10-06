@@ -4,12 +4,12 @@ import '@mantine/notifications/styles.css';
 
 import type { AppProps } from 'next/app';
 import Head from 'next/head';
+import { useRouter } from 'next/router';
 import { SessionProvider } from 'next-auth/react';
 import { MantineProvider } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
-import { theme } from '../theme';
 import { SessionScopePicker } from '@/components/SessionScopePicker';
-import { useRouter } from 'next/router';
+import { theme } from '../theme';
 
 export default function App({ Component, pageProps: { session, ...pageProps } }: AppProps) {
   const router = useRouter();
@@ -25,7 +25,8 @@ export default function App({ Component, pageProps: { session, ...pageProps } }:
           />
           <link rel="shortcut icon" href="/favicon.svg" />
         </Head>
-        {router.pathname !== '/projection' && <SessionScopePicker />}
+        {/* The call screen shows its own compact scope line to keep both taps on one screen. */}
+        {!['/projection', '/admin/call'].includes(router.pathname) && <SessionScopePicker />}
         <Component {...pageProps} />
       </MantineProvider>
     </SessionProvider>

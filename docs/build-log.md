@@ -8,6 +8,10 @@ Branch: build/m0-m2. Scope: M0 through M5, then M7 and M8.
   attendance is optional for that class; M5 exam mode is not needed. Order:
   fix M5 review finding 5, build M7, build M8, then the M5 fix backlog below.
   M6 follows. Relayed by AICP.
+- 2026-10-05: Use the `frontend-design` skill while building the M7 and M8
+  screens. Run `/impeccable audit` on them before each milestone report; fix
+  only findings that affect use in class and list the rest as open items. Do
+  not enable impeccable hooks. Relayed by AICP.
 - 2026-10-03: Use Podman for this build session. Defer Docker testing.
 - 2026-10-03: A configurable test hostname may use fishjump.com, rfkill.dev,
   or rfkill.com. Test hostname: checkhen.rfkill.dev.
@@ -539,3 +543,49 @@ nothing else on it has run.
 Test gaps from the review: the station-list path, the start-timeout path,
 re-fail after excuse, `EXAM_*` through `admin/events`, `iw` failure,
 post-stop cleanup reachability, and heartbeat load against the agent.
+
+## M7 — cold calling: implemented; independent review pending
+
+`lib/cold-call.ts` holds the sampler, eligibility, and grade as pure functions.
+`/admin/call` is the in-class screen (I3): "Call on someone" draws a student and
+shows photo, preferred name, pronunciation, and pronouns; one tap records
+Answered, Pass, Retry, or Absent. Answered is the largest control. Each outcome
+is a `COLD_CALL` event with the draw's seed. Undo writes an `UNDO` event and has
+no time limit; every call of the session is listed with its own undo. Course
+settings live in `Course.config`; missing keys use the brief's defaults.
+
+Interpretations where the brief is silent:
+
+- A volunteer answer is an acknowledged raised hand (`HAND_ACKNOWLEDGED`).
+  "The student volunteered" means a hand was acknowledged in this meeting.
+- `passes_outstanding` counts passes since the student's last Answered call.
+- An Absent outcome makes the student ineligible for the rest of the meeting.
+  It does not count as being called for recency or retry.
+- `sessions_since_called` counts meetings since the last call. For a student
+  never called, it counts all earlier meetings.
+- A meeting is a class session of the course that has started.
+- Projected answers use cold-call answers only; volunteer answers are capped by
+  `A`, which depends on the projection. With `term_meetings` unset, the
+  projection uses the meetings held so far.
+- A score with no opportunities is empty, or 1 when counted volunteer answers
+  exist.
+- Only the outcome is recorded. A draw with no outcome leaves no event.
+
+| M7 acceptance check | Result |
+| --- | --- |
+| Seeded replay gives identical selections; input order does not change the result; weights match the formula for each factor | PASS: `__tests__/lib/cold-call.test.ts` replays 50 draws per seed, compares 200 seeds across reversed input, checks each factor, the product, the minimum and non-finite weights, and a 20,000-draw proportion. |
+| `A`, volunteer cap, and score match hand-computed examples, including the bounds of `A` | PASS: a four-student, four-meeting class computed by hand (A = 3, cap = 2), clamping to `A_max` and `A_min`, before the first meeting, and a capped volunteer case. |
+| I3 completes Call → Answered in two taps | PASS: `__tests__/pages/cold-call.test.tsx` taps "Call on someone" then "Answered", checks exactly two requests and no dialog. The PostgreSQL route test draws, records, refuses a second draw for an answered student, undoes, and draws again. |
+
+Verification on 2026-10-05 (Nimbus): TypeScript, ESLint on the new files,
+25 Jest suites and 227 tests, and `scripts/test-postgres.sh` (10 route
+integration cases, including the cold-call case; migration with the new
+`COLD_CALL` kind), and a Next.js production build.
+
+`/impeccable audit` of `/admin/call`: the detector reported no findings. Fixed
+for class use: low-contrast Retry and Answered buttons, a Dashboard link and an
+Undo button under 44 px, and a fixed dark-gray pronunciation that failed in dark
+mode. Open: no `PRODUCT.md` or `DESIGN.md`; sizes are fixed pixels instead of
+theme tokens; the screen has not been checked on a physical phone; the I3 PWA
+manifest and the other I3 features (attendance, hands, pace, moderation, exam
+control) remain on the dashboard.

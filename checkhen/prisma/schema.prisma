@@ -126,6 +126,8 @@ model PaceSignal {
 model Course {
   id String @id @default(uuid())
   name String
+  // Cold-call and grade settings; missing keys use the defaults in lib/cold-call.ts.
+  config Json @default("{}")
   createdAt DateTime @default(now())
   classes Class[]
   templates ClassTemplate[]
