@@ -56,6 +56,8 @@ async function main() {
   const url = process.env.TEST_SOCKET_URL || 'http://localhost:6061';
   const first = io(url, { transports: ['websocket'], auth: { ticket: ticket(courseA.id, a.id) } });
   const second = io(url, { transports: ['websocket'], auth: { ticket: ticket(courseB.id, b.id) } });
+  // The same student on a second device in the same session.
+  const twin = io(url, { transports: ['websocket'], auth: { ticket: ticket(courseA.id, a.id) } });
   const projectionPayload = Buffer.from(
     JSON.stringify({
       courseId: courseA.id,
@@ -75,7 +77,12 @@ async function main() {
       socket.once('connect_error', reject);
     });
   try {
-    await Promise.all([connected(first), connected(second), connected(projection)]);
+    await Promise.all([
+      connected(first),
+      connected(second),
+      connected(twin),
+      connected(projection),
+    ]);
     first.emit('exam-heartbeat', { userId: 'forged', courseId: courseB.id, classId: b.id });
     projection.emit('exam-heartbeat');
     for (let retry = 0; retry < 30 && heartbeatRequests.length === 0; retry += 1) {
@@ -96,6 +103,15 @@ async function main() {
     for (let burst = 0; burst < 5; burst += 1) first.emit('exam-heartbeat');
     await new Promise((resolve) => setTimeout(resolve, 500));
     assert.equal(heartbeatRequests.length, 1);
+    // After the interval, two sockets of one student together forward one heartbeat:
+    // the limit is per student, not per socket.
+    await new Promise((resolve) => setTimeout(resolve, 4000));
+    for (let burst = 0; burst < 3; burst += 1) {
+      first.emit('exam-heartbeat');
+      twin.emit('exam-heartbeat');
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    assert.equal(heartbeatRequests.length, 2);
     let aEvents = 0;
     let bEvents = 0;
     first.on('fetch-messages', () => {
@@ -186,6 +202,7 @@ async function main() {
   } finally {
     first.disconnect();
     second.disconnect();
+    twin.disconnect();
     projection.disconnect();
     await new Promise<void>((resolve, reject) =>
       agent.close((error) => (error ? reject(error) : resolve()))

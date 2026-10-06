@@ -568,10 +568,16 @@ nothing else on it has run.
 11. Fails disappear from the instructor view after the exam ends.
 12. `docs/network-filtering.md` describes the old Pi and iptables design.
 
-Test gaps from the `7e3b844` review (approved for Thursday): a UI test for the
-exam-start confirmation; a browser test that an ordinary class sends no exam
-heartbeats; a socket test with several sockets for one student; an agent test
-that the monitor and heartbeat early returns leave the exam chains empty.
+Test gaps from the `7e3b844` review: closed on 2026-10-06.
+- `__tests__/pages/admin-dashboard.test.tsx`: declining the exam-start
+  confirmation sends nothing; accepting sends the start with the allowlist.
+- `__tests__/pages/student-heartbeat.test.tsx`: a checked-in student in an
+  ordinary class emits no exam heartbeat over 30 s of simulated time, then
+  starts once exam status turns active. It fails if the exam gate is removed.
+- `scripts/test-socket-isolation.ts`: two sockets of one student forward one
+  heartbeat per interval between them.
+- `test_exam.py` and `test_agent.py`: with no exam running, the monitor and
+  a heartbeat run no nft, DNS, or callback work and create no exam state.
 
 Test gaps from the `738ea01` review: the station-list path, the start-timeout path,
 re-fail after excuse, `EXAM_*` through `admin/events`, `iw` failure,

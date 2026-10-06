@@ -58,6 +58,21 @@ class ExamTests(unittest.TestCase):
         state["clients"]["student"]["lastHeartbeat"] = 139
         self.assertTrue(exam.connection_status(state, set(), 140)[0]["connected"])
 
+    def test_ordinary_class_never_touches_the_exam_gate(self):
+        # With no exam running, the monitor and a heartbeat return before any nft,
+        # DNS, or callback work, so the exam chains stay empty.
+        with patch.object(exam.subprocess, "run") as run, patch.object(exam, "os") as os_mock, \
+             patch.object(exam, "notify_fail") as notify, \
+             patch.object(exam.socket, "getaddrinfo") as resolve:
+            self.assertEqual(exam.monitor({"02:00:00:00:00:20"}, "secret", "http://callback", 1000), [])
+            exam.heartbeat({"courseId": "course", "classId": "class"}, "student", 1000)
+        run.assert_not_called()
+        os_mock.kill.assert_not_called()
+        notify.assert_not_called()
+        resolve.assert_not_called()
+        self.assertFalse(exam.EXAM.exists())
+        self.assertFalse(exam.DNS_SERVERS.exists())
+
     def test_failed_callback_retries_without_losing_fail_state(self):
         state = {"courseId": "course", "classId": "class", "examId": "exam",
                  "domains": ["exam.example.edu"], "refreshedAt": 1000, "thresholdSeconds": 30,

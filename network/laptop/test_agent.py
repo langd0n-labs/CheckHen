@@ -93,6 +93,18 @@ class AgentTests(unittest.TestCase):
             self.lease("02:00:00:00:00:21")
             self.assertEqual(self.request("bind"), 403)
 
+    def test_heartbeat_without_an_exam_leaves_the_exam_gate_alone(self):
+        scope = {"courseId": "course", "classId": "class", "userId": "student",
+                 "timestamp": int(time.time() * 1000)}
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(exam, "EXAM", Path(directory) / "exam.json"), \
+             patch.object(exam.subprocess, "run") as run:
+            self.assertEqual(self.request("exam-heartbeat", scope), 200)
+            self.assertFalse(exam.EXAM.exists())
+        run.assert_not_called()
+        self.nft.assert_not_called()
+        self.nft6.assert_not_called()
+
     def test_outside_subnet_and_missing_lease(self):
         self.assertEqual(self.request("bind", {"courseId": "course", "classId": "class",
                                                "userId": "student", "ip": "192.0.2.20",
