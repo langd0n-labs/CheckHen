@@ -6,13 +6,17 @@ import { theme } from '../../theme';
 
 type Posted = Record<string, unknown>;
 
-function mockServer(fail: { record?: number; status?: boolean } = {}) {
+function mockServer(fail: { record?: number; status?: boolean; offline?: boolean } = {}) {
   const posted: Posted[] = [];
   let calls: unknown[] = [];
   global.fetch = jest.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
     const body = init?.body ? (JSON.parse(String(init.body)) as Posted) : null;
     if (!body && fail.status) {
       return { ok: false, status: 500, json: async () => ({}) } as Response;
+    }
+    if (body?.action === 'record' && fail.offline) {
+      posted.push(body);
+      throw new TypeError('Failed to fetch');
     }
     if (body?.action === 'record' && fail.record) {
       posted.push(body);
@@ -210,4 +214,45 @@ it('starts a follow-up after a plain Answered, and undoes a follow-up from the r
     ])
   );
   expect(await screen.findByRole('button', { name: 'Call on someone' })).toBeInTheDocument();
+});
+
+it('keeps the card after a server error and says so at the top of the screen', async () => {
+  const show = jest.spyOn(notifications, 'show');
+  mockServer({ record: 500 });
+  render(
+    <MantineProvider theme={theme}>
+      <ColdCall />
+    </MantineProvider>
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Call on someone' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Answered' }));
+  await waitFor(() =>
+    expect(show).toHaveBeenCalledWith(expect.objectContaining({ position: 'top-center' }))
+  );
+  // A server error may pass, so the same card stays for another tap.
+  expect(screen.getByText('Alisha Moreno')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Answered' })).toBeEnabled();
+  show.mockRestore();
+});
+
+it('keeps the card and explains when the server cannot be reached', async () => {
+  const show = jest.spyOn(notifications, 'show');
+  mockServer({ offline: true });
+  render(
+    <MantineProvider theme={theme}>
+      <ColdCall />
+    </MantineProvider>
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Call on someone' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Answered' }));
+  await waitFor(() =>
+    expect(show).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Could not reach CheckHen. Check the connection, then try again.',
+        position: 'top-center',
+      })
+    )
+  );
+  expect(screen.getByText('Alisha Moreno')).toBeInTheDocument();
+  show.mockRestore();
 });

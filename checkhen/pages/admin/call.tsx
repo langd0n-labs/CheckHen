@@ -52,20 +52,24 @@ export default function ColdCall() {
   const [present, setPresent] = useState(0);
   const [busy, setBusy] = useState(false);
 
+  /** Null when the server cannot be reached. */
   const post = (body: Record<string, unknown>) =>
     scopedFetch('/api/admin/cold-call', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    });
+    }).catch(() => null);
+
+  // Top-center, so a notice never covers "Call on someone" at the bottom of a phone.
+  const notify = (message: string) =>
+    notifications.show({ message, color: 'red', position: 'top-center' });
+  const unreachable = () =>
+    notify('Could not reach CheckHen. Check the connection, then try again.');
 
   const refresh = useCallback(async () => {
     const response = await scopedFetch('/api/admin/cold-call').catch(() => null);
     if (!response?.ok) {
-      notifications.show({
-        message: "Could not load this session's calls. Check the connection, then reopen the page.",
-        color: 'red',
-      });
+      notify("Could not load this session's calls. Check the connection, then reopen the page.");
       return;
     }
     const data = await response.json();
@@ -83,14 +87,16 @@ export default function ColdCall() {
 
   const fail = async (response: Response, fallback: string) => {
     const body = await response.json().catch(() => ({}));
-    notifications.show({ message: body.message || fallback, color: 'red' });
+    notify(body.message || fallback);
   };
 
   const draw = async () => {
     setBusy(true);
     try {
       const response = await post({ action: 'draw' });
-      if (response.ok) {
+      if (!response) {
+        unreachable();
+      } else if (response.ok) {
         const data = await response.json();
         setStudent({ ...data.student, token: data.draw, followUp: false, followUps: 0 });
         // A new draw ends the chance to follow up the previous call.
@@ -115,7 +121,10 @@ export default function ColdCall() {
         [student.followUp ? 'followUp' : 'draw']: student.token,
         next,
       });
-      if (response.ok) {
+      if (!response) {
+        // Keep the card: the same tap can succeed once the connection is back.
+        unreachable();
+      } else if (response.ok) {
         const data = await response.json();
         const nextCard: Card | null = data.followUp
           ? {
@@ -132,8 +141,11 @@ export default function ColdCall() {
         await refresh();
       } else {
         // A refused record (a newer draw on another phone, or a stale card) cannot
-        // succeed on retry: clear the card so the instructor can call again.
-        setStudent(null);
+        // succeed on retry: clear the card so the instructor can call again. A server
+        // error may be transient, so the card stays for another tap.
+        if (response.status === 400 || response.status === 409) {
+          setStudent(null);
+        }
         await fail(response, 'Could not record the outcome');
         await refresh();
       }
@@ -144,7 +156,9 @@ export default function ColdCall() {
 
   const undo = async (eventId: string) => {
     const response = await post({ action: 'undo', eventId });
-    if (response.ok) {
+    if (!response) {
+      unreachable();
+    } else if (response.ok) {
       // An undone call cannot be followed up.
       setLastAnswered((previous) => (previous?.callId === eventId ? null : previous));
       await refresh();

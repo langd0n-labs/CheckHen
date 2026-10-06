@@ -703,8 +703,9 @@ Both reviews approve for Thursday after these fixes, which are done:
 - The call screen clears the student card when a record or Skip is refused
   (400 or 409), so a stale card on a second phone cannot block calling. A
   failed call-list request shows a notice.
-- The follow-up indicator is a high-contrast badge, readable on a projector,
-  with the follow-up count ("Follow-up 2").
+- The follow-up indicator is a high-contrast badge with the follow-up count
+  ("Follow-up 2"). (The call screen is not designed for projection; see the
+  2026-10-06 operator decision.)
 
 Verification on 2026-10-06 (Nimbus): 26 Jest suites and 249 tests, and
 `scripts/test-postgres.sh` with 22 route integration cases. The new B1 case
@@ -796,8 +797,7 @@ both CSV exports), and a Next.js production build.
 no findings. Fixed: the course record showed a blank page while loading, and an
 empty score was an unlabeled dash. Open: settings fields revert silently when
 cleared (other than meetings in the term); fixed pixel widths in the absences
-list; no `PRODUCT.md` or `DESIGN.md`; not checked in a browser on a phone or a
-projector.
+list; no `PRODUCT.md` or `DESIGN.md`; not checked in a browser on a phone.
 
 ### M8 review (f513b5e): major fixes
 
@@ -838,3 +838,18 @@ debt (review m6, rare); fixed pixel widths in the absences list (m9).
 
 Verified on 2026-10-06 (Nimbus): 28 Jest suites and 269 tests, and
 `scripts/test-postgres.sh` with 30 route integration cases.
+
+### M8 review (f513b5e): call screen and wording
+
+- The call screen clears the card only when a record is refused (400 or 409).
+  After a server error, or when the server cannot be reached, the card stays
+  for another tap and a notice explains. Draw and undo also show a notice when
+  the server cannot be reached.
+- Call-screen notices appear at the top center, so they do not cover "Call on
+  someone" on a phone.
+- The build log no longer describes the follow-up badge as readable on a
+  projector, in line with the 2026-10-06 decision on I3.
+
+Verified on 2026-10-06 (Nimbus): 28 Jest suites and 271 tests, a Next.js
+production build, and the impeccable detector on `/admin/call` and
+`/admin/course` (no findings).
