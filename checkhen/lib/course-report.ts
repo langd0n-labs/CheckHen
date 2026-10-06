@@ -1,6 +1,6 @@
 /** I4 course record: attendance, participation, grade, and exam events from the event log. */
 import { grades, type ColdCallConfig, type Meeting } from './cold-call';
-import { effectiveEvents, foldEvents } from './events';
+import { effectiveEvents } from './events';
 
 export type SessionMeta = { classId: string; name: string; startedAt: Date };
 export type RosterStudent = { userId: string; name: string; email: string };
@@ -126,12 +126,17 @@ export function courseReport(
         });
       }
     }
-    const fails = foldEvents(meeting.events, meeting).examFails;
-    for (const fail of fails) {
-      const entry = examFails.get(fail.userId) ?? { fails: 0, excused: 0 };
-      entry.fails += 1;
-      entry.excused += fail.excused ? 1 : 0;
-      examFails.set(fail.userId, entry);
+    // Count fails across every exam in the meeting. An excuse supersedes its fail,
+    // so each fail appears once: as EXAM_FAILED, or as EXAM_EXCUSED once excused.
+    let fails = 0;
+    for (const event of effective) {
+      if (event.userId && (event.kind === 'EXAM_FAILED' || event.kind === 'EXAM_EXCUSED')) {
+        const entry = examFails.get(event.userId) ?? { fails: 0, excused: 0 };
+        entry.fails += 1;
+        entry.excused += event.kind === 'EXAM_EXCUSED' ? 1 : 0;
+        examFails.set(event.userId, entry);
+        fails += 1;
+      }
     }
     sessionRows.push({
       classId: meeting.classId,
@@ -142,7 +147,7 @@ export function courseReport(
       answers,
       absences: absent,
       volunteerAnswers: volunteers,
-      examFails: fails.length,
+      examFails: fails,
     });
   });
 

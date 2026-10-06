@@ -798,3 +798,18 @@ empty score was an unlabeled dash. Open: settings fields revert silently when
 cleared (other than meetings in the term); fixed pixel widths in the absences
 list; no `PRODUCT.md` or `DESIGN.md`; not checked in a browser on a phone or a
 projector.
+
+### M8 review (f513b5e): major fixes
+
+- M1: an excuse can be undone. The Absences tab has "Undo excuse"; the route
+  writes an `UNDO` on the excuse, so the Absent call is in force again and
+  counts. Excuse and undo checks now ask whether an event is in force
+  (`isEffective`), not whether anything ever superseded it, so an absence whose
+  excuse was undone can be excused again.
+- M2: exam fails are counted from every exam in a meeting. The attendance fold
+  keeps only the latest exam's fails, so the course record now reads
+  `EXAM_FAILED` and `EXAM_EXCUSED` from the log directly.
+
+Verified on 2026-10-06 (Nimbus): 28 Jest suites and 264 tests, and
+`scripts/test-postgres.sh` with 30 route integration cases (adds: excuse, undo
+excuse, refused second undo, and a new excuse).

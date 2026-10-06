@@ -128,6 +128,37 @@ describe('course report', () => {
   });
 });
 
+it('counts exam fails from every exam in a meeting', () => {
+  const first = event('m1', 'a', 'EXAM_FAILED', { examId: 'exam-1' });
+  const second = event('m1', 'a', 'EXAM_FAILED', { examId: 'exam-2' });
+  const meeting: Meeting = {
+    courseId: 'course',
+    classId: 'm1',
+    events: [
+      checkIn('m1', 'a'),
+      event('m1', null, 'EXAM_STARTED', {
+        examId: 'exam-1',
+        domains: ['x.edu'],
+        thresholdSeconds: 30,
+      }),
+      first,
+      event('m1', null, 'EXAM_ENDED', { examId: 'exam-1' }),
+      event('m1', null, 'EXAM_STARTED', {
+        examId: 'exam-2',
+        domains: ['x.edu'],
+        thresholdSeconds: 30,
+      }),
+      second,
+      event('m1', 'b', 'EXAM_FAILED', { examId: 'exam-2' }),
+      event('m1', 'a', 'EXAM_EXCUSED', { examId: 'exam-1', reason: 'AP outage' }, first.id),
+    ],
+  };
+  const report = courseReport([meeting], sessions.slice(0, 1), roster, DEFAULT_CONFIG);
+  expect(report.students[0]).toMatchObject({ examFails: 2, examFailsExcused: 1 });
+  expect(report.students[1]).toMatchObject({ examFails: 1, examFailsExcused: 0 });
+  expect(report.sessions[0].examFails).toBe(3);
+});
+
 describe('CSV export', () => {
   const exportedAt = new Date('2026-10-06T12:00:00Z');
   const config = { ...DEFAULT_CONFIG, term_meetings: 26 };

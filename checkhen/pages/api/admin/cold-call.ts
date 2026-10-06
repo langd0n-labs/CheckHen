@@ -11,7 +11,7 @@ import {
   type ColdCallOutcome,
   type Meeting,
 } from '@/lib/cold-call';
-import { appendEvent, asEvent, ConflictError, readState } from '@/lib/event-store';
+import { appendEvent, asEvent, ConflictError, isEffective, readState } from '@/lib/event-store';
 import { effectiveEvents, foldEvents, type EventScope } from '@/lib/events';
 import { prisma } from '@/lib/prisma';
 import { requireScope } from '@/lib/request-scope';
@@ -195,10 +195,7 @@ async function linkedCheckOut(
   const linked = checkOuts.find(
     (event) => (event.payload as { coldCallId?: string }).coldCallId === call.id
   );
-  if (
-    !linked ||
-    (await tx.participationEvent.findFirst({ where: { ...scope, supersedesId: linked.id } }))
-  ) {
+  if (!linked || !(await isEffective(tx, scope, linked.id))) {
     return null;
   }
   return linked;
@@ -347,9 +344,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         kind: 'UNDO',
         supersedesId: target.id,
         guard: async (tx) => {
-          if (
-            await tx.participationEvent.findFirst({ where: { ...scope, supersedesId: target.id } })
-          ) {
+          if (!(await isEffective(tx, scope, target.id))) {
             throw new ConflictError('Call already undone or excused');
           }
         },

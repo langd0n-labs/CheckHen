@@ -57,6 +57,16 @@ const payload = {
         excused: false,
         reason: null,
       },
+      {
+        callId: 'call-10',
+        classId: 'm1',
+        sessionName: 'Week 1',
+        startedAt: '2026-09-01T14:00:00Z',
+        userId: 'ada',
+        name: 'Ada',
+        excused: true,
+        reason: 'Nurse visit',
+      },
     ],
   },
 };
@@ -141,5 +151,17 @@ it('saves settings without offering A as a setting', async () => {
       action: 'config',
       config: expect.objectContaining({ term_meetings: 28, ratio: 0.7 }),
     })
+  );
+});
+
+it('undoes an excuse', async () => {
+  view();
+  fireEvent.click(await screen.findByRole('tab', { name: /Absences/ }));
+  expect(await screen.findByText('Excused: Nurse visit')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Undo excuse' }));
+  await waitFor(() =>
+    expect(posted).toEqual([
+      { courseId: 'course-1', action: 'unexcuse', classId: 'm1', callId: 'call-10' },
+    ])
   );
 });

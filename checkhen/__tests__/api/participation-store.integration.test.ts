@@ -705,6 +705,29 @@ integration('route → store → attendance fold', () => {
         );
       });
 
+      it('undoes an excuse so the absence counts again, and allows a new excuse', async () => {
+        const kai = await student('Kai');
+        const callId = (await record((await draw()).draw, 'absent'))._getJSONData().id;
+        const post = (action: string, reason?: string) =>
+          report('POST', { action, classId: scope.classId, callId, reason });
+        const row = async () =>
+          (await report('GET'))
+            ._getJSONData()
+            .report.students.find((r: any) => r.userId === kai.id);
+        expect((await post('unexcuse'))._getStatusCode()).toBe(404);
+        expect((await post('excuse', 'Nurse visit'))._getStatusCode()).toBe(200);
+        expect(await row()).toMatchObject({ absences: 0, excusedAbsences: 1, opportunities: 0 });
+        expect((await post('unexcuse'))._getStatusCode()).toBe(200);
+        expect(await row()).toMatchObject({ absences: 1, excusedAbsences: 0, opportunities: 1 });
+        expect((await post('unexcuse'))._getStatusCode()).toBe(409);
+        // The absence is in force again, so it can be excused again.
+        expect((await post('excuse', 'Doctor note'))._getStatusCode()).toBe(200);
+        expect(await row()).toMatchObject({ absences: 0, excusedAbsences: 1 });
+        const events = await readEvents(prisma, scope);
+        expect(events.filter((event) => event.kind === 'COLD_CALL_EXCUSED')).toHaveLength(2);
+        expect(events.find((event) => event.id === callId)?.kind).toBe('COLD_CALL');
+      });
+
       it('saves only valid settings and stamps them on every CSV row', async () => {
         await student('Fay');
         const saved = await report('POST', {

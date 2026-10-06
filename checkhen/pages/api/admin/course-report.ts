@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { DEFAULT_CONFIG, resolveConfig, type ColdCallConfig, type Meeting } from '@/lib/cold-call';
 import { courseReport, sessionsCsv, studentsCsv } from '@/lib/course-report';
-import { appendEvent, asEvent, ConflictError } from '@/lib/event-store';
+import { appendEvent, asEvent, ConflictError, isEffective } from '@/lib/event-store';
 import { prisma } from '@/lib/prisma';
 import { requireIdentity } from '@/lib/request-scope';
 
@@ -138,10 +138,42 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         payload: { reason: reason.trim() },
         supersedesId: call.id,
         guard: async (tx) => {
-          if (
-            await tx.participationEvent.findFirst({ where: { ...scope, supersedesId: call.id } })
-          ) {
+          // An absence whose excuse was undone counts again and may be excused again.
+          if (!(await isEffective(tx, scope, call.id))) {
             throw new ConflictError('This absence is already excused or undone');
+          }
+        },
+      });
+    } catch (error) {
+      if (error instanceof ConflictError) {
+        return res.status(409).json({ message: error.message });
+      }
+      throw error;
+    }
+    return res.json({ ok: true });
+  }
+
+  if (req.body?.action === 'unexcuse') {
+    const { classId, callId } = req.body;
+    const scope = { courseId: course.id, classId: String(classId) };
+    const excuses = await prisma.participationEvent.findMany({
+      where: { ...scope, kind: 'COLD_CALL_EXCUSED', supersedesId: String(callId) },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    });
+    if (!excuses.length) {
+      return res.status(404).json({ message: 'Excuse not found' });
+    }
+    try {
+      // The UNDO supersedes the excuse, so the Absent call is in force again.
+      await appendEvent(prisma, {
+        ...scope,
+        actorId: identity.user.id,
+        userId: excuses[0].userId,
+        kind: 'UNDO',
+        supersedesId: excuses[0].id,
+        guard: async (tx) => {
+          if (!(await isEffective(tx, scope, excuses[0].id))) {
+            throw new ConflictError('This excuse is already undone');
           }
         },
       });

@@ -286,7 +286,25 @@ export default function CourseRecord() {
                     {absence.name}
                   </Text>
                   {absence.excused ? (
-                    <Text>Excused: {absence.reason}</Text>
+                    <Group gap="xs">
+                      <Text>Excused: {absence.reason}</Text>
+                      <Button
+                        variant="subtle"
+                        disabled={busy}
+                        onClick={() =>
+                          post(
+                            {
+                              action: 'unexcuse',
+                              classId: absence.classId,
+                              callId: absence.callId,
+                            },
+                            'Excuse undone; the absence counts again'
+                          )
+                        }
+                      >
+                        Undo excuse
+                      </Button>
+                    </Group>
                   ) : (
                     <Group gap="xs">
                       <TextInput

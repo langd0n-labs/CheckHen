@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { generateUniqueAnonymousName } from './anonymousNames';
-import { EventKind, EventScope, foldEvents, ParticipationEvent } from './events';
+import { effectiveEvents, EventKind, EventScope, foldEvents, ParticipationEvent } from './events';
 
 const kinds: EventKind[] = [
   'CHECK_IN',
@@ -41,6 +41,19 @@ type AppendInput = EventScope & {
 
 /** A guard refused an append because the session state changed. */
 export class ConflictError extends Error {}
+
+/** True when the event is in force: no superseder that is itself in force names it. */
+export async function isEffective(
+  db: PrismaClient | Prisma.TransactionClient,
+  scope: EventScope,
+  id: string
+): Promise<boolean> {
+  const events = await db.participationEvent.findMany({
+    where: { courseId: scope.courseId, classId: scope.classId },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+  });
+  return effectiveEvents(events.map(asEvent), scope).some((event) => event.id === id);
+}
 
 export function validatePayload(kind: EventKind, payload: Record<string, unknown>) {
   if (!kinds.includes(kind)) throw new Error('Unknown event kind');
