@@ -207,6 +207,28 @@ describe('eligibility', () => {
     expect(eligibility([meeting('m1', events)], 0, ['a'])[0].eligible).toBe(true);
   });
 
+  it('does not count a Pass on a follow-up as an opportunity or pass debt', () => {
+    const first = call('m1', 'a', 'answered');
+    const events = [
+      first,
+      event('m1', 'a', 'COLD_CALL', { outcome: 'pass', followUpOf: first.id }),
+    ];
+    const meetings = [meeting('m1', events), meeting('m2', [])];
+    expect(grades(meetings.slice(0, 1), ['a'], config)[0]).toMatchObject({
+      answers: 1,
+      passes: 0,
+      opportunities: 1,
+      score: 1,
+    });
+    expect(eligibility(meetings, 1, ['a'])[0]).toMatchObject({
+      passesOutstanding: 0,
+      retryOutstanding: false,
+    });
+    // A Pass on a fresh call still counts.
+    const fresh = [meeting('m1', [first, call('m1', 'a', 'pass')])];
+    expect(grades(fresh, ['a'], config)[0]).toMatchObject({ passes: 1, opportunities: 2 });
+  });
+
   it('treats a skip as if the call never happened', () => {
     const result = eligibility([meeting('m1', [call('m1', 'a', 'skip')])], 0, ['a']);
     expect(result[0]).toMatchObject({ eligible: true, calledToday: false, neverCalled: true });

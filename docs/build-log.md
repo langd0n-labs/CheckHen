@@ -27,6 +27,9 @@ Branch: build/m0-m2. Scope: M0 through M5, then M7 and M8.
   - Retry is the same question asked again later; the instructor records the
     outcome once it resolves.
   - No separate wrong-answer outcome: an attempt is Answered.
+- 2026-10-06, operator (review item m3): a Pass on a follow-up question is
+  recorded but is neither an opportunity nor pass debt. A follow-up is a
+  stretch question: answering earns credit, passing costs nothing.
 - 2026-10-06, operator: a Retry student comes back by chance, at the retry
   weight, until user testing says otherwise. No call-back control.
 - 2026-10-06, operator: the call screen (I3) is the instructor's private phone
@@ -718,8 +721,9 @@ Open after M8, from these reviews, in this order:
    event yet; rename or extend the two-phone test so it also covers the
    "already recorded" path; a test with a draw and a record at the same time.
 
-Waiting on the operator: whether a Pass on a follow-up should lower the score
-and raise the next-meeting weight (review item m3).
+Review item m3 is decided (see Operator decisions, 2026-10-06): a Pass on a
+follow-up neither lowers the score nor adds pass debt. Implemented; verified
+by 28 Jest suites and 260 tests and 24 route integration cases.
 
 ## M8 — analytics and scoring: implemented; independent review pending
 

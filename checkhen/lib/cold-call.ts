@@ -148,10 +148,14 @@ function records(meetings: Meeting[]): Map<string, Record_> {
       if (!event.userId) {
         return;
       }
-      // A skip changes nothing, so it never enters the record.
+      // A skip changes nothing, so it never enters the record. Neither does a Pass on
+      // a follow-up (operator decision 2026-10-06): a stretch question earns credit
+      // when answered and costs nothing when passed.
+      const followUpPass = event.payload.outcome === 'pass' && !!event.payload.followUpOf;
       if (
         event.kind === 'COLD_CALL' &&
         event.payload.outcome !== 'skip' &&
+        !followUpPass &&
         OUTCOMES.includes(event.payload.outcome as ColdCallOutcome)
       ) {
         entry(event.userId).calls.push({
