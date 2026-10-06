@@ -1,4 +1,5 @@
 import {
+  courseConfig,
   DEFAULT_CONFIG,
   eligibility,
   grades,
@@ -340,6 +341,17 @@ describe('participation grade', () => {
 });
 
 describe('configuration', () => {
+  it('falls back to defaults and reports the problem for unusable saved settings', () => {
+    expect(courseConfig({ A_min: 0, A_max: 0, ratio: 0.5 })).toEqual({
+      config: DEFAULT_CONFIG,
+      problem: 'The lowest and highest A must be whole numbers of at least 1',
+    });
+    expect(courseConfig({ ratio: 0.5 })).toEqual({
+      config: { ...DEFAULT_CONFIG, ratio: 0.5 },
+      problem: null,
+    });
+  });
+
   it('falls back to defaults key by key', () => {
     expect(resolveConfig(null)).toEqual(DEFAULT_CONFIG);
     expect(

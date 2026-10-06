@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
+  Alert,
   Anchor,
   Badge,
   Box,
@@ -25,6 +26,7 @@ type Payload = {
   course: { id: string; name: string };
   config: ColdCallConfig;
   defaults: ColdCallConfig;
+  configProblem?: string | null;
   report: CourseReport;
 };
 
@@ -175,6 +177,12 @@ export default function CourseRecord() {
         </Group>
       </Group>
 
+      {data.configProblem && (
+        <Alert color="red" mb="md" title="Saved settings could not be used">
+          {data.configProblem}. The default settings are in force until valid settings are saved in
+          the Settings tab.
+        </Alert>
+      )}
       <Tabs defaultValue="students">
         <Tabs.List mb="md">
           <Tabs.Tab value="students">Students</Tabs.Tab>
@@ -205,7 +213,6 @@ export default function CourseRecord() {
                     <Table.Th ta="right">Answers</Table.Th>
                     <Table.Th ta="right">Passes</Table.Th>
                     <Table.Th ta="right">Absences</Table.Th>
-                    <Table.Th ta="right">Excused</Table.Th>
                     <Table.Th ta="right">Volunteered</Table.Th>
                     <Table.Th ta="right">Opportunities</Table.Th>
                     <Table.Th ta="right">Score</Table.Th>
@@ -256,8 +263,9 @@ export default function CourseRecord() {
 
         <Tabs.Panel value="sessions">
           <Text mb="sm" c="dimmed">
-            Questions include follow-ups. A Pass on a follow-up is a question but not an
-            opportunity, so these totals can exceed the students&apos; opportunities.
+            Questions include follow-ups. Three kinds of question are not opportunities: a Pass on a
+            follow-up, a Retry, and an excused absence. So these totals can exceed the
+            students&apos; opportunities.
           </Text>
           {report.sessions.length ? (
             <Table.ScrollContainer minWidth={720}>
@@ -271,6 +279,7 @@ export default function CourseRecord() {
                     <Table.Th ta="right">Answers</Table.Th>
                     <Table.Th ta="right">Volunteered</Table.Th>
                     <Table.Th ta="right">Absences</Table.Th>
+                    <Table.Th ta="right">Excused</Table.Th>
                     <Table.Th ta="right">Exam fails</Table.Th>
                   </Table.Tr>
                 </Table.Thead>

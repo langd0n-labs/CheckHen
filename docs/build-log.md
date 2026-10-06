@@ -30,6 +30,9 @@ Branch: build/m0-m2. Scope: M0 through M5, then M7 and M8.
 - 2026-10-06, operator (review item m3): a Pass on a follow-up question is
   recorded but is neither an opportunity nor pass debt. A follow-up is a
   stretch question: answering earns credit, passing costs nothing.
+- 2026-10-06, operator: undoing the first call of a follow-up run keeps the
+  follow-ups, which stay counted and labeled "(follow-up)". The operator will
+  watch whether the case occurs in class. Relayed by AICP.
 - 2026-10-06, operator: a Retry student comes back by chance, at the retry
   weight, until user testing says otherwise. No call-back control.
 - 2026-10-06, operator: the call screen (I3) is the instructor's private phone
@@ -856,3 +859,21 @@ Verified on 2026-10-06 (Nimbus): 28 Jest suites and 269 tests, and
 Verified on 2026-10-06 (Nimbus): 28 Jest suites and 271 tests, a Next.js
 production build, and the impeccable detector on `/admin/call` and
 `/admin/course` (no findings).
+
+### Course record review (b658301, 1e6b7bd) fixes
+
+- F1 (major, my error in 1e6b7bd): the "Excused" header went into the Students
+  table and its cell into the Sessions table, so both tables showed values
+  under the wrong headers. The header is now in the Sessions table. A page
+  test maps every header to the cell under it in both tables; it fails on the
+  old layout.
+- F2: the Sessions note names all three questions that are not opportunities:
+  a Pass on a follow-up, a Retry, and an excused absence.
+- F3: settings keys are checked with `Object.hasOwn`, so names such as
+  `toString` or `__proto__` are refused.
+- F4: saved settings are checked when read (`courseConfig`). Settings saved
+  before validation that break the grade fall back to the defaults, and the
+  course record shows the problem.
+
+Verified on 2026-10-06 (Nimbus): 28 Jest suites and 274 tests, and
+`scripts/test-postgres.sh` with 33 route integration cases.

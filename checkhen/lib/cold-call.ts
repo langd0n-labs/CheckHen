@@ -89,6 +89,16 @@ export function configProblem(config: ColdCallConfig): string | null {
   return null;
 }
 
+/**
+ * The settings in force for a course. Settings saved before validation existed
+ * may break the grade; then the defaults apply and the problem is reported.
+ */
+export function courseConfig(stored: unknown): { config: ColdCallConfig; problem: string | null } {
+  const config = resolveConfig(stored);
+  const problem = configProblem(config);
+  return problem ? { config: { ...DEFAULT_CONFIG }, problem } : { config, problem: null };
+}
+
 export type CandidateFeatures = {
   userId: string;
   passesOutstanding: number;

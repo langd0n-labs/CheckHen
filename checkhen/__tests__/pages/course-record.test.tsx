@@ -40,7 +40,7 @@ const payload = {
         startedAt: '2026-09-01T14:00:00Z',
         checkedIn: 30,
         questions: 6,
-        excusedAbsences: 0,
+        excusedAbsences: 3,
         answers: 4,
         absences: 1,
         volunteerAnswers: 2,
@@ -182,4 +182,61 @@ it('offers a retry when the record cannot load', async () => {
   view();
   fireEvent.click(await screen.findByRole('button', { name: 'Try again' }));
   expect(await screen.findByText(/Target: A = 3 answers this term/)).toBeInTheDocument();
+});
+
+/** Each header with the cell under it, from the first body row of the visible table. */
+function columns() {
+  const table = screen.getByRole('table');
+  const headers = within(table)
+    .getAllByRole('columnheader')
+    .map((header) => header.textContent);
+  const cells = within(within(table).getAllByRole('row')[1])
+    .getAllByRole('cell')
+    .map((cell) => cell.textContent);
+  expect(cells).toHaveLength(headers.length);
+  return Object.fromEntries(headers.map((header, index) => [header, cells[index]]));
+}
+
+it('puts every value under its own header in both tables', async () => {
+  view();
+  await screen.findByText(/Target: A = 3/);
+  expect(columns()).toMatchObject({
+    Attended: '3 of 4',
+    Answers: '2',
+    Passes: '1',
+    Absences: '1 (+1 excused)',
+    Volunteered: '3 (2 count)',
+    Opportunities: '4',
+    Score: '100%',
+    'Exam fails': '1 (1 excused)',
+  });
+  fireEvent.click(screen.getByRole('tab', { name: 'Sessions' }));
+  await waitFor(() =>
+    expect(columns()).toMatchObject({
+      Session: 'Week 1',
+      'Checked in': '30',
+      'Questions asked': '6',
+      Answers: '4',
+      Volunteered: '2',
+      Absences: '1',
+      Excused: '3',
+      'Exam fails': '0',
+    })
+  );
+});
+
+it('says when saved settings could not be used', async () => {
+  (global.fetch as jest.Mock).mockImplementationOnce(
+    async () =>
+      ({
+        ok: true,
+        json: async () => ({
+          ...payload,
+          configProblem: 'The lowest and highest A must be whole numbers of at least 1',
+        }),
+      }) as Response
+  );
+  view();
+  expect(await screen.findByText('Saved settings could not be used')).toBeInTheDocument();
+  expect(screen.getByText(/The default settings are in force/)).toBeInTheDocument();
 });

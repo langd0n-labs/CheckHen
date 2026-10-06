@@ -763,6 +763,18 @@ integration('route → store → attendance fold', () => {
         expect(events.find((event) => event.id === callId)?.kind).toBe('COLD_CALL');
       });
 
+      it('uses the defaults, and says so, when saved settings break the grade', async () => {
+        await prisma.course.update({
+          where: { id: scope.courseId },
+          data: { config: { A_min: 0, A_max: 0, ratio: 0.5 } },
+        });
+        const data = (await report('GET'))._getJSONData();
+        expect(data.configProblem).toBe(
+          'The lowest and highest A must be whole numbers of at least 1'
+        );
+        expect(data.config).toMatchObject({ A_min: 3, A_max: 8, ratio: 0.7 });
+      });
+
       it('saves only valid settings and stamps them on every CSV row', async () => {
         await student('Fay');
         const saved = await report('POST', {
@@ -798,6 +810,9 @@ integration('route → store → attendance fold', () => {
         expect(await refused({ term_meetings: 2.5 })).toBe(
           'Meetings in the term must be a whole number of at least 1, or empty'
         );
+        // Inherited names are not settings.
+        expect(await refused({ toString: 1 })).toBe('Unknown setting: toString');
+        expect(await refused(JSON.parse('{"__proto__": 1}'))).toBe('Unknown setting: __proto__');
         // A partial body keeps the settings it leaves out.
         const partial = await report('POST', { action: 'config', config: { ratio: 0.6 } });
         expect(partial._getJSONData().config).toMatchObject({ term_meetings: 26, ratio: 0.6 });

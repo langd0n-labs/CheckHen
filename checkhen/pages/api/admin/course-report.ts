@@ -1,8 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import {
   configProblem,
+  courseConfig,
   DEFAULT_CONFIG,
-  resolveConfig,
   type ColdCallConfig,
   type Meeting,
 } from '@/lib/cold-call';
@@ -63,7 +63,8 @@ function mergeConfig(
     return { problem: 'Send the settings as an object' };
   }
   for (const [key, given] of Object.entries(value as Record<string, unknown>)) {
-    if (!(key in DEFAULT_CONFIG)) {
+    // hasOwn, so inherited names such as toString or __proto__ are not settings.
+    if (!Object.hasOwn(DEFAULT_CONFIG, key)) {
       return { problem: `Unknown setting: ${key}` };
     }
     if (key === 'term_meetings') {
@@ -96,7 +97,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!course) {
     return res.status(404).json({ message: 'Course not found' });
   }
-  const config = resolveConfig(course.config);
+  const { config, problem: storedProblem } = courseConfig(course.config);
 
   if (req.method === 'GET') {
     const report = await loadReport(course.id, config);
@@ -117,6 +118,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       course: { id: course.id, name: course.name },
       config,
       defaults: DEFAULT_CONFIG,
+      // Set when the saved settings break the grade and the defaults are in use.
+      configProblem: storedProblem,
       report,
     });
   }

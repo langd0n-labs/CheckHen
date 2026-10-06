@@ -2,10 +2,10 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import {
+  courseConfig,
   eligibility,
   FOLLOW_UP_OUTCOMES,
   OUTCOMES,
-  resolveConfig,
   seededRandom,
   select,
   type ColdCallOutcome,
@@ -254,7 +254,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const candidates = await eligibleStudents(prisma, scope);
     // The seed is recorded with the outcome so a semester can be replayed exactly.
     const seed = randomInt(0, 2 ** 32);
-    const selected = select(candidates, resolveConfig(course?.config), seededRandom(seed));
+    const selected = select(candidates, courseConfig(course?.config).config, seededRandom(seed));
     if (!selected) {
       return res.status(409).json({ message: 'No eligible students' });
     }
