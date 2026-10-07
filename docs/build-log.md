@@ -1217,3 +1217,23 @@ The tunnel stays off until M1 and M2 are fixed and AICP confirms.
   with the demo name.
 - The demo stack on the build host predates the marker, so its database must be recreated
   before the tunnel opens.
+
+### M2: narrow what a demo visitor can write
+
+- Rate limits on every demo write (`lib/demo-guard.ts`, applied in
+  `requireIdentity` and the profile routes): 60 writes a minute per client
+  (Cloudflare's `cf-connecting-ip`), 600 a minute overall. Reset has its own
+  limit: 3 an hour per client, 12 an hour overall. Over a limit: 429 with
+  `Retry-After`. Reads are not limited.
+- Size cap: demo writes stop with 507 when the database reaches
+  `DEMO_MAX_DATABASE_MB` (default 512). The event log is append-only, so a full
+  demo database is recreated, not cleaned.
+- Roster add accepts only `demo.checkhen.invalid` addresses in demo mode; course
+  creation is refused; profile photo uploads are refused and the profile page
+  shows the photo as fixed.
+- Profile text fields are capped in every mode: display name and pronunciation 80
+  characters, pronouns 40, food allergies 200, bio 280 (unchanged). This replaces a
+  test that recorded the missing display-name limit as a known bug.
+- Reset restores every profile field of every persona, not only the name and photo.
+- Not done: a Cloudflare rate-limit rule. The in-process limits cover the demo
+  without one.

@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { DEMO_DOMAIN, isDemo } from '@/lib/demo';
 import { requireIdentity } from '@/lib/request-scope';
 import { prisma } from '@/lib/prisma';
 
@@ -13,7 +14,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.json({ roster: await prisma.rosterEntry.findMany({ where: { courseId }, include: { user: true }, orderBy: { userId: 'asc' } }) });
   }
   const { email, active = true } = req.body;
-  const domain = process.env.NEXT_PUBLIC_EMAIL_DOMAIN || 'bu.edu';
+  // A public demo holds only fictional addresses, never a real student's.
+  const domain = isDemo() ? DEMO_DOMAIN : process.env.NEXT_PUBLIC_EMAIL_DOMAIN || 'bu.edu';
   if (typeof email !== 'string' || !email.endsWith('@' + domain) || typeof active !== 'boolean') {
     return res.status(400).json({ message: 'Invalid roster entry' });
   }

@@ -1,5 +1,7 @@
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
+import { isDemo } from '@/lib/demo';
+import { demoGate } from '@/lib/demo-guard';
 import { prisma } from '@/lib/prisma';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
@@ -8,6 +10,14 @@ const MAX_BASE64_BYTES = 2.7 * 1024 * 1024; // ~2MB original image
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Method Not Allowed' });
+  }
+
+  // Demo visitors share every persona, so no one may change the demo photos.
+  if (isDemo()) {
+    return res.status(403).json({ message: 'Photo uploads are off in the demo' });
+  }
+  if (!(await demoGate(req, res))) {
+    return;
   }
 
   const session = await getServerSession(req, res, authOptions);

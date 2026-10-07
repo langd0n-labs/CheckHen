@@ -239,16 +239,20 @@ export async function seedDemo(db: PrismaClient, now = new Date()) {
   const personas = [DEMO_INSTRUCTOR_PERSONA, ...DEMO_STUDENTS];
   const users = new Map<string, string>();
   for (const persona of personas) {
+    const profile = {
+      displayName: persona.name,
+      profilePicture: avatar(persona),
+      pronouns: 'they/them',
+      namePronunciation: null,
+      foodAllergies: null,
+      bio: null,
+      isAdmin: persona.email === DEMO_INSTRUCTOR,
+    };
     const user = await db.user.upsert({
       where: { email: persona.email },
-      update: { displayName: persona.name, profilePicture: avatar(persona) },
-      create: {
-        email: persona.email,
-        displayName: persona.name,
-        profilePicture: avatar(persona),
-        pronouns: 'they/them',
-        isAdmin: persona.email === DEMO_INSTRUCTOR,
-      },
+      // A reset restores every profile field a visitor could have changed.
+      update: profile,
+      create: { email: persona.email, ...profile },
     });
     users.set(persona.email, user.id);
   }

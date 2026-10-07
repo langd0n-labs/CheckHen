@@ -19,6 +19,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
     return res.json({ courses });
   }
+  // The demo course comes only from the seed; visitors cannot add courses.
+  if (isDemo()) return res.status(403).json({ message: 'The demo cannot add courses' });
   const name = req.body?.name;
   if (typeof name !== 'string' || !name.trim() || name.length > 200)
     return res.status(400).json({ message: 'Invalid course name' });

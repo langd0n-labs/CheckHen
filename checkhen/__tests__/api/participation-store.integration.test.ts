@@ -1113,8 +1113,20 @@ integration('route → store → attendance fold', () => {
     expect(Array.from(outcomes).sort()).toEqual(['absent', 'answered', 'pass', 'retry', 'skip']);
     expect(events.some((e) => e.kind === 'COLD_CALL_EXCUSED')).toBe(true);
     expect(events.some((e) => (e.payload as any).followUpOf)).toBe(true);
+    // A visitor edits a persona; the reset restores every profile field.
+    const clover = 'clover@demo.checkhen.invalid';
+    await prisma.user.update({
+      where: { email: clover },
+      data: { bio: 'spam', pronouns: 'x', namePronunciation: 'y', foodAllergies: 'z' },
+    });
     // Reset: a new course from the same seed becomes the demo; the old one is untouched.
     const second = await seedDemo(prisma, new Date('2026-10-06T19:00:00Z'));
+    expect(await prisma.user.findUnique({ where: { email: clover } })).toMatchObject({
+      bio: null,
+      pronouns: 'they/them',
+      namePronunciation: null,
+      foodAllergies: null,
+    });
     expect(second.courseId).not.toBe(first.courseId);
     expect((await currentDemoCourse(prisma)).id).toBe(second.courseId);
     expect(await prisma.participationEvent.count({ where: { courseId: first.courseId } })).toBe(

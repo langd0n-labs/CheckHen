@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { isDemo, seedDemo } from '@/lib/demo';
+import { demoGate } from '@/lib/demo-guard';
 import { prisma } from '@/lib/prisma';
 import { requireIdentity } from '@/lib/request-scope';
 
@@ -16,6 +17,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   const identity = await requireIdentity(req, res, true);
   if (!identity) {
+    return;
+  }
+  // Each reset writes a full course, so resets have their own, tighter limit.
+  if (!(await demoGate(req, res, 'reset'))) {
     return;
   }
   return res.json(await seedDemo(prisma));
