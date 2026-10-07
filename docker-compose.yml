@@ -4,9 +4,9 @@ services:
       context: ./checkhen
       args:
         NEXT_PUBLIC_EMAIL_DOMAIN: ${NEXT_PUBLIC_EMAIL_DOMAIN:-bu.edu}
-        NEXT_PUBLIC_SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL:-http://localhost:6060}
+        NEXT_PUBLIC_SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL-http://localhost:6060}
     ports:
-      - "${APP_BIND_ADDRESS:-127.0.0.1}:3000:3000"
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-3000}:3000"
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://checkhen:${POSTGRES_PASSWORD:?Run the setup command}@db:5432/checkhen
@@ -47,7 +47,7 @@ services:
     build:
       context: ./socket-server
     ports:
-      - "${APP_BIND_ADDRESS:-127.0.0.1}:6060:6060"
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${SOCKET_PORT:-6060}:6060"
     environment:
       PORT: 6060
       AUTH_SECRET: ${AUTH_SECRET:?Run the setup command}
@@ -116,6 +116,37 @@ services:
       app:
         condition: service_healthy
       socket:
+        condition: service_started
+  hosted-proxy:
+    # Hosted mode: one loopback origin for app and socket, for the tunnel to publish.
+    profiles: [hosted]
+    build:
+      context: .
+      dockerfile: network/hosted/Containerfile
+    network_mode: host
+    restart: on-failure
+    environment:
+      HOSTED_BIND_ADDRESS: ${HOSTED_BIND_ADDRESS:-127.0.0.1}
+      HOSTED_PORT: ${HOSTED_PORT:-8080}
+      APP_PORT: ${APP_PORT:-3000}
+      SOCKET_PORT: ${SOCKET_PORT:-6060}
+    depends_on:
+      app:
+        condition: service_healthy
+      socket:
+        condition: service_started
+  tunnel:
+    # Publishes the hosted proxy through a Cloudflare Tunnel. The token comes from the
+    # environment at run time and is never stored in the repository.
+    profiles: [tunnel]
+    image: docker.io/cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run
+    network_mode: host
+    restart: on-failure
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      hosted-proxy:
         condition: service_started
 volumes:
   pgdata:

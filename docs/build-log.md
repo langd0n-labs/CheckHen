@@ -1137,3 +1137,21 @@ instance, checkhen-demo.rfkill.dev, runs hosted mode with demo data only.
 
 Open with AICP: how a student's own Join counts in hosted mode (self-reported
 attendance, participation only, or wait for roll call).
+
+### Step 2: hosted stack on loopback
+
+- `network/hosted/` is a small nginx image: one loopback origin that sends
+  `/socket.io/` to the socket server and everything else to the app, as the
+  classroom proxy does on the access point.
+- Compose profile `hosted` adds that proxy; profile `tunnel` adds cloudflared,
+  which reads `CLOUDFLARE_TUNNEL_TOKEN` from the environment at run time. The
+  app and socket host ports are now variables (`APP_PORT`, `SOCKET_PORT`), so a
+  second stack can run beside another.
+- `NEXT_PUBLIC_SOCKET_URL` now keeps an empty value at build time (`${VAR-...}`),
+  which hosted mode needs for a same-origin socket.
+- On the build host: compose project `checkhen-demo`, settings in the gitignored
+  `.env.hosted` (generated secrets, `CHECKHEN_MODE=hosted`, app 3100, socket
+  6160, proxy 8180, all on 127.0.0.1). Start:
+  `podman-compose -p checkhen-demo --env-file .env.hosted --profile hosted up -d --build`.
+  Checked on 2026-10-07: `/api/mode` reports hosted; `/join` and `/help/student`
+  return 200; the socket.io handshake succeeds through the proxy.
