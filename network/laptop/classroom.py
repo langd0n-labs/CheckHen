@@ -241,6 +241,9 @@ wpa_passphrase={settings["AP_PASSPHRASE"]}
     dns.extend(f"dhcp-range={first},{last},12h" for first, last in ranges)
     dns.extend(["enable-ra", f"dhcp-range=::,constructor:{ap},ra-only,64,12h",
                 f"dhcp-option=option6:dns-server,[{ipv6_address}]"])
+    # Every other answer fills the exam sets. Outside an exam the agent flushes them;
+    # during an exam only allowlisted names reach an upstream resolver.
+    dns.append("nftset=/#/4#ip#checkhen#exam4,6#ip6#checkhen6#exam6")
     dns.extend(f"nftset=/{name}/4#ip#checkhen#preauth4" for name in domain_names)
     dns.extend(f"nftset=/{name}/6#ip6#checkhen6#preauth6" for name in domain_names)
     (STATE / "dnsmasq.conf").write_text("\n".join(dns) + "\n")

@@ -292,6 +292,7 @@ class Handler(BaseHTTPRequestHandler):
     exam_callback_url = "http://127.0.0.1:3000/api/internal/exam-failed"
     # The monitor thread's latest station poll; None when iw failed.
     stations: dict[str, float] | None = {}
+    preauth: list[str] = []
 
     def do_POST(self) -> None:
         if self.path not in {"/bind", "/revoke", "/revoke-student", "/revoke-session",
@@ -324,7 +325,7 @@ class Handler(BaseHTTPRequestHandler):
                     if not isinstance(data.get("examId"), str) or not data["examId"]:
                         raise ValueError("Missing exam ID")
                     result = exam.start(scope, data["examId"], data.get("domains"),
-                                        data.get("clients"), data.get("thresholdSeconds"))
+                                        data.get("clients"), data.get("thresholdSeconds"), self.preauth)
                     body = json.dumps({"examId": result["examId"]}).encode()
                 elif self.path == "/exam-stop":
                     active_exam = exam.read()
@@ -434,7 +435,8 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
-def monitor_pass(interface: str | None, checkout_url: str) -> None:
+def monitor_pass(interface: str | None, checkout_url: str, dns_server: str) -> None:
+    now = time.time()
     with LOCK:
         active = exam.read()
     # In AP test mode there is no Wi-Fi interface; heartbeats are the only evidence.
@@ -443,20 +445,31 @@ def monitor_pass(interface: str | None, checkout_url: str) -> None:
         Handler.stations = stations
         prune_bindings(interface)
         bindings = read_bindings()
-        fails = exam.monitor(stations)
+        fails = exam.monitor(stations, now)
+        state = exam.read()
+        seeds = exam.seed_due(state, now) if state else []
+        if not state:
+            exam.flush_idle(now)
     flush_checkout_notifications(Handler.secret, checkout_url, bindings)
     # Fail callbacks run outside the lock, so a slow app cannot delay requests.
     for fail in fails:
         if exam.notify_fail(fail, Handler.secret, Handler.exam_callback_url):
             with LOCK:
                 exam.mark_reported(fail["examId"], fail["userId"])
+    # Allowlisted sign-in names reach only the preauth sets through dnsmasq; seed them.
+    addresses = [address for domain in seeds for address in exam.resolve(dns_server, domain)]
+    if addresses:
+        with LOCK:
+            current = exam.read()
+            if current and state and current["examId"] == state["examId"]:
+                exam.add_addresses(addresses)
 
 
-def monitor_loop(interface: str | None, checkout_url: str) -> None:
+def monitor_loop(interface: str | None, checkout_url: str, dns_server: str) -> None:
     while True:
         started = time.monotonic()
         try:
-            monitor_pass(interface, checkout_url)
+            monitor_pass(interface, checkout_url, dns_server)
         except Exception as error:  # Keep monitoring; the next pass retries.
             print(f"Agent monitor pass failed: {type(error).__name__}", file=sys.stderr)
         time.sleep(max(0.0, MONITOR_SECONDS - (time.monotonic() - started)))
@@ -474,6 +487,8 @@ def main() -> None:
     Handler.interface = settings["AP_INTERFACE"]
     Handler.test_mode = settings.get("AP_TEST_MODE") == "1"
     Handler.exam_callback_url = settings.get("EXAM_CALLBACK_URL", Handler.exam_callback_url)
+    Handler.preauth = [name.strip().lower() for name in settings.get("PREAUTH_DOMAINS", "").split(",")
+                       if name.strip()]
     address = settings.get("AP_ADDRESS", "172.16.77.1")
     reconcile_bindings()
     interface = None if settings.get("AP_TEST_MODE") == "1" else settings["AP_INTERFACE"]
@@ -482,6 +497,7 @@ def main() -> None:
     threading.Thread(target=monitor_loop, daemon=True, args=(
         interface,
         settings.get("APP_CALLBACK_URL", "http://127.0.0.1:3000/api/internal/portal-expired"),
+        address,
     )).start()
     server.serve_forever()
 

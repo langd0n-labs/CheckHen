@@ -74,6 +74,8 @@ class RouteGuardTests(unittest.TestCase):
             self.assertIn("constructor:chbr0,ra-only,64", (Path(directory) / "dnsmasq.conf").read_text())
             self.assertIn("ap_isolate=1", (Path(directory) / "hostapd.conf").read_text())
             self.assertIn("ap_max_inactivity=10", (Path(directory) / "hostapd.conf").read_text())
+            self.assertIn("nftset=/#/4#ip#checkhen#exam4,6#ip6#checkhen6#exam6",
+                          (Path(directory) / "dnsmasq.conf").read_text())
 
     def test_ipv4_preauth_survives_missing_aaaa(self):
         def lookup(_name, _port, family):

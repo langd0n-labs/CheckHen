@@ -456,8 +456,14 @@ def main() -> None:
                                 check=False)
         if exam_portal.returncode != 0 or address not in exam_portal.stdout:
             raise RuntimeError("Exam DNS did not preserve the CheckHen hostname")
-        exam_state = json.loads((STATE / "exam.json").read_text())
-        allowed_ip = exam_state["ipv4"][0]
+        # The client resolves through the AP's dnsmasq, which adds each answer to the
+        # exam set; the gate then admits exactly the addresses clients were given.
+        resolved = namespace("getent", "ahostsv4", "example.com", check=False)
+        if resolved.returncode != 0:
+            raise RuntimeError("Exam DNS did not resolve the allowlisted domain")
+        allowed_ip = resolved.stdout.split()[0]
+        if allowed_ip not in run("nft", "list", "set", "ip", "checkhen", "exam4").stdout:
+            raise RuntimeError("dnsmasq did not add the allowlisted answer to the exam set")
         allowed = namespace("curl", "-4", "--noproxy", "*", "--max-time", "8", "-fsSI",
                             "--resolve", f"example.com:443:{allowed_ip}", "https://example.com", check=False)
         if allowed.returncode != 0:
@@ -484,7 +490,8 @@ def main() -> None:
                                      "--max-time", "3", "-kfsSI", f"https://{target}", check=False)
             if blocked_exam.returncode == 0:
                 raise RuntimeError(f"Exam client reached {label}")
-        if namespace("getent", "ahostsv4", "not-allowed.example.org", check=False).returncode == 0:
+        # A real domain off the allowlist, so the check fails only because of the filter.
+        if namespace("getent", "ahostsv4", "example.org", check=False).returncode == 0:
             raise RuntimeError("Exam DNS resolved a nonallowlisted domain")
         signed_agent(address, secret, "exam-heartbeat", {**exam_scope, "userId": "namespace-student-2"})
         signed_agent(address, secret, "exam-heartbeat", {**exam_scope, "userId": "namespace-student"})
@@ -503,6 +510,16 @@ def main() -> None:
         if not any(record.get("userId") == "namespace-student" and
                    record.get("examId") == "namespace-exam" for record in callback_records):
             raise RuntimeError("Exam agent did not report the automatic fail to its signed callback")
+        # After the exam: the DNS filter is empty and an address off the allowlist is
+        # reachable again (it was blocked during the exam).
+        if (STATE / "exam-servers").read_text().strip():
+            raise RuntimeError("Exam DNS filter remained after exam-stop")
+        if namespace("getent", "ahostsv4", "example.org", check=False).returncode != 0:
+            raise RuntimeError("A domain off the allowlist did not resolve after exam-stop")
+        reopened = namespace("curl", "-4", "--noproxy", "*", "--connect-timeout", "3", "--max-time", "5",
+                             "-ksS", "-o", "/dev/null", "https://9.9.9.9", check=False)
+        if reopened.returncode != 0:
+            raise RuntimeError(f"An address off the allowlist stayed blocked after exam-stop: {reopened.stderr}")
         revoke_payload = json.dumps({"courseId": "namespace-course", "classId": "namespace-session",
                                      "userId": "namespace-student", "ip": lease_ip,
                                      "timestamp": int(time.time() * 1000)}).encode()

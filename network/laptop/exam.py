@@ -6,8 +6,10 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import signal
 import socket
+import struct
 import subprocess
 import time
 import urllib.request
@@ -16,11 +18,16 @@ STATE = Path("/run/checkhen")
 EXAM = STATE / "exam.json"
 DNS_SERVERS = STATE / "exam-servers"
 CLASS_STATE = STATE / "state.json"
-# Evidence this recent shows a client as connected.
+DOMAIN = re.compile(r"^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$")
+# Evidence this recent shows a client as connected. A reported fail re-arms after it.
 CONNECTED_SECONDS = 8
+# dnsmasq applies a servers-file on SIGHUP; wait before the sets are flushed.
+DNS_RELOAD_SECONDS = 1
+SEED_SECONDS = 30
+IDLE_FLUSH_SECONDS = 60
 # Socket heartbeats arrive between monitor passes; the monitor folds them into exam.json.
 HEARTBEATS: dict[tuple[str, str, str], float] = {}
-DOMAIN = re.compile(r"^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$")
+_idle_flushed_at = 0.0
 
 
 def validate_domains(value: object) -> list[str]:
@@ -32,31 +39,16 @@ def validate_domains(value: object) -> list[str]:
     return list(dict.fromkeys(domains))
 
 
-def resolve_domains(domains: list[str]) -> tuple[list[str], list[str]]:
-    addresses: set[str] = set()
-    for domain in domains:
-        try:
-            results = socket.getaddrinfo(domain, None, type=socket.SOCK_STREAM)
-        except socket.gaierror as error:
-            raise OSError(f"Could not resolve exam domain {domain}") from error
-        found = {str(ipaddress.ip_address(result[4][0])) for result in results
-                 if ipaddress.ip_address(result[4][0]).is_global}
-        if not found:
-            raise OSError(f"Exam domain {domain} has no public address")
-        addresses.update(found)
-    return (sorted(address for address in addresses if ipaddress.ip_address(address).version == 4),
-            sorted(address for address in addresses if ipaddress.ip_address(address).version == 6))
+def covered(domain: str, names: list[str]) -> bool:
+    return any(domain == name or domain.endswith("." + name) for name in names)
 
 
-def apply_policy(ipv4: list[str], ipv6: list[str], active: bool, uplink: str) -> None:
-    # nft -f is one transaction: a refresh cannot expose an empty allowlist.
+def apply_policy(active: bool, uplink: str) -> None:
+    # dnsmasq nftset=/#/ fills exam4 and exam6 with the answers that clients receive.
+    # nft -f is one transaction: the gate never runs against a partial update.
     commands = ["flush set ip checkhen exam4", "flush set ip6 checkhen6 exam6",
                 "flush chain ip checkhen exam_gate", "flush chain ip6 checkhen6 exam_gate"]
     if active:
-        if ipv4:
-            commands.append("add element ip checkhen exam4 { " + ", ".join(ipv4) + " }")
-        if ipv6:
-            commands.append("add element ip6 checkhen6 exam6 { " + ", ".join(ipv6) + " }")
         commands.extend([
             f'add rule ip checkhen exam_gate ip saddr . ether saddr @authorized4 ip daddr @exam4 oifname "{uplink}" accept',
             'add rule ip checkhen exam_gate counter drop',
@@ -65,6 +57,76 @@ def apply_policy(ipv4: list[str], ipv6: list[str], active: bool, uplink: str) ->
         ])
     subprocess.run(["nft", "-f", "-"], input="\n".join(commands) + "\n", text=True,
                    check=True, capture_output=True)
+
+
+def add_addresses(addresses: list[str]) -> None:
+    ipv4 = [value for value in addresses if ipaddress.ip_address(value).version == 4]
+    ipv6 = [value for value in addresses if ipaddress.ip_address(value).version == 6]
+    commands = []
+    if ipv4:
+        commands.append("add element ip checkhen exam4 { " + ", ".join(ipv4) + " }")
+    if ipv6:
+        commands.append("add element ip6 checkhen6 exam6 { " + ", ".join(ipv6) + " }")
+    if commands:
+        subprocess.run(["nft", "-f", "-"], input="\n".join(commands) + "\n", text=True,
+                       check=True, capture_output=True)
+
+
+def flush_idle(now: float) -> None:
+    """Outside an exam, dnsmasq adds every answer to the exam sets. Keep them small."""
+    global _idle_flushed_at
+    if now - _idle_flushed_at >= IDLE_FLUSH_SECONDS:
+        subprocess.run(["nft", "-f", "-"], input="flush set ip checkhen exam4\nflush set ip6 checkhen6 exam6\n",
+                       text=True, check=True, capture_output=True)
+        _idle_flushed_at = now
+
+
+def skip_name(data: bytes, offset: int) -> int:
+    while True:
+        length = data[offset]
+        if length & 0xC0 == 0xC0:
+            return offset + 2
+        offset += 1 + length
+        if length == 0:
+            return offset
+
+
+def query(server: str, name: str, record_type: int, timeout: float = 2) -> list[str]:
+    """Ask the AP's dnsmasq, so the answer matches what clients receive."""
+    ident = secrets.randbits(16)
+    question = b"".join(bytes([len(label)]) + label.encode() for label in name.split("."))
+    question += b"\0" + struct.pack("!HH", record_type, 1)
+    family = socket.AF_INET6 if ipaddress.ip_address(server).version == 6 else socket.AF_INET
+    with socket.socket(family, socket.SOCK_DGRAM) as connection:
+        connection.settimeout(timeout)
+        connection.sendto(struct.pack("!HHHHHH", ident, 0x0100, 1, 0, 0, 0) + question, (server, 53))
+        data = connection.recv(4096)
+    response_id, flags, _, answers = struct.unpack("!HHHH", data[:8])
+    if response_id != ident or flags & 0x000F:
+        return []
+    offset = skip_name(data, 12) + 4
+    addresses = []
+    for _ in range(answers):
+        offset = skip_name(data, offset)
+        kind, _, _, length = struct.unpack("!HHIH", data[offset:offset + 10])
+        offset += 10
+        value = data[offset:offset + length]
+        offset += length
+        if (kind, length) in {(1, 4), (28, 16)}:
+            address = ipaddress.ip_address(value)
+            if address.is_global:
+                addresses.append(str(address))
+    return addresses
+
+
+def resolve(server: str, domain: str) -> list[str]:
+    addresses = []
+    for record_type in (1, 28):
+        try:
+            addresses.extend(query(server, domain, record_type))
+        except (OSError, struct.error, IndexError):
+            continue
+    return addresses
 
 
 def write_dns(domains: list[str], dnsmasq_pid: int) -> None:
@@ -92,7 +154,7 @@ def read() -> dict | None:
 
 
 def start(scope: dict, exam_id: str, domains: list[str], clients: list[dict],
-          threshold_seconds: int, now: float | None = None) -> dict:
+          threshold_seconds: int, preauth: list[str] | None = None, now: float | None = None) -> dict:
     if read():
         raise ValueError("Exam mode is already active")
     domains = validate_domains(domains)
@@ -107,24 +169,26 @@ def start(scope: dict, exam_id: str, domains: list[str], clients: list[dict],
     if len({client["userId"] for client in clients}) != len(clients):
         raise ValueError("Duplicate exam client")
     classroom = json.loads(CLASS_STATE.read_text())
-    ipv4, ipv6 = resolve_domains(domains)
     clock = time.time() if now is None else now
     state = {**scope, "examId": exam_id, "domains": domains, "thresholdSeconds": threshold_seconds,
              "uplink": classroom["uplink"], "dnsmasqPid": classroom["processes"]["dnsmasq"],
-             "ipv4": ipv4, "ipv6": ipv6, "refreshedAt": clock,
+             # dnsmasq sends sign-in names to the preauth sets only; the agent seeds these.
+             "seedDomains": [domain for domain in domains if covered(domain, preauth or [])],
+             "seededAt": 0,
              "clients": {client["userId"]: {"mac": client["mac"].lower(), "lastHeartbeat": clock,
                         "lastStation": clock, "failedAt": None,
                         "reported": False} for client in clients}}
-    apply_policy(ipv4, ipv6, True, state["uplink"])
     try:
         write_dns(domains, state["dnsmasqPid"])
+        time.sleep(DNS_RELOAD_SECONDS)
+        apply_policy(True, state["uplink"])
         save(state)
     except Exception:
         try:
             write_dns([], state["dnsmasqPid"])
         except OSError:
             pass
-        apply_policy([], [], False, state["uplink"])
+        apply_policy(False, state["uplink"])
         raise
     return state
 
@@ -135,19 +199,19 @@ def stop(scope: dict) -> None:
         return
     if any(state[key] != scope[key] for key in ("courseId", "classId")):
         raise PermissionError("Wrong exam session")
-    apply_policy([], [], False, state["uplink"])
+    apply_policy(False, state["uplink"])
     write_dns([], state["dnsmasqPid"])
     EXAM.unlink(missing_ok=True)
+    for key in [key for key in HEARTBEATS if key[:2] == (scope["courseId"], scope["classId"])]:
+        del HEARTBEATS[key]
 
 
-def refresh(state: dict, now: float) -> dict:
-    if now - state["refreshedAt"] < 30:
-        return state
-    ipv4, ipv6 = resolve_domains(state["domains"])
-    apply_policy(ipv4, ipv6, True, state["uplink"])
-    state.update(ipv4=ipv4, ipv6=ipv6, refreshedAt=now)
+def seed_due(state: dict, now: float) -> list[str]:
+    if not state.get("seedDomains") or now - state.get("seededAt", 0) < SEED_SECONDS:
+        return []
+    state["seededAt"] = now
     save(state)
-    return state
+    return state["seedDomains"]
 
 
 def heartbeat(scope: dict, user_id: str, now: float | None = None) -> None:
@@ -214,11 +278,6 @@ def monitor(stations: dict[str, float] | None, now: float | None = None) -> list
         HEARTBEATS.clear()
         return []
     clock = time.time() if now is None else now
-    try:
-        state = refresh(state, clock)
-    except (OSError, subprocess.CalledProcessError):
-        # Keep the last successful IP sets; retry on the next monitor pass.
-        pass
     connection_status(state, stations, clock)
     save(state)
     return unreported(state)

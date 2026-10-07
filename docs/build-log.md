@@ -1033,3 +1033,32 @@ parked branch `m5-fix-pass-wip`.
 Verified: Python unit tests (45). The station-list path needs the live USB
 adapter check on x1; the namespace test still covers the heartbeat path at
 29 and 31 seconds.
+
+### Fix 2: the allowlist follows the answers clients receive (finding 4)
+
+- dnsmasq's catch-all `nftset=/#/...` adds every answer it gives to the
+  `exam4`/`exam6` sets. During an exam only allowlisted names reach an
+  upstream resolver, so the sets hold exactly the addresses clients were given,
+  and entries are added, never replaced. A CDN that rotates answers no longer
+  breaks an open connection.
+- Exam start no longer resolves domains. It writes the DNS filter, waits 1 s
+  for dnsmasq to apply it, then flushes the sets and turns on the gate in one
+  nft transaction. A start therefore takes about a second, well inside the
+  app's 5-second limit (part of finding 2).
+- dnsmasq gives a name only its most specific `nftset`, so an allowlisted name
+  under a preauth (sign-in) domain reaches only the preauth set. The agent
+  seeds those names every 30 s by asking the AP's own dnsmasq, and adds the
+  answers to the exam sets.
+- Outside an exam the agent flushes the exam sets every 60 s, so the
+  catch-all cannot grow them without bound.
+- Verified earlier on Nimbus in the network image: dnsmasq 2.92 accepts the
+  catch-all line, puts ordinary answers in the exam set and sign-in answers
+  only in the preauth set, and the seeding client parses real answers,
+  including CNAME chains.
+- The namespace test now checks that the exam client's answer appears in
+  `exam4`, and that a real domain off the allowlist does not resolve during the
+  exam. After exam-stop it checks that the DNS filter is empty, that the domain
+  resolves, and that an address off the allowlist is reachable (review test
+  gap).
+
+Verified: Python unit tests (50). Operator check: rerun the namespace test on x1.
