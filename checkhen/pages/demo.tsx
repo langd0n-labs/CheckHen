@@ -15,15 +15,21 @@ type DemoInfo = { courseId: string; liveClassId: string | null; personas: Person
 /** Demo mode sign-in: choose who to be. Everyone here is fictional. */
 export default function DemoSignIn() {
   const [info, setInfo] = useState<DemoInfo | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
 
   useEffect(() => {
+    const notDemo = 'This is not a demo deployment, so there is no one to sign in as.';
     fetch('/api/demo')
-      .then((response) =>
-        response.ok ? response.json() : Promise.reject(new Error('Not a demo deployment'))
-      )
-      .then(setInfo)
-      .catch(() => setFailed(true));
+      .then(async (response) => {
+        if (response.ok) {
+          setInfo(await response.json());
+          return;
+        }
+        // A refused demo database explains itself; anything else is not a demo.
+        const body = await response.json().catch(() => null);
+        setFailed(response.status === 503 && body?.message ? body.message : notDemo);
+      })
+      .catch(() => setFailed(notDemo));
   }, []);
 
   const choose = (persona: Persona) => {
@@ -39,7 +45,7 @@ export default function DemoSignIn() {
   };
 
   if (failed) {
-    return <Text p="md">This is not a demo deployment, so there is no one to sign in as.</Text>;
+    return <Text p="md">{failed}</Text>;
   }
   if (!info) {
     return (

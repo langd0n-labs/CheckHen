@@ -4,13 +4,30 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { Prisma, PrismaClient } from '@prisma/client';
+import { checkhenMode } from './mode';
 
 export const DEMO_DOMAIN = 'demo.checkhen.invalid';
 export const DEMO_INSTRUCTOR = `instructor@${DEMO_DOMAIN}`;
 export const DEMO_COURSE_NAME = 'Demo: Farm Science 101';
 
+/** Demo mode runs only on a hosted deployment; classroom mode ignores CHECKHEN_DEMO. */
 export function isDemo(): boolean {
-  return process.env.CHECKHEN_DEMO === '1';
+  return process.env.CHECKHEN_DEMO === '1' && checkhenMode() === 'hosted';
+}
+
+export const DEMO_DATABASE_REFUSED =
+  'Demo mode is off: this database holds data that is not from the demo. Use a separate database for the demo.';
+
+/**
+ * Demo mode serves only a database that holds nothing but demo data: every user has
+ * a demo address and every course came from the seed. Returns the refusal, or null.
+ */
+export async function demoDatabaseProblem(db: PrismaClient): Promise<string | null> {
+  const [users, courses] = await Promise.all([
+    db.user.count({ where: { NOT: { email: { endsWith: `@${DEMO_DOMAIN}` } } } }),
+    db.course.count({ where: { demo: false } }),
+  ]);
+  return users || courses ? DEMO_DATABASE_REFUSED : null;
 }
 
 export type Persona = { email: string; name: string; emoji: string; color: string; note: string };
@@ -105,10 +122,10 @@ export function avatar(persona: Persona): string {
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
-/** The demo course in force: the newest one. A reset makes a new one from the seed. */
+/** The demo course in force: the newest seeded one. A reset makes a new one from the seed. */
 export async function currentDemoCourse(db: PrismaClient) {
   return db.course.findFirst({
-    where: { name: DEMO_COURSE_NAME },
+    where: { demo: true },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
   });
 }
@@ -235,7 +252,7 @@ export async function seedDemo(db: PrismaClient, now = new Date()) {
     });
     users.set(persona.email, user.id);
   }
-  const course = await db.course.create({ data: { name: DEMO_COURSE_NAME } });
+  const course = await db.course.create({ data: { name: DEMO_COURSE_NAME, demo: true } });
   await db.rosterEntry.createMany({
     data: DEMO_STUDENTS.map((student) => ({
       courseId: course.id,

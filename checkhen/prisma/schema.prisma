@@ -128,6 +128,8 @@ model Course {
   name String
   // Cold-call and grade settings; missing keys use the defaults in lib/cold-call.ts.
   config Json @default("{}")
+  // Set only by the demo seed (lib/demo.ts); demo mode shows only marked courses.
+  demo Boolean @default(false)
   createdAt DateTime @default(now())
   classes Class[]
   templates ClassTemplate[]

@@ -1,7 +1,7 @@
 import NextAuth from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import GoogleProvider from 'next-auth/providers/google';
-import { DEMO_DOMAIN, DEMO_INSTRUCTOR, isDemo } from '@/lib/demo';
+import { DEMO_DOMAIN, DEMO_INSTRUCTOR, demoDatabaseProblem, isDemo } from '@/lib/demo';
 import { prisma } from '@/lib/prisma';
 
 /**
@@ -14,7 +14,7 @@ const demoProvider = CredentialsProvider({
   credentials: { email: { label: 'Persona', type: 'text' } },
   async authorize(credentials) {
     const email = String(credentials?.email ?? '');
-    if (!email.endsWith(`@${DEMO_DOMAIN}`)) {
+    if (!email.endsWith(`@${DEMO_DOMAIN}`) || (await demoDatabaseProblem(prisma))) {
       return null;
     }
     const user = await prisma.user.findUnique({ where: { email } });

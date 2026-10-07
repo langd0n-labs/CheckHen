@@ -1198,3 +1198,22 @@ hosted roll-call case).
   stubs: persona sign-in as the instructor (dashboard, course record), a real
   draw and record on the call screen at 375x667, roll call, and persona
   sign-in as a student to the student page. No page errors.
+
+## Review of 8fd5f4d to c0b5b4b (hosted and demo)
+
+Report: AICP review `review-8fd5f4d-c0b5b4b-hosted-demo.md` (kept outside the repository).
+The tunnel stays off until M1 and M2 are fixed and AICP confirms.
+
+### M1: demo mode only on a hosted, demo-only database
+
+- `isDemo()` is true only when `CHECKHEN_DEMO=1` and `CHECKHEN_MODE=hosted`. In
+  classroom mode the flag is ignored: Google sign-in and the real instructors stay.
+- Demo mode serves only a database where every user has a demo address and every
+  course came from the seed. On any other database, every API request through
+  `requireIdentity` and `/api/demo` returns 503 with the reason, the persona sign-in
+  refuses, and the seed never runs. The demo page shows the reason.
+- Migration `20261007000000_demo_course_marker` adds `Course.demo`. Only the seed
+  sets it, and the current demo course is the newest marked one, not the newest
+  with the demo name.
+- The demo stack on the build host predates the marker, so its database must be recreated
+  before the tunnel opens.

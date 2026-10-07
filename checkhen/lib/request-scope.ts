@@ -2,6 +2,7 @@ import { getServerSession } from 'next-auth';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { authOptions } from '../pages/api/auth/[...nextauth]';
 import { DEMO_INSTRUCTOR, isDemo } from './demo';
+import { demoGate } from './demo-guard';
 import { prisma } from './prisma';
 
 export function isInstructor(email: string) {
@@ -14,6 +15,7 @@ export function isInstructor(email: string) {
 }
 
 export async function requireIdentity(req: NextApiRequest, res: NextApiResponse, adminOnly = false) {
+  if (!await demoGate(req, res)) return null;
   const session = await getServerSession(req, res, authOptions);
   if (!session?.user?.email) { res.status(401).json({ message: 'Unauthorized' }); return null; }
   const admin = isInstructor(session.user.email);

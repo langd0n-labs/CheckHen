@@ -7,6 +7,7 @@ import {
   isDemo,
   seedDemo,
 } from '@/lib/demo';
+import { demoGate } from '@/lib/demo-guard';
 import { prisma } from '@/lib/prisma';
 
 /** Demo mode only: the personas to sign in as, and the demo course to open. */
@@ -16,6 +17,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   if (!isDemo()) {
     return res.status(404).end();
+  }
+  if (!(await demoGate(req, res))) {
+    return;
   }
   let course = await currentDemoCourse(prisma);
   if (!course) {

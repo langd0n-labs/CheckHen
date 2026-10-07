@@ -1084,9 +1084,16 @@ integration('route → store → attendance fold', () => {
   });
 
   it('seeds a demo course that every view can read, and resets to a new one', async () => {
-    const { seedDemo, currentDemoCourse } = jest.requireActual('@/lib/demo');
+    const { seedDemo, currentDemoCourse, demoDatabaseProblem, DEMO_DATABASE_REFUSED } =
+      jest.requireActual('@/lib/demo');
+    // A course created by name alone is never the demo; only the seed marks one.
+    await prisma.course.create({ data: { name: 'Demo: Farm Science 101' } });
     const first = await seedDemo(prisma, new Date('2026-10-06T18:00:00Z'));
     expect((await currentDemoCourse(prisma)).id).toBe(first.courseId);
+    await prisma.course.create({ data: { name: 'Demo: Farm Science 101' } });
+    expect((await currentDemoCourse(prisma)).id).toBe(first.courseId);
+    // This database holds real test courses, so demo mode refuses it.
+    expect(await demoDatabaseProblem(prisma)).toBe(DEMO_DATABASE_REFUSED);
     const live = { courseId: first.courseId, classId: first.liveClassId };
     const state = await readState(prisma, live);
     expect(state.attendance.filter((entry) => entry.isPresent)).toHaveLength(10);
