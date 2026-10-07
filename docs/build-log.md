@@ -1217,6 +1217,9 @@ The tunnel stays off until M1 and M2 are fixed and AICP confirms.
   with the demo name.
 - The demo stack on the build host predates the marker, so its database must be recreated
   before the tunnel opens.
+- A course with no sessions and no roster does not count as real data: the events
+  migration creates an empty "Imported course" in every database, so a fresh demo
+  database was refused until this was allowed.
 
 ### M2: narrow what a demo visitor can write
 

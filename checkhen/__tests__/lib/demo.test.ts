@@ -74,7 +74,9 @@ describe('a database with real data', () => {
     expect(prisma.user.count).toHaveBeenCalledWith({
       where: { NOT: { email: { endsWith: `@${DEMO_DOMAIN}` } } },
     });
-    expect(prisma.course.count).toHaveBeenCalledWith({ where: { demo: false } });
+    expect(prisma.course.count).toHaveBeenCalledWith({
+      where: { demo: false, OR: [{ classes: { some: {} } }, { roster: { some: {} } }] },
+    });
   });
 
   it('refuses a real course or a real user', async () => {

@@ -1103,13 +1103,24 @@ integration('route → store → attendance fold', () => {
     const { seedDemo, currentDemoCourse, demoDatabaseProblem, DEMO_DATABASE_REFUSED } =
       jest.requireActual('@/lib/demo');
     // A course created by name alone is never the demo; only the seed marks one.
-    await prisma.course.create({ data: { name: 'Demo: Farm Science 101' } });
+    const named = await prisma.course.create({ data: { name: 'Demo: Farm Science 101' } });
     const first = await seedDemo(prisma, new Date('2026-10-06T18:00:00Z'));
     expect((await currentDemoCourse(prisma)).id).toBe(first.courseId);
     await prisma.course.create({ data: { name: 'Demo: Farm Science 101' } });
     expect((await currentDemoCourse(prisma)).id).toBe(first.courseId);
-    // This database holds real test courses, so demo mode refuses it.
+    // This database holds real test courses, so demo mode refuses it. An empty course
+    // holds no data, but one with a roster does.
     expect(await demoDatabaseProblem(prisma)).toBe(DEMO_DATABASE_REFUSED);
+    const counted = await prisma.course.count({
+      where: { demo: false, OR: [{ classes: { some: {} } }, { roster: { some: {} } }] },
+    });
+    const real = await prisma.user.create({ data: { email: `real-${randomUUID()}@bu.edu` } });
+    await prisma.rosterEntry.create({ data: { courseId: named.id, userId: real.id } });
+    expect(
+      await prisma.course.count({
+        where: { demo: false, OR: [{ classes: { some: {} } }, { roster: { some: {} } }] },
+      })
+    ).toBe(counted + 1);
     const live = { courseId: first.courseId, classId: first.liveClassId };
     const state = await readState(prisma, live);
     expect(state.attendance.filter((entry) => entry.isPresent)).toHaveLength(10);

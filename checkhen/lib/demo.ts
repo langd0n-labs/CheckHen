@@ -20,12 +20,16 @@ export const DEMO_DATABASE_REFUSED =
 
 /**
  * Demo mode serves only a database that holds nothing but demo data: every user has
- * a demo address and every course came from the seed. Returns the refusal, or null.
+ * a demo address, and every course with sessions or a roster came from the seed. An
+ * empty course holds no data; the events migration creates one in every database.
+ * Returns the refusal, or null.
  */
 export async function demoDatabaseProblem(db: PrismaClient): Promise<string | null> {
   const [users, courses] = await Promise.all([
     db.user.count({ where: { NOT: { email: { endsWith: `@${DEMO_DOMAIN}` } } } }),
-    db.course.count({ where: { demo: false } }),
+    db.course.count({
+      where: { demo: false, OR: [{ classes: { some: {} } }, { roster: { some: {} } }] },
+    }),
   ]);
   return users || courses ? DEMO_DATABASE_REFUSED : null;
 }
