@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 import type { Prisma, PrismaClient } from '@prisma/client';
+import { generateAnonymousName } from '@/lib/anonymousNames';
 import {
   courseConfig,
   eligibility,
@@ -13,6 +14,7 @@ import {
 } from '@/lib/cold-call';
 import { appendEvent, asEvent, ConflictError, isEffective, readState } from '@/lib/event-store';
 import { effectiveEvents, foldEvents, type EventScope } from '@/lib/events';
+import { checkhenMode } from '@/lib/mode';
 import { prisma } from '@/lib/prisma';
 import { requireScope } from '@/lib/request-scope';
 
@@ -252,6 +254,67 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   const { scope, user } = context;
   const action = req.method === 'GET' ? 'status' : req.body?.action;
+
+  // Hosted mode has no network attendance: the instructor takes roll call instead.
+  if (action === 'roll-call' || action === 'mark') {
+    if (checkhenMode() !== 'hosted') {
+      return res
+        .status(409)
+        .json({ message: 'Roll call is for hosted mode; the access point takes attendance here' });
+    }
+    if (action === 'mark') {
+      const { userId, present } = req.body ?? {};
+      if (typeof userId !== 'string' || typeof present !== 'boolean') {
+        return res.status(400).json({ message: 'Choose a student and present or absent' });
+      }
+      const current = (await readState(prisma, scope)).attendance.find(
+        (entry) => entry.userId === userId
+      );
+      try {
+        if (present && !current?.isPresent) {
+          // The same check-in event network attendance writes; the store keeps the
+          // anonymous name unique within the session.
+          await appendEvent(prisma, {
+            ...scope,
+            actorId: user.id,
+            userId,
+            kind: 'CHECK_IN',
+            payload: { anonymousName: generateAnonymousName(), rollCall: true },
+          });
+        } else if (!present && current?.isPresent) {
+          await appendEvent(prisma, {
+            ...scope,
+            actorId: user.id,
+            userId,
+            kind: 'CHECK_OUT',
+            payload: { rollCall: true },
+          });
+        }
+      } catch (error) {
+        return res
+          .status(400)
+          .json({ message: error instanceof Error ? error.message : 'Could not record' });
+      }
+    }
+    const state = await readState(prisma, scope);
+    const roster = await prisma.rosterEntry.findMany({
+      where: { courseId: scope.courseId, active: true },
+      include: { user: true },
+    });
+    return res.json({
+      students: roster
+        .map((entry) => ({
+          userId: entry.userId,
+          name: studentName(entry.user),
+          pronunciation: entry.user.namePronunciation,
+          photo: entry.user.profilePicture,
+          present: state.attendance.some(
+            (attendee) => attendee.userId === entry.userId && attendee.isPresent
+          ),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name) || a.userId.localeCompare(b.userId)),
+    });
+  }
 
   if (action === 'status') {
     const state = await readState(prisma, scope);

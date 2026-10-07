@@ -1155,3 +1155,18 @@ attendance, participation only, or wait for roll call).
   `podman-compose -p checkhen-demo --env-file .env.hosted --profile hosted up -d --build`.
   Checked on 2026-10-07: `/api/mode` reports hosted; `/join` and `/help/student`
   return 200; the socket.io handshake succeeds through the proxy.
+
+### Step 3: roll call
+
+- In hosted mode, the call screen has a Roll call button. It steps through
+  the active roster, alphabetically, asking "Present?" with Present and Absent
+  buttons, and lists every student with their mark so a mark can be changed.
+- Present writes the same `CHECK_IN` event network attendance writes, by the
+  instructor, with a generated anonymous name and `rollCall: true`; marking
+  twice writes one check-in. Absent on a present student writes `CHECK_OUT`.
+  A roll-called student can be cold-called.
+- The roll-call API actions answer 409 in classroom mode, where the access
+  point takes attendance.
+
+Verified: 31 Jest suites and 298 tests; 41 route integration cases (adds the
+hosted roll-call case).

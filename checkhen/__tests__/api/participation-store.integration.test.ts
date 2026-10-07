@@ -784,6 +784,39 @@ integration('route → store → attendance fold', () => {
       expect(corrected._getStatusCode()).toBe(200);
     });
 
+    it('takes roll call in hosted mode with the same check-in events', async () => {
+      const ada = await prisma.user.create({
+        data: { email: `roll-${randomUUID()}@example.edu`, displayName: 'Ada' },
+      });
+      await prisma.rosterEntry.create({ data: { courseId: scope.courseId, userId: ada.id } });
+      expect((await call('POST', { action: 'roll-call' }))._getStatusCode()).toBe(409);
+      process.env.CHECKHEN_MODE = 'hosted';
+      try {
+        const roster = (await call('POST', { action: 'roll-call' }))._getJSONData().students;
+        expect(roster.find((entry: any) => entry.userId === ada.id)).toMatchObject({
+          present: false,
+        });
+        const marked = await call('POST', { action: 'mark', userId: ada.id, present: true });
+        expect(
+          marked._getJSONData().students.find((entry: any) => entry.userId === ada.id).present
+        ).toBe(true);
+        // Marking twice writes one check-in.
+        await call('POST', { action: 'mark', userId: ada.id, present: true });
+        const checkIns = (await readEvents(prisma, scope)).filter(
+          (event) => event.kind === 'CHECK_IN' && event.userId === ada.id
+        );
+        expect(checkIns).toHaveLength(1);
+        expect(checkIns[0].payload).toMatchObject({ rollCall: true });
+        // A roll-called student can be cold-called.
+        expect((await draw()).student.userId).toBe(ada.id);
+        await call('POST', { action: 'mark', userId: ada.id, present: false });
+        const state = await readState(prisma, scope);
+        expect(state.attendance.find((entry) => entry.userId === ada.id)?.isPresent).toBe(false);
+      } finally {
+        delete process.env.CHECKHEN_MODE;
+      }
+    });
+
     it('makes an absent student callable again when they check back in', async () => {
       const late = await student('Kim');
       await record((await draw()).draw, 'absent');

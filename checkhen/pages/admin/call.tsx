@@ -12,8 +12,10 @@ import {
   UnstyledButton,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
+import { RollCall } from '@/components/RollCall';
 import { SessionScopePicker } from '@/components/SessionScopePicker';
 import { scopedFetch, selectedScope } from '@/lib/scoped-fetch';
+import { useCheckhenMode } from '@/lib/use-mode';
 
 type Outcome = 'answered' | 'pass' | 'retry' | 'absent' | 'skip';
 type Student = {
@@ -63,6 +65,8 @@ export default function ColdCall() {
   // When an outcome ends a follow-up run, the result-line Undo steps back into the run.
   const [undoTo, setUndoTo] = useState<{ callId: string; card: Card } | null>(null);
   const [configProblem, setConfigProblem] = useState<string | null>(null);
+  const mode = useCheckhenMode();
+  const [rollCall, setRollCall] = useState(false);
   const [calls, setCalls] = useState<Call[]>([]);
   const [present, setPresent] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -256,235 +260,252 @@ export default function ColdCall() {
           </Text>
         </Group>
       </Group>
-      {configProblem && !student && (
-        // Only between calls, so it never pushes the outcome buttons down.
-        <Alert color="yellow" p="xs">
-          Some grade settings are invalid, so their defaults apply. Fix them in the course
-          record&apos;s Settings tab.
-        </Alert>
-      )}
-
-      <Stack
-        align="center"
-        justify="center"
-        gap={6}
-        style={{ flex: 1, textAlign: 'center' }}
-        aria-live="polite"
-      >
-        {student ? (
-          <>
-            {/* One row for the run state, so a small phone keeps Answered on screen. */}
-            <Group gap="xs" justify="center" wrap="wrap">
-              {student.followUp && (
-                <Badge size="xl" color="buBlue.7" fz={20} h={36} px="md" tt="none">
-                  Follow-up {student.followUps}
-                </Badge>
-              )}
-              {student.recorded && (
-                <Group gap={4} justify="center" wrap="nowrap">
-                  <Text fz={16}>Recorded: {outcomeLabel[student.recorded.outcome]}</Text>
-                  <Button
-                    variant="subtle"
-                    h={44}
-                    disabled={busy}
-                    onClick={async () => {
-                      // Step back to the card before this outcome: same student, and its
-                      // token is valid again once the outcome is undone.
-                      const card = student;
-                      setBusy(true);
-                      try {
-                        if (await undo(card.recorded!.id)) {
-                          setStudent(card.previous ?? null);
-                        }
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
-                  >
-                    Undo
-                  </Button>
-                </Group>
-              )}
-            </Group>
-            {/* The photo and name shrink on short screens; the outcome buttons do not. */}
-            <Avatar
-              src={student.photo}
-              alt=""
-              size={student.followUp ? 'clamp(48px, 9dvh, 168px)' : 'clamp(56px, 14dvh, 168px)'}
-              radius={168}
-              color="buBlue"
-            >
-              <Text fz="clamp(30px, 6dvh, 56px)" fw={700}>
-                {initials(student.name)}
-              </Text>
-            </Avatar>
-            <Text fz="clamp(28px, 5dvh, 40px)" fw={800} lh={1.1} mt={4}>
-              {student.name}
-            </Text>
-            {student.pronunciation && (
-              <Text fz="clamp(18px, 3.5dvh, 24px)" fw={500}>
-                {student.pronunciation}
-              </Text>
-            )}
-            {/* Pronouns show with the first question; a run keeps the screen short. */}
-            {student.pronouns && !student.followUp && (
-              <Text fz="clamp(15px, 3dvh, 18px)" c="dimmed">
-                {student.pronouns}
-              </Text>
-            )}
-          </>
-        ) : last ? (
-          <Group gap="sm" justify="center">
-            <Text fz={20}>{callLabel(last)}</Text>
-            <Button
-              variant="subtle"
-              size="md"
-              h={44}
-              disabled={busy}
-              onClick={async () => {
-                const back = undoTo?.callId === last.id ? undoTo : null;
-                // Busy until the undo returns, so Call on someone cannot race it.
-                setBusy(true);
-                try {
-                  if ((await undo(last.id)) && back) {
-                    setUndoTo(null);
-                    setStudent(back.card);
-                  }
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              Undo
-            </Button>
-            {lastAnswered?.callId === last.id && (
-              <Button
-                variant="subtle"
-                size="md"
-                h={44}
-                onClick={() => {
-                  setStudent(lastAnswered);
-                  setLastAnswered(null);
-                }}
-              >
-                Ask a follow-up
-              </Button>
-            )}
-          </Group>
-        ) : (
-          <Text fz={20} c="dimmed">
-            No one called yet this session.
-          </Text>
-        )}
-      </Stack>
-
-      {student ? (
-        <Stack gap={12}>
-          {/* The secondary action sits apart from the outcomes so it is not tapped by habit. */}
-          {student.followUp ? (
-            <Button variant="subtle" h={44} disabled={busy} onClick={() => setStudent(null)}>
-              Done with follow-ups
-            </Button>
-          ) : (
-            <Button variant="subtle" h={44} disabled={busy} onClick={() => record('skip')}>
-              Skip (out of the room)
-            </Button>
-          )}
-          <Group grow gap={12}>
-            <Button
-              size="lg"
-              h={52}
-              fz={18}
-              px={4}
-              color="gray"
-              variant="default"
-              disabled={busy}
-              onClick={() => record('pass')}
-            >
-              Pass
-            </Button>
-            <Button
-              size="lg"
-              h={52}
-              fz={18}
-              px={4}
-              color="yellow.4"
-              c="dark.9"
-              disabled={busy}
-              onClick={() => record('retry')}
-            >
-              Retry
-            </Button>
-            {!student.followUp && (
-              <Button
-                size="lg"
-                h={52}
-                fz={18}
-                px={4}
-                color="red.8"
-                disabled={busy}
-                onClick={() => record('absent')}
-              >
-                Absent
-              </Button>
-            )}
-          </Group>
-          <Button
-            size="lg"
-            h={52}
-            color="green.9"
-            variant="outline"
-            disabled={busy}
-            onClick={() => record('answered', 'follow-up')}
-          >
-            Answered + follow-up
-          </Button>
-          <Button
-            size="xl"
-            h="clamp(64px, 11dvh, 96px)"
-            color="green.9"
-            fz={28}
-            disabled={busy}
-            onClick={() => record('answered')}
-          >
-            Answered
-          </Button>
-        </Stack>
-      ) : (
-        <Button size="xl" h={160} fz={32} loading={busy} onClick={draw}>
-          Call on someone
+      {mode === 'hosted' && !rollCall && !student && (
+        // Hosted mode has no network attendance; roll call checks students in.
+        <Button variant="light" h={44} onClick={() => setRollCall(true)}>
+          Roll call
         </Button>
       )}
+      {rollCall ? (
+        <RollCall
+          onDone={() => {
+            setRollCall(false);
+            refresh();
+          }}
+        />
+      ) : (
+        <>
+          {configProblem && !student && (
+            // Only between calls, so it never pushes the outcome buttons down.
+            <Alert color="yellow" p="xs">
+              Some grade settings are invalid, so their defaults apply. Fix them in the course
+              record&apos;s Settings tab.
+            </Alert>
+          )}
 
-      {calls.length > 1 && !student && (
-        <Stack gap={4} mt="md">
-          <Text size="sm" fw={600}>
-            Earlier calls this session
-          </Text>
-          {calls
-            .slice(0, -1)
-            .reverse()
-            .map((call) => (
-              <Group key={call.id} justify="space-between" wrap="nowrap">
-                <Text size="md">{callLabel(call)}</Text>
-                <UnstyledButton
+          <Stack
+            align="center"
+            justify="center"
+            gap={6}
+            style={{ flex: 1, textAlign: 'center' }}
+            aria-live="polite"
+          >
+            {student ? (
+              <>
+                {/* One row for the run state, so a small phone keeps Answered on screen. */}
+                <Group gap="xs" justify="center" wrap="wrap">
+                  {student.followUp && (
+                    <Badge size="xl" color="buBlue.7" fz={20} h={36} px="md" tt="none">
+                      Follow-up {student.followUps}
+                    </Badge>
+                  )}
+                  {student.recorded && (
+                    <Group gap={4} justify="center" wrap="nowrap">
+                      <Text fz={16}>Recorded: {outcomeLabel[student.recorded.outcome]}</Text>
+                      <Button
+                        variant="subtle"
+                        h={44}
+                        disabled={busy}
+                        onClick={async () => {
+                          // Step back to the card before this outcome: same student, and its
+                          // token is valid again once the outcome is undone.
+                          const card = student;
+                          setBusy(true);
+                          try {
+                            if (await undo(card.recorded!.id)) {
+                              setStudent(card.previous ?? null);
+                            }
+                          } finally {
+                            setBusy(false);
+                          }
+                        }}
+                      >
+                        Undo
+                      </Button>
+                    </Group>
+                  )}
+                </Group>
+                {/* The photo and name shrink on short screens; the outcome buttons do not. */}
+                <Avatar
+                  src={student.photo}
+                  alt=""
+                  size={student.followUp ? 'clamp(48px, 9dvh, 168px)' : 'clamp(56px, 14dvh, 168px)'}
+                  radius={168}
+                  color="buBlue"
+                >
+                  <Text fz="clamp(30px, 6dvh, 56px)" fw={700}>
+                    {initials(student.name)}
+                  </Text>
+                </Avatar>
+                <Text fz="clamp(28px, 5dvh, 40px)" fw={800} lh={1.1} mt={4}>
+                  {student.name}
+                </Text>
+                {student.pronunciation && (
+                  <Text fz="clamp(18px, 3.5dvh, 24px)" fw={500}>
+                    {student.pronunciation}
+                  </Text>
+                )}
+                {/* Pronouns show with the first question; a run keeps the screen short. */}
+                {student.pronouns && !student.followUp && (
+                  <Text fz="clamp(15px, 3dvh, 18px)" c="dimmed">
+                    {student.pronouns}
+                  </Text>
+                )}
+              </>
+            ) : last ? (
+              <Group gap="sm" justify="center">
+                <Text fz={20}>{callLabel(last)}</Text>
+                <Button
+                  variant="subtle"
+                  size="md"
+                  h={44}
                   disabled={busy}
                   onClick={async () => {
+                    const back = undoTo?.callId === last.id ? undoTo : null;
+                    // Busy until the undo returns, so Call on someone cannot race it.
                     setBusy(true);
                     try {
-                      await undo(call.id);
+                      if ((await undo(last.id)) && back) {
+                        setUndoTo(null);
+                        setStudent(back.card);
+                      }
                     } finally {
                       setBusy(false);
                     }
                   }}
-                  style={{ minHeight: 44, padding: '0 12px' }}
-                  c="buBlue.7"
                 >
                   Undo
-                </UnstyledButton>
+                </Button>
+                {lastAnswered?.callId === last.id && (
+                  <Button
+                    variant="subtle"
+                    size="md"
+                    h={44}
+                    onClick={() => {
+                      setStudent(lastAnswered);
+                      setLastAnswered(null);
+                    }}
+                  >
+                    Ask a follow-up
+                  </Button>
+                )}
               </Group>
-            ))}
-        </Stack>
+            ) : (
+              <Text fz={20} c="dimmed">
+                No one called yet this session.
+              </Text>
+            )}
+          </Stack>
+
+          {student ? (
+            <Stack gap={12}>
+              {/* The secondary action sits apart from the outcomes so it is not tapped by habit. */}
+              {student.followUp ? (
+                <Button variant="subtle" h={44} disabled={busy} onClick={() => setStudent(null)}>
+                  Done with follow-ups
+                </Button>
+              ) : (
+                <Button variant="subtle" h={44} disabled={busy} onClick={() => record('skip')}>
+                  Skip (out of the room)
+                </Button>
+              )}
+              <Group grow gap={12}>
+                <Button
+                  size="lg"
+                  h={52}
+                  fz={18}
+                  px={4}
+                  color="gray"
+                  variant="default"
+                  disabled={busy}
+                  onClick={() => record('pass')}
+                >
+                  Pass
+                </Button>
+                <Button
+                  size="lg"
+                  h={52}
+                  fz={18}
+                  px={4}
+                  color="yellow.4"
+                  c="dark.9"
+                  disabled={busy}
+                  onClick={() => record('retry')}
+                >
+                  Retry
+                </Button>
+                {!student.followUp && (
+                  <Button
+                    size="lg"
+                    h={52}
+                    fz={18}
+                    px={4}
+                    color="red.8"
+                    disabled={busy}
+                    onClick={() => record('absent')}
+                  >
+                    Absent
+                  </Button>
+                )}
+              </Group>
+              <Button
+                size="lg"
+                h={52}
+                color="green.9"
+                variant="outline"
+                disabled={busy}
+                onClick={() => record('answered', 'follow-up')}
+              >
+                Answered + follow-up
+              </Button>
+              <Button
+                size="xl"
+                h="clamp(64px, 11dvh, 96px)"
+                color="green.9"
+                fz={28}
+                disabled={busy}
+                onClick={() => record('answered')}
+              >
+                Answered
+              </Button>
+            </Stack>
+          ) : (
+            <Button size="xl" h={160} fz={32} loading={busy} onClick={draw}>
+              Call on someone
+            </Button>
+          )}
+
+          {calls.length > 1 && !student && (
+            <Stack gap={4} mt="md">
+              <Text size="sm" fw={600}>
+                Earlier calls this session
+              </Text>
+              {calls
+                .slice(0, -1)
+                .reverse()
+                .map((call) => (
+                  <Group key={call.id} justify="space-between" wrap="nowrap">
+                    <Text size="md">{callLabel(call)}</Text>
+                    <UnstyledButton
+                      disabled={busy}
+                      onClick={async () => {
+                        setBusy(true);
+                        try {
+                          await undo(call.id);
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}
+                      style={{ minHeight: 44, padding: '0 12px' }}
+                      c="buBlue.7"
+                    >
+                      Undo
+                    </UnstyledButton>
+                  </Group>
+                ))}
+            </Stack>
+          )}
+        </>
       )}
     </Box>
   );
