@@ -69,8 +69,9 @@ class ExamTests(unittest.TestCase):
                                preauth=["accounts.google.com"], now=100)
         # The DNS filter is in place before the gate, and no address is resolved at start.
         self.assertEqual(order, [("dns", ["exam.example.edu", "accounts.google.com"]), ("gate", True)])
-        self.assertEqual(state["seedDomains"], ["accounts.google.com"])
-        self.assertEqual(exam.seed_due(state, 100), ["accounts.google.com"])
+        # Every allowlisted name is seeded on the first worker pass after the start.
+        self.assertEqual(state["seedDomains"], ["exam.example.edu", "accounts.google.com"])
+        self.assertEqual(exam.seed_due(state, 100), ["exam.example.edu", "accounts.google.com"])
         self.assertEqual(exam.seed_due(state, 129), [])
 
     def test_start_failure_releases_dns_and_gate(self):

@@ -71,6 +71,7 @@ class RouteGuardTests(unittest.TestCase):
             self.assertIn('iifname "chbr0" ip daddr @private4 counter drop', rules)
             self.assertIn("enable-ra", (Path(directory) / "dnsmasq.conf").read_text())
             self.assertIn("servers-file=", (Path(directory) / "dnsmasq.conf").read_text())
+            self.assertIn("max-ttl=30", (Path(directory) / "dnsmasq.conf").read_text())
             self.assertIn("constructor:chbr0,ra-only,64", (Path(directory) / "dnsmasq.conf").read_text())
             self.assertIn("ap_isolate=1", (Path(directory) / "hostapd.conf").read_text())
             self.assertIn("ap_max_inactivity=10", (Path(directory) / "hostapd.conf").read_text())

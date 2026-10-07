@@ -196,6 +196,10 @@ export default function InstructorHelp() {
                   already checked in cannot join.
                 </List.Item>
                 <List.Item>
+                  A student who opened an allowed site before the start may need to reload it
+                  once.
+                </List.Item>
+                <List.Item>
                   CheckHen watches each student&apos;s connection, both the open class page and the
                   device on the Wi-Fi. A student disconnected for longer than the limit gets an
                   automatic fail, shown on the dashboard.

@@ -234,6 +234,9 @@ wpa_passphrase={settings["AP_PASSPHRASE"]}
            f"dhcp-option=option:router,{ip}", f"dhcp-option=option:dns-server,{ip}",
            f"dhcp-leasefile={STATE / 'dnsmasq/leases'}", "no-resolv",
            "server=1.1.1.1", "server=9.9.9.9", f"servers-file={STATE / 'exam-servers'}", "log-queries",
+           # Short client TTLs: when an exam starts, addresses that clients cached before
+           # it are not in the exam sets, so caches must turn over quickly.
+           "max-ttl=30",
            f"log-facility={STATE / 'dnsmasq/query.log'}",
            f"address=/{settings.get('AP_HOSTNAME', 'checkhen.rfkill.dev')}/{ip}",
            f"address=/{settings.get('AP_HOSTNAME', 'checkhen.rfkill.dev')}/{ipv6_address}",

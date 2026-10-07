@@ -186,8 +186,10 @@ def start(scope: dict, exam_id: str, domains: list[str], clients: list[dict],
     clock = time.time() if now is None else now
     state = {**scope, "examId": exam_id, "domains": domains, "thresholdSeconds": threshold_seconds,
              "uplink": classroom["uplink"], "dnsmasqPid": classroom["processes"]["dnsmasq"],
-             # dnsmasq sends sign-in names to the preauth sets only; the agent seeds these.
-             "seedDomains": [domain for domain in domains if covered(domain, preauth or [])],
+             # Seeding puts each allowlisted name's addresses in the exam sets as soon as
+             # the gate starts, for clients that resolved them before the exam. It also
+             # covers sign-in names, which dnsmasq sends to the preauth sets only.
+             "seedDomains": domains,
              "seededAt": 0,
              "clients": {client["userId"]: {"mac": client["mac"].lower(), "lastHeartbeat": clock,
                         "lastStation": clock, "failedAt": None, "failId": None,

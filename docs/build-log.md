@@ -1340,3 +1340,17 @@ Report: AICP review `review-550aaa7-622f656-exam.md` (kept outside the repositor
   `iw dev <ap> station dump` every 0.5 s for 5 minutes. Expect `inactive time` to
   stay under about 5 s for both. If it does not, the driver does not count the
   probe's ACK; record the driver and the largest value seen.
+
+### M3: sites opened before the start load again quickly
+
+- Exam start still empties the exam sets (they hold every answer from before the
+  exam). The first worker pass after the start now seeds every allowlisted name
+  through the AP's dnsmasq, not only sign-in names, so their current addresses are
+  in the sets within about a second.
+- dnsmasq caps the TTL it gives clients at 30 s (`max-ttl=30`), so names a client
+  cached before the start, including other names an allowed site uses, are asked
+  again within 30 s and then enter the sets.
+- The instructor help says a student may need to reload an allowed site once.
+- Operator check on x1 (review check 5): on real clients, open a CDN-hosted
+  allowlisted site (for example Google Docs or a CloudFront LMS) before the start.
+  Check that it loads, after at most one reload, during the first 5 minutes.
