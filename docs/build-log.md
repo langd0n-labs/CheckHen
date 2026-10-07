@@ -1168,5 +1168,33 @@ attendance, participation only, or wait for roll call).
 - The roll-call API actions answer 409 in classroom mode, where the access
   point takes attendance.
 
-Verified: 31 Jest suites and 298 tests; 41 route integration cases (adds the
+Verified: 31 Jest suites and 297 tests; 41 route integration cases (adds the
 hosted roll-call case).
+
+## Issue #2: demo mode
+
+- `CHECKHEN_DEMO=1` (hosted mode only) replaces Google sign-in with a persona
+  picker at `/demo`: the instructor (Professor Hoot) or one of ten farm-animal
+  students. Personas use the reserved `demo.checkhen.invalid` domain, the
+  credentials provider accepts only those addresses, and in demo mode the
+  demo instructor is the only instructor, so a demo deployment cannot admit a
+  real account.
+- Avatars are generated SVGs (the animal emoji on a soft circle), so the
+  repository ships no image files to license.
+- The seed (`lib/demo.ts`): one course, "Demo: Farm Science 101", with four
+  past meetings on fixed dates (Tuesdays in September 2026) and a week-long
+  live session with everyone checked in by roll call. It covers check-ins
+  and roll call, chat, hands, pace, every cold-call outcome, follow-up runs,
+  a Retry, a Skip, Absents with one excused, and the patterns the issue names
+  (Sage never called, Gus passes often, Daisy volunteers often).
+- Reset: the event log is append-only, so a reset never deletes. It creates a
+  new demo course from the seed, and demo mode shows only the newest one. The
+  dashboard has Reset demo for the instructor; `/api/demo` seeds a fresh
+  deployment on first use.
+- Verified on 2026-10-07: 33 Jest suites and 300 tests; 42 route integration
+  cases (adds: the seed folds in every session, includes every outcome, an
+  excuse, and a follow-up, and a reset makes a new course without touching the
+  old one). End to end on the loopback demo stack in headless Chromium, with no
+  stubs: persona sign-in as the instructor (dashboard, course record), a real
+  draw and record on the call screen at 375x667, roll call, and persona
+  sign-in as a student to the student page. No page errors.

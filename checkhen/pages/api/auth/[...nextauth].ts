@@ -1,25 +1,50 @@
 import NextAuth from 'next-auth';
+import CredentialsProvider from 'next-auth/providers/credentials';
 import GoogleProvider from 'next-auth/providers/google';
+import { DEMO_DOMAIN, DEMO_INSTRUCTOR, isDemo } from '@/lib/demo';
 import { prisma } from '@/lib/prisma';
 
+/**
+ * Demo mode signs in as a seeded persona instead of Google. It accepts only demo
+ * addresses, so a demo deployment cannot admit a real account.
+ */
+const demoProvider = CredentialsProvider({
+  id: 'demo',
+  name: 'Demo persona',
+  credentials: { email: { label: 'Persona', type: 'text' } },
+  async authorize(credentials) {
+    const email = String(credentials?.email ?? '');
+    if (!email.endsWith(`@${DEMO_DOMAIN}`)) {
+      return null;
+    }
+    const user = await prisma.user.findUnique({ where: { email } });
+    return user ? { id: user.id, email: user.email, name: user.displayName } : null;
+  },
+});
+
 export const authOptions = {
-  providers: [
-    GoogleProvider({
-      clientId: process.env.AUTH_GOOGLE_ID || '',
-      clientSecret: process.env.AUTH_GOOGLE_SECRET || '',
-      authorization: {
-        params: {
-          prompt: 'select_account',
-          scope: 'openid email profile',
-          hd: process.env.NEXT_PUBLIC_EMAIL_DOMAIN || 'bu.edu',
-        },
-      },
-    }),
-  ],
+  providers: isDemo()
+    ? [demoProvider]
+    : [
+        GoogleProvider({
+          clientId: process.env.AUTH_GOOGLE_ID || '',
+          clientSecret: process.env.AUTH_GOOGLE_SECRET || '',
+          authorization: {
+            params: {
+              prompt: 'select_account',
+              scope: 'openid email profile',
+              hd: process.env.NEXT_PUBLIC_EMAIL_DOMAIN || 'bu.edu',
+            },
+          },
+        }),
+      ],
   callbacks: {
     async signIn({ user, profile }: any) {
       if (!user.email) {
         return false;
+      }
+      if (isDemo()) {
+        return user.email.endsWith(`@${DEMO_DOMAIN}`);
       }
       const domain = (process.env.NEXT_PUBLIC_EMAIL_DOMAIN || 'bu.edu').toLowerCase();
       const allowed =
@@ -49,7 +74,9 @@ export const authOptions = {
     },
     async jwt({ token, user }: any) {
       // Embed isAdmin into the JWT at sign-in so it's available on every request
-      if (user?.email) {
+      if (user?.email && isDemo()) {
+        token.isAdmin = user.email === DEMO_INSTRUCTOR;
+      } else if (user?.email) {
         const adminEmails =
           process.env.ADMIN_EMAILS?.split(',').map(
             (e) => `${e.trim()}@${process.env.NEXT_PUBLIC_EMAIL_DOMAIN}`
@@ -69,6 +96,8 @@ export const authOptions = {
   secret: process.env.AUTH_SECRET,
   pages: {
     error: '/',
+    // Demo mode signs in on the persona picker.
+    ...(isDemo() ? { signIn: '/demo' } : {}),
   },
 };
 

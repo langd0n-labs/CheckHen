@@ -42,9 +42,9 @@ import { notifications } from '@mantine/notifications';
 import ClassSessionManager from '@/components/Admin/ClassSessionManager/ClassSessionManager';
 import { StudentProfileModal } from '@/components/Admin/StudentProfileModal';
 import { EXAM_UNAVAILABLE } from '@/lib/mode';
-import { scopedFetch as fetch } from '@/lib/scoped-fetch';
+import { scopedFetch as fetch, selectScope } from '@/lib/scoped-fetch';
 import { getSocket } from '@/lib/socket';
-import { useCheckhenMode } from '@/lib/use-mode';
+import { useCheckhenMode, useDemoMode } from '@/lib/use-mode';
 
 type UserInfo = {
   id: string;
@@ -129,6 +129,23 @@ export default function AdminDashboard() {
   const [examBusy, setExamBusy] = useState(false);
   const [examClock, setExamClock] = useState(Date.now());
   const mode = useCheckhenMode();
+  const demo = useDemoMode();
+  // Demo mode: restore the seed (as a new demo course) and open its live session.
+  const resetDemo = async () => {
+    if (
+      !window.confirm('Reset the demo to its starting data? Everything done in it is set aside.')
+    ) {
+      return;
+    }
+    const response = await fetch('/api/demo/reset', { method: 'POST' });
+    if (!response.ok) {
+      notifications.show({ message: 'Could not reset the demo', color: 'red' });
+      return;
+    }
+    const { courseId, liveClassId } = await response.json();
+    selectScope({ courseId, classId: liveClassId });
+    window.location.reload();
+  };
   const [paceSignals, setPaceSignals] = useState({ slowDown: 0, readyToMove: 0 });
   const [leftWidth, setLeftWidth] = useState(280);
   const [rightWidth, setRightWidth] = useState(280);
@@ -531,6 +548,11 @@ export default function AdminDashboard() {
             >
               Help
             </Button>
+            {demo && (
+              <Button variant="subtle" color="red" onClick={resetDemo}>
+                Reset demo
+              </Button>
+            )}
             <Button variant="light" onClick={() => router.push('/admin/call')}>
               Cold call
             </Button>

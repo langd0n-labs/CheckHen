@@ -27,7 +27,7 @@ export default function App({ Component, pageProps: { session, ...pageProps } }:
         </Head>
         {/* The call screen shows its own compact scope line to keep both taps on one screen. */}
         {/* The student page and call screen fill the screen and choose their own session. */}
-        {!['/', '/projection', '/admin/call'].includes(router.pathname) &&
+        {!['/', '/projection', '/admin/call', '/demo'].includes(router.pathname) &&
           !router.pathname.startsWith('/help') && <SessionScopePicker />}
         <Component {...pageProps} />
       </MantineProvider>

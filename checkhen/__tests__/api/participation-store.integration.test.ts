@@ -1083,6 +1083,38 @@ integration('route → store → attendance fold', () => {
     expect((await readState(prisma, scope)).examFails).toHaveLength(2);
   });
 
+  it('seeds a demo course that every view can read, and resets to a new one', async () => {
+    const { seedDemo, currentDemoCourse } = jest.requireActual('@/lib/demo');
+    const first = await seedDemo(prisma, new Date('2026-10-06T18:00:00Z'));
+    expect((await currentDemoCourse(prisma)).id).toBe(first.courseId);
+    const live = { courseId: first.courseId, classId: first.liveClassId };
+    const state = await readState(prisma, live);
+    expect(state.attendance.filter((entry) => entry.isPresent)).toHaveLength(10);
+    // Every past meeting folds without error and ended.
+    const sessions = await prisma.class.findMany({ where: { courseId: first.courseId } });
+    expect(sessions).toHaveLength(5);
+    for (const session of sessions.filter((s) => s.id !== first.liveClassId)) {
+      const past = await readState(prisma, { courseId: first.courseId, classId: session.id });
+      expect(past.endedAt).not.toBeNull();
+    }
+    const events = await prisma.participationEvent.findMany({
+      where: { courseId: first.courseId },
+    });
+    const outcomes = new Set(
+      events.filter((e) => e.kind === 'COLD_CALL').map((e) => (e.payload as any).outcome)
+    );
+    expect(Array.from(outcomes).sort()).toEqual(['absent', 'answered', 'pass', 'retry', 'skip']);
+    expect(events.some((e) => e.kind === 'COLD_CALL_EXCUSED')).toBe(true);
+    expect(events.some((e) => (e.payload as any).followUpOf)).toBe(true);
+    // Reset: a new course from the same seed becomes the demo; the old one is untouched.
+    const second = await seedDemo(prisma, new Date('2026-10-06T19:00:00Z'));
+    expect(second.courseId).not.toBe(first.courseId);
+    expect((await currentDemoCourse(prisma)).id).toBe(second.courseId);
+    expect(await prisma.participationEvent.count({ where: { courseId: first.courseId } })).toBe(
+      events.length
+    );
+  });
+
   it('hides a stored message and mutes its student without deleting facts', async () => {
     await invoke(checkIn, '172.16.77.20');
     const request = async (handler: typeof checkIn, body: Record<string, unknown>) => {

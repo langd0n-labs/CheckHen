@@ -3,14 +3,18 @@ import modeRoute from '@/pages/api/mode';
 
 afterEach(() => {
   delete process.env.CHECKHEN_MODE;
+  delete process.env.CHECKHEN_DEMO;
 });
 
-it('reports classroom mode unless hosted mode is set', () => {
+const read = () => {
   const { req, res } = createMocks({ method: 'GET' });
   modeRoute(req as any, res as any);
-  expect(res._getJSONData()).toEqual({ mode: 'classroom' });
+  return res._getJSONData();
+};
+
+it('reports classroom mode unless hosted mode is set, and the demo flag', () => {
+  expect(read()).toEqual({ mode: 'classroom', demo: false });
   process.env.CHECKHEN_MODE = 'hosted';
-  const hosted = createMocks({ method: 'GET' });
-  modeRoute(hosted.req as any, hosted.res as any);
-  expect(hosted.res._getJSONData()).toEqual({ mode: 'hosted' });
+  process.env.CHECKHEN_DEMO = '1';
+  expect(read()).toEqual({ mode: 'hosted', demo: true });
 });
