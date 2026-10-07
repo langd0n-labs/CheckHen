@@ -161,6 +161,24 @@ export default function InstructorHelp() {
           ),
         },
         {
+          id: 'modes',
+          title: 'Classroom and hosted mode',
+          body: (
+            <>
+              <Text>
+                In classroom mode, CheckHen runs behind its own Wi-Fi access point. Students check
+                in by joining that network, and exam mode is available.
+              </Text>
+              <Text>
+                In hosted mode, CheckHen runs at a regular web address with no access point. You
+                take attendance with roll call on the cold-call screen, and exam mode is not
+                available. Chat, hands, pace, cold calling, the course record, and projection work
+                the same in both modes.
+              </Text>
+            </>
+          ),
+        },
+        {
           id: 'exam-mode',
           title: 'Exam mode',
           body: (

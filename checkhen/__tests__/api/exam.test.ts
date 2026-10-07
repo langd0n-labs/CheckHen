@@ -149,3 +149,17 @@ describe('signed fail callback', () => {
     expect(appendEvent).not.toHaveBeenCalled();
   });
 });
+
+it('refuses to start or stop an exam in hosted mode', async () => {
+  process.env.CHECKHEN_MODE = 'hosted';
+  try {
+    for (const action of ['start', 'stop']) {
+      const res = await invoke(action, { domains: ['exam.example.edu'] });
+      expect(res._getStatusCode()).toBe(409);
+      expect(res._getJSONData().message).toMatch(/not available in hosted mode/);
+    }
+    expect(examAgent).not.toHaveBeenCalled();
+  } finally {
+    delete process.env.CHECKHEN_MODE;
+  }
+});

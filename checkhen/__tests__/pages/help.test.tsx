@@ -42,7 +42,7 @@ it('gives each student topic an anchor and marks exam mode as unfinished', () =>
 
 it('covers the dashboard, cold calling, and exam mode for instructors, not the course record', () => {
   view(InstructorHelp);
-  expect(anchors()).toEqual(['dashboard', 'cold-call', 'exam-mode']);
+  expect(anchors()).toEqual(['dashboard', 'cold-call', 'modes', 'exam-mode']);
   const coldCall = document.getElementById('cold-call')!;
   expect(within(coldCall).getByText(/A Pass on a follow-up costs nothing/)).toBeInTheDocument();
   expect(

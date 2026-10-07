@@ -26,7 +26,8 @@ export default function ProjectionPage() {
       }
     };
     void refresh();
-    const socket = io(process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:6060', { auth: { ticket } });
+    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL ?? 'http://localhost:6060';
+    const socket = io(socketUrl || undefined, { auth: { ticket } });
     socket.on('fetch-messages', refresh);
     const timer = window.setInterval(refresh, 500);
     return () => { live = false; window.clearInterval(timer); socket.disconnect(); };

@@ -1116,3 +1116,24 @@ written until the operator sees it in the demo.
 Verified on 2026-10-07 (Nimbus): 30 Jest suites and 292 tests (twice),
 `scripts/test-postgres.sh` with 40 route integration cases, and the browser
 check at 375x553, 375x667, 390x844, and 1280x800 with no sideways scroll.
+
+## Issue #1: hosted mode (operator decision 2026-10-06)
+
+Hosted and demo mode come before the rest of the M5 backlog. The one public
+instance, checkhen-demo.rfkill.dev, runs hosted mode with demo data only.
+
+### Step 1: mode setting and exam gate
+
+- `CHECKHEN_MODE=classroom|hosted` (default classroom), passed to the app in
+  `docker-compose.yml` and listed in both `.env.example` files. `/api/mode`
+  reports it to the pages without sign-in.
+- Hosted mode refuses exam start and stop ("Exam mode needs the classroom
+  access point...") and the dashboard shows that sentence in place of the
+  exam controls.
+- An empty `NEXT_PUBLIC_SOCKET_URL` makes the browser use the page's own
+  origin for the socket, so one build works behind any proxy that sends
+  `/socket.io/` to the socket server; unset keeps the development default.
+- The help pages say which features depend on the mode.
+
+Open with AICP: how a student's own Join counts in hosted mode (self-reported
+attendance, participation only, or wait for roll call).

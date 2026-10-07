@@ -42,6 +42,10 @@ export default function StudentHelp() {
                 device&apos;s access; you stay checked in.
               </Text>
               <Text>To check in again, open the join page and join the session again.</Text>
+              <Text>
+                When CheckHen runs at a regular web address instead of the class Wi-Fi, your
+                instructor takes attendance by roll call.
+              </Text>
             </>
           ),
         },

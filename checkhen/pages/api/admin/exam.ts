@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { randomUUID } from 'node:crypto';
 import { appendEvent, readState } from '@/lib/event-store';
 import { examAgent, examDomains } from '@/lib/exam-control';
+import { checkhenMode, EXAM_UNAVAILABLE } from '@/lib/mode';
 import { PortalBindingError } from '@/lib/portal-binding';
 import { prisma } from '@/lib/prisma';
 import { requireScope } from '@/lib/request-scope';
@@ -17,6 +18,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const { scope, user, selected } = context;
   const state = await readState(prisma, scope);
   const action = req.method === 'GET' ? 'status' : req.body?.action;
+  if (checkhenMode() === 'hosted' && (action === 'start' || action === 'stop')) {
+    return res.status(409).json({ message: EXAM_UNAVAILABLE });
+  }
   try {
     if (action === 'start') {
       if (state.exam?.active) {

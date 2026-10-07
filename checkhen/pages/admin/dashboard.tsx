@@ -41,8 +41,10 @@ import {
 import { notifications } from '@mantine/notifications';
 import ClassSessionManager from '@/components/Admin/ClassSessionManager/ClassSessionManager';
 import { StudentProfileModal } from '@/components/Admin/StudentProfileModal';
+import { EXAM_UNAVAILABLE } from '@/lib/mode';
 import { scopedFetch as fetch } from '@/lib/scoped-fetch';
 import { getSocket } from '@/lib/socket';
+import { useCheckhenMode } from '@/lib/use-mode';
 
 type UserInfo = {
   id: string;
@@ -126,6 +128,7 @@ export default function AdminDashboard() {
   const [excuseReasons, setExcuseReasons] = useState<Record<string, string>>({});
   const [examBusy, setExamBusy] = useState(false);
   const [examClock, setExamClock] = useState(Date.now());
+  const mode = useCheckhenMode();
   const [paceSignals, setPaceSignals] = useState({ slowDown: 0, readyToMove: 0 });
   const [leftWidth, setLeftWidth] = useState(280);
   const [rightWidth, setRightWidth] = useState(280);
@@ -200,8 +203,9 @@ export default function AdminDashboard() {
   const studentName = (userId: string) =>
     exam?.students.find((item) => item.userId === userId)?.name || userId;
   // Fails from ended or earlier exams stay listed and excusable.
-  const earlierFails =
-    (exam?.fails ?? []).filter((fail) => !(exam?.exam?.active && fail.examId === exam.exam.id));
+  const earlierFails = (exam?.fails ?? []).filter(
+    (fail) => !(exam?.exam?.active && fail.examId === exam.exam.id)
+  );
   const excuseControl = (failId: string, name: string) => (
     <Group gap="xs">
       <TextInput
@@ -636,7 +640,11 @@ export default function AdminDashboard() {
                   </Group>
                   {exam?.exam?.active && <Badge color="red">Active</Badge>}
                 </Group>
-                {exam?.exam?.active ? (
+                {mode === 'hosted' ? (
+                  <Text size="sm" c="dimmed">
+                    {EXAM_UNAVAILABLE}
+                  </Text>
+                ) : exam?.exam?.active ? (
                   <>
                     <Text size="sm">Allowed: {exam.exam.domains.join(', ')}</Text>
                     <Group gap="xs">
