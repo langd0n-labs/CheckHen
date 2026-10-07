@@ -12,7 +12,14 @@ import {
   type ColdCallOutcome,
   type Meeting,
 } from '@/lib/cold-call';
-import { appendEvent, asEvent, ConflictError, isEffective, readState } from '@/lib/event-store';
+import {
+  appendEvent,
+  asEvent,
+  ConflictError,
+  isEffective,
+  readEvents,
+  readState,
+} from '@/lib/event-store';
 import { effectiveEvents, foldEvents, type EventScope } from '@/lib/events';
 import { checkhenMode } from '@/lib/mode';
 import { prisma } from '@/lib/prisma';
@@ -282,13 +289,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             payload: { anonymousName: generateAnonymousName(), rollCall: true },
           });
         } else if (!present && current?.isPresent) {
-          await appendEvent(prisma, {
-            ...scope,
-            actorId: user.id,
-            userId,
-            kind: 'CHECK_OUT',
-            payload: { rollCall: true },
-          });
+          // A roll-call Absent corrects a roll-call Present: undo the check-in, so the
+          // course record does not count the session as attended. A student who
+          // checked in on their own is checked out instead.
+          const checkIns = effectiveEvents(await readEvents(prisma, scope), scope).filter(
+            (event) => event.kind === 'CHECK_IN' && event.userId === userId
+          );
+          if (checkIns.length && checkIns.every((event) => event.payload.rollCall === true)) {
+            const [first, ...rest] = checkIns.map((event) => ({
+              ...scope,
+              actorId: user.id,
+              userId,
+              kind: 'UNDO' as const,
+              payload: { rollCall: true },
+              supersedesId: event.id,
+            }));
+            await appendEvent(prisma, { ...first, alsoWrite: async () => rest });
+          } else {
+            await appendEvent(prisma, {
+              ...scope,
+              actorId: user.id,
+              userId,
+              kind: 'CHECK_OUT',
+              payload: { rollCall: true },
+            });
+          }
         }
       } catch (error) {
         return res

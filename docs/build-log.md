@@ -1237,3 +1237,11 @@ The tunnel stays off until M1 and M2 are fixed and AICP confirms.
 - Reset restores every profile field of every persona, not only the name and photo.
 - Not done: a Cloudflare rate-limit rule. The in-process limits cover the demo
   without one.
+
+### M3: a roll-call Absent removes the attendance credit
+
+- Absent on a student marked Present by roll call now undoes the roll-call
+  check-in, so the course record does not count the session as attended. Marking
+  Present again writes a new check-in and restores the credit.
+- A student who checked in on their own (network attendance) is checked out, as
+  before: that session still counts as attended.

@@ -811,7 +811,23 @@ integration('route → store → attendance fold', () => {
         expect((await draw()).student.userId).toBe(ada.id);
         await call('POST', { action: 'mark', userId: ada.id, present: false });
         const state = await readState(prisma, scope);
-        expect(state.attendance.find((entry) => entry.userId === ada.id)?.isPresent).toBe(false);
+        expect(state.attendance.find((entry) => entry.userId === ada.id)?.isPresent).toBeFalsy();
+        // Present then Absent is a correction: the session does not count as attended.
+        (requireIdentity as jest.Mock).mockResolvedValue({
+          user: { id: 'instructor' },
+          admin: true,
+        });
+        const attended = async () => {
+          const { req, res } = createMocks({ method: 'GET', query: { courseId: scope.courseId } });
+          await courseReportRoute(req as any, res as any);
+          return res
+            ._getJSONData()
+            .report.students.find((row: any) => row.userId === ada.id).sessionsAttended;
+        };
+        expect(await attended()).toBe(0);
+        // Marking Present again restores the credit.
+        await call('POST', { action: 'mark', userId: ada.id, present: true });
+        expect(await attended()).toBe(1);
       } finally {
         delete process.env.CHECKHEN_MODE;
       }
