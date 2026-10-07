@@ -1384,3 +1384,36 @@ Report: AICP review `review-550aaa7-622f656-exam.md` (kept outside the repositor
 - Operator check on x1 (review check 7): a student with a phone (checked in
   second, class page open) and a laptop (checked in first) moves the laptop to a
   phone hotspot. Expect a fail after the limit.
+
+### Operator checks on x1 (real hardware)
+
+From the review, updated for the fixes above. Run each before exam mode is used in
+class, and record the result here.
+
+1. `bash scripts/class-mode.sh namespace-test`: `exam4` contents, NXDOMAIN off the
+   allowlist, the 29 s and 31 s heartbeat path (heartbeats now carry the client
+   address), and reachability after stop.
+2. Idle presence (M2): with an idle phone (screen off, CheckHen closed) and an idle
+   laptop in an exam, run `iw dev <ap> station dump` every 0.5 s for 5 minutes.
+   Expect `inactive time` under about 5 s for both. Confirm the driver prints
+   `inactive time`.
+3. Real departures, with the CheckHen page closed (station path only) and open:
+   Wi-Fi off for 29 s and for 31 s, and walking out of range. Expect no fail at
+   29 s and a fail at 31 s.
+4. Make `iw` fail during an exam (take the interface down briefly). Expect no fails
+   during the outage, a fail afterward if the drop lasted, and the dashboard's
+   "Connection checks have stopped" while detection is down for over 5 s.
+5. Sites opened before the start (M3): open a CDN-hosted allowlisted site on real
+   clients before the start. Expect it to load, after at most one reload, during
+   the first 5 minutes.
+6. Sign-in names (M4): allowlist `google.com`. Expect `accounts.google.com` and
+   `ssl.gstatic.com` to load during the exam.
+7. Two devices (M5): laptop checked in first, phone second with the class page
+   open. Move the laptop to a phone hotspot. Expect a fail after the limit.
+8. After stop, on a client with a warm DNS cache: a site off the allowlist
+   resolves and loads.
+9. Restart the agent mid-exam. Expect no mass fail, and detection resumes.
+10. With a full class during an exam, run a heartbeat burst while timing `/bind`
+    and `/exam-stop`.
+
+Verified: Python 69 tests; Jest 37 suites, 330 tests.
