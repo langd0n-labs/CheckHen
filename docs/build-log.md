@@ -1274,3 +1274,23 @@ The tunnel stays off until M1 and M2 are fixed and AICP confirms.
 Checked on 2026-10-07 after recreating the demo database: `/api/demo` lists 11
 personas and a live session; persona sign-in for the instructor, the call screen
 at 375x667, and a student pass end to end in headless Chromium with no page errors.
+
+### Minor m4: one instructor check
+
+- `lib/instructor.ts` holds `isInstructor`; the sign-in callbacks, `is-admin`,
+  `get-user-info`, and the student-profile, new-class, templates, and analytics
+  routes use it (the last four through `requireIdentity`), so they also pass the
+  demo gate. Before, these read `ADMIN_EMAILS` themselves and refused the demo
+  instructor.
+- One behavior change: an `ADMIN_EMAILS` entry that already has a domain is used
+  as written in these routes too, as `requireIdentity` already did.
+
+### Minor m9: tests for the uncovered changes
+
+- Demo persona sign-in: domain check, unknown persona, a database with real data,
+  Google kept in classroom mode.
+- Same-origin socket: an empty `NEXT_PUBLIC_SOCKET_URL` connects to the page origin.
+- F1: Undo is disabled while an undo runs, and a second tap sends nothing.
+- Each test fails when its fix is reverted (checked by mutation).
+
+Verified: Jest 37 suites, 328 tests; PostgreSQL integration 42 cases.

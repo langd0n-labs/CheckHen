@@ -122,6 +122,36 @@ it('undoes the last call immediately', async () => {
   expect(await screen.findByText('No one called yet this session.')).toBeInTheDocument();
 });
 
+it('disables Undo while an undo is running, so a second tap sends nothing', async () => {
+  const posted = mockServer();
+  const served = global.fetch as jest.Mock;
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  global.fetch = jest.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.body && JSON.parse(String(init.body)).action === 'undo') {
+      await held;
+    }
+    return served(url, init);
+  }) as jest.Mock;
+  render(
+    <MantineProvider theme={theme}>
+      <ColdCall />
+    </MantineProvider>
+  );
+  await tap('Call on someone');
+  await tap('Pass');
+  const undo = await screen.findByRole('button', { name: 'Undo' });
+  await waitFor(() => expect(undo).toBeEnabled());
+  fireEvent.click(undo);
+  await waitFor(() => expect(undo).toBeDisabled());
+  fireEvent.click(undo);
+  release();
+  expect(await screen.findByText('No one called yet this session.')).toBeInTheDocument();
+  expect(posted.filter((body) => body.action === 'undo')).toHaveLength(1);
+});
+
 it('asks a follow-up of the same student without Absent or Skip, then returns to calling', async () => {
   const posted = mockServer();
   render(
