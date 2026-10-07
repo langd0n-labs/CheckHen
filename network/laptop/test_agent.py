@@ -95,7 +95,7 @@ class AgentTests(unittest.TestCase):
 
     def test_heartbeat_without_an_exam_leaves_the_exam_gate_alone(self):
         scope = {"courseId": "course", "classId": "class", "userId": "student",
-                 "timestamp": int(time.time() * 1000)}
+                 "ip": "172.16.77.20", "timestamp": int(time.time() * 1000)}
         with tempfile.TemporaryDirectory() as directory, \
              patch.object(exam, "EXAM", Path(directory) / "exam.json"), \
              patch.object(exam.subprocess, "run") as run:
@@ -200,6 +200,23 @@ class AgentTests(unittest.TestCase):
         # Status is read-only: only the detection thread folds evidence.
         fold.assert_not_called()
         save.assert_not_called()
+
+    def test_heartbeat_counts_for_the_bound_device_at_its_address(self):
+        self.assertEqual(self.request("bind"), 200)
+        scope = {"courseId": "course", "classId": "class", "userId": "student",
+                 "timestamp": int(time.time() * 1000)}
+        with patch.object(exam, "heartbeat") as heartbeat:
+            self.assertEqual(self.request("exam-heartbeat", {**scope, "ip": "172.16.77.20"}), 200)
+            heartbeat.assert_called_once_with({"courseId": "course", "classId": "class"}, "student",
+                                              "02:00:00:00:00:20")
+            heartbeat.reset_mock()
+            # An unbound address, or another student's device, credits no one.
+            self.assertEqual(self.request("exam-heartbeat", {**scope, "ip": "172.16.77.30"}), 200)
+            self.assertEqual(self.request("exam-heartbeat", {**scope, "userId": "other",
+                                                             "ip": "172.16.77.20"}), 200)
+            heartbeat.assert_not_called()
+            # Without an address the heartbeat is refused.
+            self.assertEqual(self.request("exam-heartbeat", scope), 400)
 
     def test_outside_subnet_and_missing_lease(self):
         self.assertEqual(self.request("bind", {"courseId": "course", "classId": "class",

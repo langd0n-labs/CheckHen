@@ -1366,3 +1366,21 @@ Report: AICP review `review-550aaa7-622f656-exam.md` (kept outside the repositor
 - Limit: only the sign-in names themselves are seeded, not names under them.
 - Operator check on x1 (review check 6): allowlist `google.com` and check that
   `accounts.google.com` and `ssl.gstatic.com` load during the exam.
+
+### M5: evidence comes from the exam device only
+
+- The exam device is the student's primary device: the one they checked in with
+  first (a later check-in on another device only adds that device).
+- Heartbeats now name their device. The classroom proxy sets `X-Real-IP` on
+  `/socket.io/`, the socket server forwards it with each heartbeat (one per device
+  per interval), and the agent credits the heartbeat to the MAC bound to that
+  address for that student. A heartbeat from another device, an unbound address,
+  or no address counts for no one. Station evidence was already the exam device's
+  only.
+- Closes case 1 of the review (a phone with the class page open covering the
+  laptop's departure). Case 2 remains by design: a student whose first check-in was
+  the phone is watched on the phone. The help pages tell students to take the
+  exam on the device they checked in with first.
+- Operator check on x1 (review check 7): a student with a phone (checked in
+  second, class page open) and a laptop (checked in first) moves the laptop to a
+  phone hotspot. Expect a fail after the limit.

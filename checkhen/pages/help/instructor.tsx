@@ -200,9 +200,11 @@ export default function InstructorHelp() {
                   once.
                 </List.Item>
                 <List.Item>
-                  CheckHen watches each student&apos;s connection, both the open class page and the
-                  device on the Wi-Fi. A student disconnected for longer than the limit gets an
-                  automatic fail, shown on the dashboard.
+                  CheckHen watches each student&apos;s exam device: the device they checked in with
+                  first. Both its open class page and its Wi-Fi connection count; another device
+                  does not. A student whose exam device is disconnected for longer than the limit
+                  gets an automatic fail, shown on the dashboard. Tell students to take the exam on
+                  the device they checked in with first.
                 </List.Item>
                 <List.Item>
                   Excuse a fail with a reason. The fail stays in the record, marked excused. Each

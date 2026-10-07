@@ -39,8 +39,9 @@ _probed: dict[str, float] = {}
 # longer stall, a station's latest activity says nothing about the time in between.
 STATION_POLL_GAP_SECONDS = 2.0
 # Socket heartbeats arrive between monitor passes; the monitor folds them into exam.json.
-# Each entry keeps the first and last arrival since the last fold.
-HEARTBEATS: dict[tuple[str, str, str], tuple[float, float]] = {}
+# Each entry is keyed by the sending device's MAC and keeps the first and last arrival
+# since the last fold.
+HEARTBEATS: dict[tuple[str, str, str, str], tuple[float, float]] = {}
 _idle_flushed_at = 0.0
 
 
@@ -234,10 +235,10 @@ def seed_due(state: dict, now: float) -> list[str]:
     return state["seedDomains"]
 
 
-def heartbeat(scope: dict, user_id: str, now: float | None = None) -> None:
+def heartbeat(scope: dict, user_id: str, mac: str, now: float | None = None) -> None:
     # In memory: a heartbeat must not cost a file write on the request path.
     clock = time.time() if now is None else now
-    key = (scope["courseId"], scope["classId"], user_id)
+    key = (scope["courseId"], scope["classId"], user_id, mac.lower())
     first = HEARTBEATS[key][0] if key in HEARTBEATS else clock
     HEARTBEATS[key] = (first, clock)
 
@@ -271,7 +272,9 @@ def connection_status(state: dict, stations: dict[str, float] | None, now: float
     for user_id, client in state["clients"].items():
         previous = max(client["lastHeartbeat"], client["lastStation"])
         arrivals = []
-        heard = HEARTBEATS.pop((state["courseId"], state["classId"], user_id), None)
+        # Only the exam device's heartbeats count: another device of the same student
+        # (a phone with the class page open) must not cover the exam device leaving.
+        heard = HEARTBEATS.pop((state["courseId"], state["classId"], user_id, client["mac"]), None)
         if heard is not None:
             if heard[0] > previous:
                 arrivals.append(heard[0])
@@ -295,6 +298,8 @@ def connection_status(state: dict, stations: dict[str, float] | None, now: float
                 (missing or returned_after_gap)):
             client.update(failedAt=now, failId=secrets.token_hex(16))
         result.append({"userId": user_id, **client_status(client, threshold, now)})
+    for key in [key for key in HEARTBEATS if key[:2] == (state["courseId"], state["classId"])]:
+        del HEARTBEATS[key]
     return result
 
 

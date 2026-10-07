@@ -493,8 +493,10 @@ def main() -> None:
         # A real domain off the allowlist, so the check fails only because of the filter.
         if namespace("getent", "ahostsv4", "example.org", check=False).returncode == 0:
             raise RuntimeError("Exam DNS resolved a nonallowlisted domain")
-        signed_agent(address, secret, "exam-heartbeat", {**exam_scope, "userId": "namespace-student-2"})
-        signed_agent(address, secret, "exam-heartbeat", {**exam_scope, "userId": "namespace-student"})
+        signed_agent(address, secret, "exam-heartbeat", {**exam_scope, "userId": "namespace-student-2",
+                                                         "ip": second_ip6})
+        signed_agent(address, secret, "exam-heartbeat", {**exam_scope, "userId": "namespace-student",
+                                                         "ip": lease_ip})
         heartbeat_at = time.monotonic()
         time.sleep(max(0, 29 - (time.monotonic() - heartbeat_at)))
         before_limit = signed_agent(address, secret, "exam-status", exam_scope)

@@ -103,13 +103,18 @@ io.on("connection", socket => {
       const url = process.env.PORTAL_AGENT_URL;
       const secret = process.env.PORTAL_CONTROL_SECRET;
       if (!url || !secret) return;
-      // One forwarded heartbeat per student per interval, however many sockets they open.
-      const key = `${room}:${socket.data.userId}`;
+      // The classroom proxy sets X-Real-IP; the agent credits the heartbeat to the
+      // device bound to that address, so only the exam device's page counts.
+      const header = socket.handshake.headers["x-real-ip"];
+      const ip = Array.isArray(header) ? header[0] : header;
+      if (!ip) return;
+      // One forwarded heartbeat per device per interval, however many sockets it opens.
+      const key = `${room}:${socket.data.userId}:${ip}`;
       const now = Date.now();
       if (now - (lastHeartbeat.get(key) ?? 0) < HEARTBEAT_INTERVAL_MS) return;
       lastHeartbeat.set(key, now);
       const body = JSON.stringify({ courseId: socket.data.courseId,
-        classId: socket.data.classId, userId: socket.data.userId, timestamp: now });
+        classId: socket.data.classId, userId: socket.data.userId, ip, timestamp: now });
       const signature = createHmac("sha256", secret).update(body).digest("hex");
       try {
         await fetch(`${url.replace(/\/$/, "")}/exam-heartbeat`, { method: "POST", body,

@@ -322,7 +322,8 @@ class Handler(BaseHTTPRequestHandler):
                     {"/bind", "/revoke", "/revoke-student", "/exam-heartbeat"} else ("courseId", "classId"))
             if not all(isinstance(data.get(key), str) and data[key] for key in keys):
                 raise ValueError("Missing scope")
-            ip = ap_client_ip(data["ip"], self.subnet, self.ipv6_subnet) if self.path in {"/bind", "/revoke"} else None
+            ip = (ap_client_ip(data["ip"], self.subnet, self.ipv6_subnet)
+                  if self.path in {"/bind", "/revoke", "/exam-heartbeat"} else None)
             if self.path.startswith("/exam-"):
                 scope = {key: data[key] for key in ("courseId", "classId")}
                 if self.path == "/exam-start":
@@ -353,7 +354,11 @@ class Handler(BaseHTTPRequestHandler):
                     exam.stop(scope)
                     body = b'{}'
                 elif self.path == "/exam-heartbeat":
-                    exam.heartbeat(scope, data["userId"])
+                    # The heartbeat counts for the device that sent it, found by its address.
+                    binding = read_bindings().get(ip)
+                    if binding and all(binding[key] == data[key]
+                                       for key in ("userId", "courseId", "classId")):
+                        exam.heartbeat(scope, data["userId"], binding["mac"])
                     body = b'{}'
                 else:
                     state = exam.read()

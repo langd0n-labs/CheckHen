@@ -151,7 +151,7 @@ class ExamTests(unittest.TestCase):
 
     def test_disconnect_threshold_uses_heartbeats_without_station_data(self):
         state = self.state()
-        exam.heartbeat({"courseId": "course", "classId": "class"}, "student", 131)
+        exam.heartbeat({"courseId": "course", "classId": "class"}, "student", "02:00:00:00:00:20", 131)
         self.assertTrue(exam.connection_status(state, {}, 138)[0]["connected"])
         self.assertFalse(exam.connection_status(state, {}, 160)[0]["failed"])
         self.assertTrue(exam.connection_status(state, {}, 161.5)[0]["failed"])
@@ -175,7 +175,7 @@ class ExamTests(unittest.TestCase):
     def test_heartbeats_do_not_write_exam_state(self):
         exam.save(self.state())
         before = exam.EXAM.stat().st_mtime_ns
-        exam.heartbeat({"courseId": "course", "classId": "class"}, "student", 140)
+        exam.heartbeat({"courseId": "course", "classId": "class"}, "student", "02:00:00:00:00:20", 140)
         self.assertEqual(exam.EXAM.stat().st_mtime_ns, before)
         exam.monitor({}, 141)
         self.assertEqual(exam.read()["clients"]["student"]["lastHeartbeat"], 140)
@@ -245,7 +245,7 @@ class ExamTests(unittest.TestCase):
         for clock in (100.5, 110, 120, 130):
             exam.connection_status(state, {}, clock)
         self.assertIsNone(state["clients"]["student"]["failedAt"])
-        exam.heartbeat({"courseId": "course", "classId": "class"}, "student", 130.3)
+        exam.heartbeat({"courseId": "course", "classId": "class"}, "student", "02:00:00:00:00:20", 130.3)
         self.assertTrue(exam.connection_status(state, {}, 130.5)[0]["failed"])
 
     def test_stalled_monitor_does_not_invent_a_gap(self):
@@ -257,12 +257,12 @@ class ExamTests(unittest.TestCase):
 
     def test_status_reads_without_folding(self):
         state = self.state()
-        exam.heartbeat({"courseId": "course", "classId": "class"}, "student", 150)
+        exam.heartbeat({"courseId": "course", "classId": "class"}, "student", "02:00:00:00:00:20", 150)
         before = json.dumps(state, sort_keys=True)
         status = exam.status(state, 140)[0]
         self.assertFalse(status["connected"])
         self.assertEqual(json.dumps(state, sort_keys=True), before)
-        self.assertIn(("course", "class", "student"), exam.HEARTBEATS)
+        self.assertIn(("course", "class", "student", "02:00:00:00:00:20"), exam.HEARTBEATS)
 
     def test_fail_saved_without_an_id_gets_one_and_is_reported(self):
         state = self.state()
@@ -308,6 +308,17 @@ class ExamTests(unittest.TestCase):
             exam.start({"courseId": "course", "classId": "class"}, "exam", ["exam.example.edu"],
                        [{"userId": "student", "mac": "02:00:00:00:00:20"}], 9, now=100)
 
+    def test_only_the_exam_device_heartbeats_count(self):
+        state = self.state()
+        scope = {"courseId": "course", "classId": "class"}
+        # The student's phone keeps its class page open while the exam laptop leaves.
+        for clock in (105, 110, 115, 120, 125, 130):
+            exam.heartbeat(scope, "student", "02:00:00:00:00:99", clock)
+            status = exam.connection_status(state, {}, clock + 0.5)[0]
+        self.assertFalse(status["connected"])
+        self.assertTrue(exam.connection_status(state, {}, 131)[0]["failed"])
+        self.assertEqual(exam.HEARTBEATS, {})
+
     def test_ordinary_class_never_touches_the_exam_gate(self):
         # With no exam running, the monitor and a heartbeat return before any nft,
         # DNS, or callback work, so the exam chains stay empty.
@@ -315,7 +326,7 @@ class ExamTests(unittest.TestCase):
              patch.object(exam, "notify_fail") as notify, \
              patch.object(exam.socket, "getaddrinfo") as resolve:
             self.assertEqual(exam.monitor({"02:00:00:00:00:20"}, 1000), [])
-            exam.heartbeat({"courseId": "course", "classId": "class"}, "student", 1000)
+            exam.heartbeat({"courseId": "course", "classId": "class"}, "student", "02:00:00:00:00:20", 1000)
         run.assert_not_called()
         os_mock.kill.assert_not_called()
         notify.assert_not_called()

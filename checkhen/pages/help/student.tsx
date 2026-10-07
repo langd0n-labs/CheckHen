@@ -119,10 +119,12 @@ export default function StudentHelp() {
                 top of the class page lists them.
               </Text>
               <Text>
-                Keep the class page open and stay on the class Wi-Fi. If your device is disconnected
-                for longer than the limit your instructor set (30 seconds unless they chose
-                another), CheckHen records an automatic fail. Raise your hand if that happens; your
-                instructor can excuse the fail with a reason.
+                Take the exam on the device you checked in with first, keep the class page open on
+                it, and stay on the class Wi-Fi. CheckHen watches only that device; a class page
+                open on another device does not count. If it is disconnected for longer than the
+                limit your instructor set (30 seconds unless they chose another), CheckHen records
+                an automatic fail. Raise your hand if that happens; your instructor can excuse the
+                fail with a reason.
               </Text>
             </>
           ),
