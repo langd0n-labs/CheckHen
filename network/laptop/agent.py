@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -22,6 +23,10 @@ LEASES = STATE / "dnsmasq/leases"
 BINDINGS = STATE / "bindings.json"
 PENDING = STATE / "pending-checkouts.json"
 MAC = re.compile(r"^[0-9a-f]{2}(?::[0-9a-f]{2}){5}$", re.IGNORECASE)
+# Requests and the monitor thread both rewrite files under /run/checkhen.
+LOCK = threading.RLock()
+# A pass every half second keeps a 30-second limit accurate to under a second.
+MONITOR_SECONDS = 0.5
 
 
 def lease_mac(ip: str) -> str | None:
@@ -123,10 +128,11 @@ def queue_checkout(binding: dict) -> None:
 
 
 def flush_checkout_notifications(secret: str, url: str, bindings: dict[str, dict]) -> None:
-    if not PENDING.exists():
-        return
-    pending = read_pending()
-    remaining = []
+    with LOCK:
+        if not PENDING.exists():
+            return
+        pending = read_pending()
+    sent = []
     for scope in pending:
         if any(all(binding.get(key) == value for key, value in scope.items())
                for binding in bindings.values()):
@@ -137,12 +143,15 @@ def flush_checkout_notifications(secret: str, url: str, bindings: dict[str, dict
                                                   "X-CheckHen-Signature": signature})
         try:
             with urllib.request.urlopen(request, timeout=3) as response:
-                if response.status != 200:
-                    remaining.append(scope)
+                if response.status == 200:
+                    sent.append(scope)
         except (OSError, urllib.error.HTTPError):
-            remaining.append(scope)
-    PENDING.write_text(json.dumps(remaining))
-    PENDING.chmod(0o600)
+            pass
+    # Send outside the lock; a checkout queued meanwhile stays pending.
+    with LOCK:
+        remaining = [scope for scope in read_pending() if scope not in sent]
+        PENDING.write_text(json.dumps(remaining))
+        PENDING.chmod(0o600)
 
 
 def ap_client_ip(value: str, subnet: ipaddress.IPv4Network,
@@ -194,13 +203,25 @@ def reconcile_bindings() -> None:
     save(current)
 
 
-def station_macs(interface: str) -> set[str] | None:
-    result = subprocess.run(["iw", "dev", interface, "station", "dump"],
-                            text=True, capture_output=True)
+def station_activity(interface: str) -> dict[str, float] | None:
+    """Map each associated station to seconds since the AP last heard from it."""
+    try:
+        result = subprocess.run(["iw", "dev", interface, "station", "dump"],
+                                text=True, capture_output=True, timeout=2)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
     if result.returncode:
         return None
-    return {line.split()[1].lower() for line in result.stdout.splitlines()
-            if line.startswith("Station ") and len(line.split()) >= 2}
+    stations: dict[str, float] = {}
+    mac = None
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        if line.startswith("Station ") and len(fields) >= 2 and MAC.fullmatch(fields[1]):
+            mac = fields[1].lower()
+        elif mac and (match := re.match(r"\s*inactive time:\s*(\d+) ms", line)):
+            stations[mac] = int(match.group(1)) / 1000
+            mac = None
+    return stations
 
 
 def prune_bindings(interface: str | None) -> None:
@@ -269,12 +290,18 @@ class Handler(BaseHTTPRequestHandler):
     interface = "wlan0"
     test_mode = False
     exam_callback_url = "http://127.0.0.1:3000/api/internal/exam-failed"
+    # The monitor thread's latest station poll; None when iw failed.
+    stations: dict[str, float] | None = {}
 
     def do_POST(self) -> None:
         if self.path not in {"/bind", "/revoke", "/revoke-student", "/revoke-session",
                              "/exam-start", "/exam-stop", "/exam-status", "/exam-heartbeat"}:
             self.send_error(404)
             return
+        with LOCK:
+            self.handle_signed()
+
+    def handle_signed(self) -> None:
         try:
             length = int(self.headers.get("Content-Length", "0"))
             if not 0 < length < 4096:
@@ -304,11 +331,10 @@ class Handler(BaseHTTPRequestHandler):
                     if active_exam:
                         if any(active_exam[key] != scope[key] for key in scope):
                             raise PermissionError("Wrong exam session")
-                        stations = set() if self.test_mode else station_macs(self.interface)
-                        statuses = exam.monitor(stations, self.secret, self.exam_callback_url)
-                        latest = exam.read()
-                        if any(status["failed"] and not latest["clients"][status["userId"]]["reported"]
-                               for status in statuses):
+                        for fail in exam.monitor(self.stations):
+                            if exam.notify_fail(fail, self.secret, self.exam_callback_url):
+                                exam.mark_reported(fail["examId"], fail["userId"])
+                        if exam.unreported(exam.read()):
                             raise OSError("Automatic fail could not be recorded")
                     exam.stop(scope)
                     body = b'{}'
@@ -319,8 +345,7 @@ class Handler(BaseHTTPRequestHandler):
                     state = exam.read()
                     if state and any(state[key] != scope[key] for key in scope):
                         raise PermissionError("Wrong exam session")
-                    stations = set() if self.test_mode else station_macs(self.interface)
-                    statuses = exam.connection_status(state, stations, time.time()) if state else []
+                    statuses = exam.connection_status(state, self.stations, time.time()) if state else []
                     if state:
                         exam.save(state)
                     body = json.dumps({"active": bool(state), "clients": statuses}).encode()
@@ -409,6 +434,38 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
+def monitor_pass(interface: str | None, checkout_url: str) -> None:
+    with LOCK:
+        active = exam.read()
+    # In AP test mode there is no Wi-Fi interface; heartbeats are the only evidence.
+    stations = ({} if interface is None else station_activity(interface)) if active else {}
+    with LOCK:
+        Handler.stations = stations
+        prune_bindings(interface)
+        bindings = read_bindings()
+        fails = exam.monitor(stations)
+    flush_checkout_notifications(Handler.secret, checkout_url, bindings)
+    # Fail callbacks run outside the lock, so a slow app cannot delay requests.
+    for fail in fails:
+        if exam.notify_fail(fail, Handler.secret, Handler.exam_callback_url):
+            with LOCK:
+                exam.mark_reported(fail["examId"], fail["userId"])
+
+
+def monitor_loop(interface: str | None, checkout_url: str) -> None:
+    while True:
+        started = time.monotonic()
+        try:
+            monitor_pass(interface, checkout_url)
+        except Exception as error:  # Keep monitoring; the next pass retries.
+            print(f"Agent monitor pass failed: {type(error).__name__}", file=sys.stderr)
+        time.sleep(max(0.0, MONITOR_SECONDS - (time.monotonic() - started)))
+
+
+class Server(HTTPServer):
+    request_queue_size = 128
+
+
 def main() -> None:
     settings = read_env(Path(sys.argv[1]) if len(sys.argv) > 1 else None)
     Handler.secret = settings["PORTAL_CONTROL_SECRET"]
@@ -420,19 +477,13 @@ def main() -> None:
     address = settings.get("AP_ADDRESS", "172.16.77.1")
     reconcile_bindings()
     interface = None if settings.get("AP_TEST_MODE") == "1" else settings["AP_INTERFACE"]
-    server = HTTPServer((address, 7878), Handler)
-    server.timeout = 5
-    while True:
-        server.handle_request()
-        try:
-            prune_bindings(interface)
-            flush_checkout_notifications(Handler.secret,
-                settings.get("APP_CALLBACK_URL", "http://127.0.0.1:3000/api/internal/portal-expired"),
-                read_bindings())
-            exam.monitor(set() if interface is None else station_macs(interface), Handler.secret,
-                Handler.exam_callback_url)
-        except (OSError, subprocess.CalledProcessError):
-            print("Portal binding cleanup failed; retrying", file=sys.stderr)
+    server = Server((address, 7878), Handler)
+    # Maintenance runs off the request path, so a busy class cannot delay /bind or /exam-stop.
+    threading.Thread(target=monitor_loop, daemon=True, args=(
+        interface,
+        settings.get("APP_CALLBACK_URL", "http://127.0.0.1:3000/api/internal/portal-expired"),
+    )).start()
+    server.serve_forever()
 
 
 if __name__ == "__main__":

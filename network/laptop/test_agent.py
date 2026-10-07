@@ -144,7 +144,7 @@ class AgentTests(unittest.TestCase):
 
     def test_departure_keeps_binding_until_lease_expires(self):
         self.assertEqual(self.request("bind"), 200)
-        with patch.object(agent, "station_macs", return_value=set()):
+        with patch.object(agent, "station_activity", return_value={}):
             agent.prune_bindings("wlan-test")
         self.assertIn("172.16.77.20", json.loads(agent.BINDINGS.read_text()))
         agent.LEASES.write_text("")
@@ -170,10 +170,15 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(json.loads(agent.PENDING.read_text()), [])
 
     def test_station_dump_parsing(self):
-        output = type("Result", (), {"returncode": 0,
-                "stdout": "Station 02:00:00:00:00:20 (on wlan0)\n\tinactive time: 1 ms\n"})()
+        output = type("Result", (), {"returncode": 0, "stdout":
+                "Station 02:00:00:00:00:20 (on wlan0)\n\tinactive time:\t1500 ms\n\trx bytes:\t1\n"
+                "Station 02:00:00:00:00:21 (on wlan0)\n\tinactive time: 12 ms\n"})()
         with patch.object(agent.subprocess, "run", return_value=output):
-            self.assertEqual(agent.station_macs("wlan0"), {"02:00:00:00:00:20"})
+            self.assertEqual(agent.station_activity("wlan0"),
+                             {"02:00:00:00:00:20": 1.5, "02:00:00:00:00:21": 0.012})
+        failed = type("Result", (), {"returncode": 1, "stdout": ""})()
+        with patch.object(agent.subprocess, "run", return_value=failed):
+            self.assertIsNone(agent.station_activity("wlan0"))
 
     def test_same_mac_bind_readds_missing_nft_element(self):
         self.assertEqual(self.request("bind"), 200)

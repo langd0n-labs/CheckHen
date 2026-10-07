@@ -215,6 +215,9 @@ wpa=2
 wpa_key_mgmt=WPA-PSK
 rsn_pairwise=CCMP
 ap_isolate=1
+# Poll idle stations after 10 s (default 300), so a departed device leaves the
+# station list and a present one's last-activity time stays under the exam limit.
+ap_max_inactivity=10
 wpa_passphrase={settings["AP_PASSPHRASE"]}
 '''
     (STATE / "hostapd.conf").write_text(hostapd)

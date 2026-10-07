@@ -1005,3 +1005,31 @@ course-record section, pending the grading-scope decision. `/admin/analytics` is
 out as legacy. Each page has a section list and anchors; the help pages hide
 the course picker. Rendered at 375x667 and 1280x800 with no sideways scroll.
 Verified: 30 Jest suites and 285 tests.
+
+## M5 fix backlog
+
+Started 2026-10-06 on AICP's instruction, one fix per commit, porting from the
+parked branch `m5-fix-pass-wip`.
+
+### Fix 1: disconnect detection (M5 review findings 1, 5, 7)
+
+- Finding 1 (blocker): the 5-second grace after a station was seen is gone, so
+  a 31-second drop fails and a 29-second drop does not. The test that asserted
+  the old, wrong threshold is replaced by one that checks 29 and 31 seconds
+  from the last evidence.
+- A listed station counts only from its last activity: `iw station dump`'s
+  "inactive time". A device that vanished but is still listed is not
+  connected. hostapd polls idle stations after 10 s (`ap_max_inactivity`,
+  default 300), so a departed device leaves the list and a present one's
+  activity stays recent.
+- Finding 5 (rest): the agent's monitor runs in its own thread every 0.5 s,
+  off the request path. Requests and the monitor share a lock; fail and
+  checkout callbacks run outside it. Heartbeats are kept in memory and folded
+  into the exam state by the monitor, so a heartbeat costs no file write. The
+  request backlog is 128.
+- Finding 7: when `iw` fails, station data is "unavailable" and no new fail
+  is recorded until it returns; the drop still fails afterward if it lasted.
+
+Verified: Python unit tests (45). The station-list path needs the live USB
+adapter check on x1; the namespace test still covers the heartbeat path at
+29 and 31 seconds.

@@ -16,6 +16,10 @@ STATE = Path("/run/checkhen")
 EXAM = STATE / "exam.json"
 DNS_SERVERS = STATE / "exam-servers"
 CLASS_STATE = STATE / "state.json"
+# Evidence this recent shows a client as connected.
+CONNECTED_SECONDS = 8
+# Socket heartbeats arrive between monitor passes; the monitor folds them into exam.json.
+HEARTBEATS: dict[tuple[str, str, str], float] = {}
 DOMAIN = re.compile(r"^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$")
 
 
@@ -109,7 +113,7 @@ def start(scope: dict, exam_id: str, domains: list[str], clients: list[dict],
              "uplink": classroom["uplink"], "dnsmasqPid": classroom["processes"]["dnsmasq"],
              "ipv4": ipv4, "ipv6": ipv6, "refreshedAt": clock,
              "clients": {client["userId"]: {"mac": client["mac"].lower(), "lastHeartbeat": clock,
-                        "lastStation": clock, "stationSeen": False, "failedAt": None,
+                        "lastStation": clock, "failedAt": None,
                         "reported": False} for client in clients}}
     apply_policy(ipv4, ipv6, True, state["uplink"])
     try:
@@ -147,27 +151,28 @@ def refresh(state: dict, now: float) -> dict:
 
 
 def heartbeat(scope: dict, user_id: str, now: float | None = None) -> None:
-    state = read()
-    if not state or any(state[key] != scope[key] for key in ("courseId", "classId")):
-        return
-    client = state["clients"].get(user_id)
-    if client:
-        client["lastHeartbeat"] = time.time() if now is None else now
-        save(state)
+    # In memory: a heartbeat must not cost a file write on the request path.
+    HEARTBEATS[(scope["courseId"], scope["classId"], user_id)] = time.time() if now is None else now
 
 
-def connection_status(state: dict, stations: set[str] | None, now: float) -> list[dict]:
+def connection_status(state: dict, stations: dict[str, float] | None, now: float) -> list[dict]:
+    """Stations map each associated MAC to seconds since the AP last heard it.
+
+    A listed station counts only from its last activity, so a device that vanished
+    without leaving the list is not connected. None means station data is
+    unavailable; then no new fail is recorded.
+    """
     result = []
-    stations = stations or set()
     for user_id, client in state["clients"].items():
-        if client["mac"] in stations:
-            client["lastStation"] = now
-            client["stationSeen"] = True
-        # A station can leave between five-second nl80211 polls; allow that gap.
-        station_last_seen = client["lastStation"] + (5 if client.get("stationSeen") else 0)
-        last_seen = max(client["lastHeartbeat"], station_last_seen)
-        connected = client["mac"] in stations or now - client["lastHeartbeat"] <= 8
-        if not connected and now - last_seen > state["thresholdSeconds"] and client.get("failedAt") is None:
+        heard = HEARTBEATS.pop((state["courseId"], state["classId"], user_id), None)
+        if heard is not None:
+            client["lastHeartbeat"] = max(client["lastHeartbeat"], heard)
+        if stations and client["mac"] in stations:
+            client["lastStation"] = max(client["lastStation"], now - stations[client["mac"]])
+        last_seen = max(client["lastHeartbeat"], client["lastStation"])
+        connected = now - last_seen <= min(CONNECTED_SECONDS, state["thresholdSeconds"])
+        if (stations is not None and client.get("failedAt") is None and
+                now - last_seen > state["thresholdSeconds"]):
             client["failedAt"] = now
         result.append({"userId": user_id, "connected": connected,
                        "disconnectedAt": None if connected else last_seen,
@@ -175,9 +180,22 @@ def connection_status(state: dict, stations: set[str] | None, now: float) -> lis
     return result
 
 
-def notify_fail(state: dict, user_id: str, secret: str, url: str) -> bool:
-    raw = json.dumps({"courseId": state["courseId"], "classId": state["classId"],
-                      "examId": state["examId"], "userId": user_id,
+def unreported(state: dict) -> list[dict]:
+    scope = {key: state[key] for key in ("courseId", "classId", "examId")}
+    return [{**scope, "userId": user_id} for user_id, client in state["clients"].items()
+            if client.get("failedAt") is not None and not client["reported"]]
+
+
+def mark_reported(exam_id: str, user_id: str) -> None:
+    state = read()
+    if state and state["examId"] == exam_id and user_id in state["clients"]:
+        state["clients"][user_id]["reported"] = True
+        save(state)
+
+
+def notify_fail(fail: dict, secret: str, url: str) -> bool:
+    raw = json.dumps({"courseId": fail["courseId"], "classId": fail["classId"],
+                      "examId": fail["examId"], "userId": fail["userId"],
                       "timestamp": int(time.time() * 1000)}).encode()
     signature = hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
     request = urllib.request.Request(url, raw, {"Content-Type": "application/json",
@@ -189,21 +207,18 @@ def notify_fail(state: dict, user_id: str, secret: str, url: str) -> bool:
         return False
 
 
-def monitor(stations: set[str] | None, secret: str, callback_url: str,
-            now: float | None = None) -> list[dict]:
+def monitor(stations: dict[str, float] | None, now: float | None = None) -> list[dict]:
+    """Update connection evidence. Returns the fails that still need a callback."""
     state = read()
     if not state:
+        HEARTBEATS.clear()
         return []
     clock = time.time() if now is None else now
     try:
         state = refresh(state, clock)
     except (OSError, subprocess.CalledProcessError):
-        # Keep the last successful IP sets; retry on the next agent poll.
+        # Keep the last successful IP sets; retry on the next monitor pass.
         pass
-    statuses = connection_status(state, stations, clock)
-    for status in statuses:
-        client = state["clients"][status["userId"]]
-        if status["failed"] and not client["reported"]:
-            client["reported"] = notify_fail(state, status["userId"], secret, callback_url)
+    connection_status(state, stations, clock)
     save(state)
-    return statuses
+    return unreported(state)

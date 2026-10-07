@@ -16,6 +16,7 @@ class ExamTests(unittest.TestCase):
             mocked = patch.object(exam, name, Path(directory.name) / filename)
             mocked.start()
             self.addCleanup(mocked.stop)
+        exam.HEARTBEATS.clear()
 
     def test_domains_reject_invalid_and_deduplicate(self):
         self.assertEqual(exam.validate_domains(["Exam.Example.edu.", "exam.example.edu"]),
@@ -43,20 +44,56 @@ class ExamTests(unittest.TestCase):
         self.assertEqual(exam.DNS_SERVERS.stat().st_mode & 0o777, 0o644)
         os_mock.kill.assert_called_once()
 
-    def test_disconnect_threshold_uses_heartbeat_and_station_evidence(self):
-        state = {"thresholdSeconds": 30, "clients": {"student": {
-            "mac": "02:00:00:00:00:20", "lastHeartbeat": 100, "lastStation": 100,
-            "reported": False}}}
-        self.assertFalse(exam.connection_status(state, set(), 129)[0]["failed"])
-        self.assertTrue(exam.connection_status(state, set(), 131)[0]["failed"])
-        self.assertTrue(exam.connection_status(state, {"02:00:00:00:00:20"}, 132)[0]["failed"])
-        state["clients"]["student"].pop("failedAt")
-        self.assertTrue(exam.connection_status(state, {"02:00:00:00:00:20"}, 131)[0]["connected"])
-        self.assertFalse(exam.connection_status(state, set(), 140)[0]["failed"])
-        self.assertFalse(exam.connection_status(state, set(), 165)[0]["failed"])
-        self.assertTrue(exam.connection_status(state, set(), 167)[0]["failed"])
-        state["clients"]["student"]["lastHeartbeat"] = 139
-        self.assertTrue(exam.connection_status(state, set(), 140)[0]["connected"])
+    def state(self, threshold=30):
+        return {"courseId": "course", "classId": "class", "examId": "exam",
+                "thresholdSeconds": threshold, "domains": ["exam.example.edu"], "refreshedAt": 1e9,
+                "clients": {"student": {"mac": "02:00:00:00:00:20", "lastHeartbeat": 100,
+                                        "lastStation": 100, "failedAt": None, "reported": False}}}
+
+    def test_disconnect_fails_after_threshold_from_last_station_activity(self):
+        mac = "02:00:00:00:00:20"
+        # A listed station that has been silent since 100 is not presence.
+        state = self.state()
+        self.assertFalse(exam.connection_status(state, {mac: 29}, 129)[0]["failed"])
+        self.assertTrue(exam.connection_status(state, {mac: 30.5}, 130.5)[0]["failed"])
+        # Heard at 131, then gone: 29 seconds passes, 31 seconds fails (brief M5 check 2).
+        state = self.state()
+        exam.connection_status(state, {mac: 0}, 131)
+        self.assertFalse(exam.connection_status(state, {}, 160)[0]["failed"])
+        self.assertTrue(exam.connection_status(state, {}, 162)[0]["failed"])
+
+    def test_disconnect_threshold_uses_heartbeats_without_station_data(self):
+        state = self.state()
+        exam.heartbeat({"courseId": "course", "classId": "class"}, "student", 131)
+        self.assertTrue(exam.connection_status(state, {}, 138)[0]["connected"])
+        self.assertFalse(exam.connection_status(state, {}, 160)[0]["failed"])
+        self.assertTrue(exam.connection_status(state, {}, 161.5)[0]["failed"])
+
+    def test_missing_station_data_records_no_fail(self):
+        state = self.state()
+        status = exam.connection_status(state, None, 200)[0]
+        self.assertFalse(status["failed"])
+        self.assertFalse(status["connected"])
+        self.assertTrue(exam.connection_status(state, {}, 201)[0]["failed"])
+
+    def test_heartbeats_do_not_write_exam_state(self):
+        exam.save(self.state())
+        before = exam.EXAM.stat().st_mtime_ns
+        exam.heartbeat({"courseId": "course", "classId": "class"}, "student", 140)
+        self.assertEqual(exam.EXAM.stat().st_mtime_ns, before)
+        exam.monitor({}, 141)
+        self.assertEqual(exam.read()["clients"]["student"]["lastHeartbeat"], 140)
+
+    def test_failed_callback_retries_without_losing_fail_state(self):
+        exam.save(self.state())
+        pending = exam.monitor({}, 131)
+        self.assertEqual(pending, [{"courseId": "course", "classId": "class",
+                                    "examId": "exam", "userId": "student"}])
+        # Not marked: the next pass returns it again for another callback.
+        self.assertEqual(exam.monitor({}, 132), pending)
+        exam.mark_reported("exam", "student")
+        self.assertEqual(exam.monitor({}, 133), [])
+        self.assertTrue(exam.read()["clients"]["student"]["reported"])
 
     def test_ordinary_class_never_touches_the_exam_gate(self):
         # With no exam running, the monitor and a heartbeat return before any nft,
@@ -64,7 +101,7 @@ class ExamTests(unittest.TestCase):
         with patch.object(exam.subprocess, "run") as run, patch.object(exam, "os") as os_mock, \
              patch.object(exam, "notify_fail") as notify, \
              patch.object(exam.socket, "getaddrinfo") as resolve:
-            self.assertEqual(exam.monitor({"02:00:00:00:00:20"}, "secret", "http://callback", 1000), [])
+            self.assertEqual(exam.monitor({"02:00:00:00:00:20"}, 1000), [])
             exam.heartbeat({"courseId": "course", "classId": "class"}, "student", 1000)
         run.assert_not_called()
         os_mock.kill.assert_not_called()
@@ -72,20 +109,6 @@ class ExamTests(unittest.TestCase):
         resolve.assert_not_called()
         self.assertFalse(exam.EXAM.exists())
         self.assertFalse(exam.DNS_SERVERS.exists())
-
-    def test_failed_callback_retries_without_losing_fail_state(self):
-        state = {"courseId": "course", "classId": "class", "examId": "exam",
-                 "domains": ["exam.example.edu"], "refreshedAt": 1000, "thresholdSeconds": 30,
-                 "clients": {"student": {"mac": "02:00:00:00:00:20", "lastHeartbeat": 1000,
-                                          "lastStation": 1000, "reported": False}}}
-        exam.save(state)
-        with patch.object(exam, "refresh", side_effect=lambda value, _: value), \
-             patch.object(exam, "notify_fail", side_effect=[False, True]) as notify:
-            self.assertTrue(exam.monitor(set(), "secret", "http://callback", 1031)[0]["failed"])
-            self.assertFalse(exam.read()["clients"]["student"]["reported"])
-            exam.monitor(set(), "secret", "http://callback", 1032)
-            self.assertTrue(exam.read()["clients"]["student"]["reported"])
-            self.assertEqual(notify.call_count, 2)
 
 
 if __name__ == "__main__":
