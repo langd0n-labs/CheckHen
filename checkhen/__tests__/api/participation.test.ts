@@ -1,7 +1,7 @@
 import { createMocks } from 'node-mocks-http';
 import { generateUniqueAnonymousName } from '@/lib/anonymousNames';
 import { appendEvent, readState } from '@/lib/event-store';
-import { examAgent } from '@/lib/exam-control';
+import { releaseExamNetwork } from '@/lib/exam-control';
 import {
   bindDevice,
   revokeCurrentDevice,
@@ -42,7 +42,7 @@ jest.mock('@/lib/portal-binding', () => ({
   revokeStudentDevices: jest.fn(),
   revokeSessionDevices: jest.fn(),
 }));
-jest.mock('@/lib/exam-control', () => ({ examAgent: jest.fn() }));
+jest.mock('@/lib/exam-control', () => ({ examAgent: jest.fn(), releaseExamNetwork: jest.fn() }));
 
 const user = { id: 'student', email: 'student@bu.edu' };
 const selected = {
@@ -229,6 +229,8 @@ describe('event-backed check-in', () => {
   it('revokes session devices before ending class', async () => {
     expect((await invoke(endClass, 'POST'))._getStatusCode()).toBe(200);
     expect(revokeSessionDevices).toHaveBeenCalledWith(scope);
+    // Released even with no exam in the log: a failed start may have left one on the agent.
+    expect(releaseExamNetwork).toHaveBeenCalledWith(scope);
     expect(appendEvent).toHaveBeenCalledWith(
       prisma,
       expect.objectContaining({ kind: 'SESSION_ENDED' })
@@ -237,7 +239,7 @@ describe('event-backed check-in', () => {
   it('ends active exam mode before ending class', async () => {
     (readState as jest.Mock).mockResolvedValue({ ...empty(), exam: { id: 'exam', active: true } });
     expect((await invoke(endClass, 'POST'))._getStatusCode()).toBe(200);
-    expect(examAgent).toHaveBeenCalledWith('exam-stop', scope);
+    expect(releaseExamNetwork).toHaveBeenCalledWith(scope);
     expect(appendEvent).toHaveBeenCalledWith(
       prisma,
       expect.objectContaining({ kind: 'EXAM_ENDED' })

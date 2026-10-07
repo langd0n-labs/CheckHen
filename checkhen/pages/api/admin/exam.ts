@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { randomUUID } from 'node:crypto';
 import { appendEvent, readState } from '@/lib/event-store';
-import { examAgent, examDomains } from '@/lib/exam-control';
+import { examAgent, examDomains, releaseExamNetwork } from '@/lib/exam-control';
 import { checkhenMode, EXAM_UNAVAILABLE } from '@/lib/mode';
 import { PortalBindingError } from '@/lib/portal-binding';
 import { prisma } from '@/lib/prisma';
@@ -50,8 +50,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           .json({ message: 'All checked-in students need a primary AP device' });
       }
       const examId = randomUUID();
-      await examAgent('exam-start', { ...scope, examId, domains, thresholdSeconds, clients });
+      // Clear any exam a failed start left on the agent; the log shows none active.
+      await releaseExamNetwork(scope);
       try {
+        await examAgent('exam-start', { ...scope, examId, domains, thresholdSeconds, clients });
         await appendEvent(prisma, {
           ...scope,
           actorId: user.id,
@@ -59,16 +61,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           payload: { examId, domains, thresholdSeconds },
         });
       } catch (error) {
-        await examAgent('exam-stop', scope);
+        // A start that timed out may still have applied the gate on the agent.
+        await releaseExamNetwork(scope).catch(() => undefined);
         throw error;
       }
       return res.json({ examId });
     }
     if (action === 'stop') {
+      // Release the network even when the log shows no exam: that is the stranded case.
+      await releaseExamNetwork(scope);
       if (!state.exam?.active) {
-        return res.status(409).json({ message: 'No active exam' });
+        return res.json({ ok: true });
       }
-      await examAgent('exam-stop', scope);
       await appendEvent(prisma, {
         ...scope,
         actorId: user.id,

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { asEvent } from './event-store';
 import { foldEvents } from './events';
-import { examAgent } from './exam-control';
+import { releaseExamNetwork } from './exam-control';
 import { revokeSessionDevices } from './portal-binding';
 import { prisma } from './prisma';
 
@@ -33,7 +33,7 @@ export async function expireSessions(now = new Date()) {
         ).map(asEvent),
         scope
       );
-      if (current.exam?.active) await examAgent('exam-stop', scope);
+      await releaseExamNetwork(scope);
       await prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT "id" FROM "Class" WHERE "id" = ${session.id} AND "courseId" = ${session.courseId} FOR UPDATE`;
         const events = (

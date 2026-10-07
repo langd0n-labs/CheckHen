@@ -1,5 +1,9 @@
 import { createHmac } from 'node:crypto';
-import { examAgent, examDomains } from '@/lib/exam-control';
+import { appendEvent, readState } from '@/lib/event-store';
+import { examAgent, examDomains, releaseExamNetwork } from '@/lib/exam-control';
+
+jest.mock('@/lib/event-store', () => ({ appendEvent: jest.fn(), readState: jest.fn() }));
+jest.mock('@/lib/prisma', () => ({ prisma: {} }));
 
 describe('exam control', () => {
   it('normalizes and rejects domain entries', () => {
@@ -28,5 +32,54 @@ describe('exam control', () => {
       global.fetch = original;
       AbortSignal.timeout = timeout;
     }
+  });
+});
+
+describe('releasing the exam network', () => {
+  const scope = { courseId: 'course', classId: 'class' };
+  const original = global.fetch;
+  const timeout = AbortSignal.timeout;
+  beforeEach(() => {
+    AbortSignal.timeout = jest.fn().mockReturnValue(new AbortController().signal);
+  });
+  afterEach(() => {
+    global.fetch = original;
+    AbortSignal.timeout = timeout;
+    delete process.env.PORTAL_AGENT_URL;
+  });
+
+  it('records the fails the agent could not deliver', async () => {
+    process.env.PORTAL_AGENT_URL = 'http://127.0.0.1:7878';
+    process.env.PORTAL_CONTROL_SECRET = 'test-secret';
+    (readState as jest.Mock).mockResolvedValue({
+      exam: { id: 'exam', active: true },
+      attendance: [{ userId: 'student' }],
+    });
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        unreported: [
+          { examId: 'exam', userId: 'student', failId: 'drop-1' },
+          { examId: 'exam', userId: 'student' },
+        ],
+      }),
+    });
+    await releaseExamNetwork(scope);
+    expect(String((global.fetch as jest.Mock).mock.calls[0][0])).toMatch(/\/exam-stop$/);
+    expect(appendEvent).toHaveBeenCalledTimes(1);
+    expect(appendEvent).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        kind: 'EXAM_FAILED',
+        userId: 'student',
+        payload: { examId: 'exam', failId: 'drop-1' },
+      })
+    );
+  });
+
+  it('does nothing without a network agent', async () => {
+    global.fetch = jest.fn();
+    await releaseExamNetwork(scope);
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });

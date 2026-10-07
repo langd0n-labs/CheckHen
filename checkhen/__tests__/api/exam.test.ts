@@ -2,7 +2,7 @@ import { createHmac } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { createMocks } from 'node-mocks-http';
 import { appendEvent, readState } from '@/lib/event-store';
-import { examAgent } from '@/lib/exam-control';
+import { examAgent, releaseExamNetwork } from '@/lib/exam-control';
 import { prisma } from '@/lib/prisma';
 import { requireScope } from '@/lib/request-scope';
 import examRoute from '@/pages/api/admin/exam';
@@ -14,6 +14,7 @@ jest.mock('@/lib/exam-control', () => ({
   recordExamFail: jest.requireActual('@/lib/exam-control').recordExamFail,
   examDomains: jest.requireActual('@/lib/exam-control').examDomains,
   examAgent: jest.fn(),
+  releaseExamNetwork: jest.fn(),
 }));
 jest.mock('@/lib/prisma', () => ({ prisma: { user: { findMany: jest.fn() } } }));
 
@@ -36,6 +37,7 @@ beforeEach(() => {
   (requireScope as jest.Mock).mockResolvedValue({ scope, user, selected, admin: true });
   (readState as jest.Mock).mockResolvedValue(state);
   (examAgent as jest.Mock).mockResolvedValue({ active: true, clients: [] });
+  (releaseExamNetwork as jest.Mock).mockResolvedValue(undefined);
   (appendEvent as jest.Mock).mockResolvedValue({ id: 'event' });
   (prisma.user.findMany as jest.Mock).mockResolvedValue([]);
 });
@@ -168,4 +170,19 @@ it('refuses a disconnect limit under ten seconds', async () => {
   const res = await invoke('start', { domains: ['exam.example.edu'], thresholdSeconds: 9 });
   expect(res._getStatusCode()).toBe(400);
   expect(examAgent).not.toHaveBeenCalled();
+});
+
+it('releases the network when a start fails partway', async () => {
+  (examAgent as jest.Mock).mockRejectedValueOnce(new Error('timed out'));
+  await expect(invoke('start', { domains: ['exam.example.edu'] })).rejects.toThrow('timed out');
+  // Once before the start, to clear a stranded exam, and once after the failure.
+  expect(releaseExamNetwork).toHaveBeenCalledTimes(2);
+  expect(appendEvent).not.toHaveBeenCalled();
+});
+
+it('releases the network on stop even when the log shows no exam', async () => {
+  const res = await invoke('stop');
+  expect(res._getStatusCode()).toBe(200);
+  expect(releaseExamNetwork).toHaveBeenCalledWith(scope);
+  expect(appendEvent).not.toHaveBeenCalled();
 });

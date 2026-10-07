@@ -2,7 +2,7 @@
 import { createHmac, randomUUID } from 'node:crypto';
 import { createMocks } from 'node-mocks-http';
 import { appendEvent, readEvents, readState } from '@/lib/event-store';
-import { examAgent, recordExamFail } from '@/lib/exam-control';
+import { examAgent, recordExamFail, releaseExamNetwork } from '@/lib/exam-control';
 import {
   bindDevice,
   revokeCurrentDevice,
@@ -36,6 +36,7 @@ jest.mock('@/lib/exam-control', () => ({
   recordExamFail: jest.requireActual('@/lib/exam-control').recordExamFail,
   examDomains: jest.requireActual('@/lib/exam-control').examDomains,
   examAgent: jest.fn(),
+  releaseExamNetwork: jest.fn().mockResolvedValue(undefined),
 }));
 
 const integration = process.env.CHECKHEN_INTEGRATION === '1' ? describe : describe.skip;
@@ -170,7 +171,7 @@ integration('route → store → attendance fold', () => {
       },
     });
     expect(await expireSessions()).toBeGreaterThanOrEqual(1);
-    expect(examAgent).toHaveBeenCalledWith('exam-stop', scope);
+    expect(releaseExamNetwork).toHaveBeenCalledWith(scope);
     expect((await readEvents(prisma, scope)).map((event) => event.kind)).toEqual([
       'CHECK_IN',
       'EXAM_STARTED',

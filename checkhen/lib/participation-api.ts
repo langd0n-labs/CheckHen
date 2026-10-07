@@ -3,7 +3,7 @@ import { generateUniqueAnonymousName } from './anonymousNames';
 import { instructorChat, studentChat } from './chat-view';
 import { appendEvent, readState } from './event-store';
 import type { EventKind } from './events';
-import { examAgent } from './exam-control';
+import { examAgent, releaseExamNetwork } from './exam-control';
 import {
   bindDevice,
   PortalBindingError,
@@ -209,7 +209,7 @@ export function participationHandler(action: string, adminOnly = false) {
     if (action === 'end-class-early') {
       try {
         await revokeSessionDevices(scope);
-        if (state.exam?.active) await examAgent('exam-stop', scope);
+        await releaseExamNetwork(scope);
       } catch (error) {
         if (error instanceof PortalBindingError)
           return res.status(error.status).json({ message: error.message });

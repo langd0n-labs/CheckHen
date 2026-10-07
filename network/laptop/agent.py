@@ -348,11 +348,12 @@ class Handler(BaseHTTPRequestHandler):
                             LOCK.acquire()
                         for fail in sent:
                             exam.mark_reported(fail["examId"], fail["userId"], fail["failId"])
-                        current = exam.read()
-                        if current and exam.unreported(current):
-                            raise OSError("Automatic fail could not be recorded")
+                    # Stop always succeeds. Fails the callback could not deliver go back
+                    # to the app in the response, which records them itself.
+                    current = exam.read()
+                    pending = exam.unreported(current) if current else []
                     exam.stop(scope)
-                    body = b'{}'
+                    body = json.dumps({"unreported": pending}).encode()
                 elif self.path == "/exam-heartbeat":
                     # The heartbeat counts for the device that sent it, found by its address.
                     binding = read_bindings().get(ip)

@@ -1417,3 +1417,20 @@ class, and record the result here.
     and `/exam-stop`.
 
 Verified: Python 69 tests; Jest 37 suites, 330 tests.
+
+### Fix 4: releasing the exam network (M5 review findings 2 and 10)
+
+- `releaseExamNetwork` (`lib/exam-control.ts`) calls the agent's `exam-stop`
+  whatever the event log shows. Stop, end class, and session expiry all use it, so
+  an exam a failed start left on the agent no longer locks the class network.
+  Without a configured agent it does nothing.
+- Start releases first, then starts; if the start or its `EXAM_STARTED` write fails
+  (including a timeout after the agent applied the gate), it releases again.
+- Stop with no exam in the log releases the network and returns 200 (was 409).
+- Finding 10: `/exam-stop` always stops. Fails the agent could not deliver come
+  back in its response (`unreported`), and the app records them, deduplicated by
+  fail ID as before. A failing callback can no longer keep an exam running or block
+  session expiry.
+
+Verified: Python 70 tests; Jest 37 suites, 334 tests; PostgreSQL integration 42
+cases.

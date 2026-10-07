@@ -65,6 +65,29 @@ export async function examAgent(
 export type ExamFailReport = { examId: string; userId: string; failId: string };
 
 /**
+ * Stop the agent's exam for this session, whether or not the event log shows one, so
+ * a start that failed partway can never leave the class network locked. The agent
+ * returns fails it could not deliver; they are recorded here. Without an agent there
+ * is no exam network to release.
+ */
+export async function releaseExamNetwork(scope: EventScope): Promise<void> {
+  if (!process.env.PORTAL_AGENT_URL) {
+    return;
+  }
+  const result = await examAgent('exam-stop', scope);
+  const unreported = Array.isArray(result.unreported) ? result.unreported : [];
+  for (const fail of unreported) {
+    if (
+      [fail?.examId, fail?.userId, fail?.failId].every(
+        (value) => typeof value === 'string' && value
+      )
+    ) {
+      await recordExamFail(scope, fail as ExamFailReport);
+    }
+  }
+}
+
+/**
  * Record one agent-detected drop. Each drop has its own failId, so a student
  * excused once can fail again; a repeated report of the same drop is stored once.
  */

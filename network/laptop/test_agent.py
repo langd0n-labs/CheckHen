@@ -177,6 +177,29 @@ class AgentTests(unittest.TestCase):
             agent.detect_pass("wlan-test")
         self.assertEqual(sorted(probe.call_args.args[0]), ["172.16.77.20", "fd9b:2f69:8c44::20"])
 
+    def test_exam_stop_always_stops_and_returns_undelivered_fails(self):
+        fail = {"courseId": "course", "classId": "class", "examId": "exam", "userId": "student",
+                "failId": "fail-1"}
+        scope = {"courseId": "course", "classId": "class", "timestamp": int(time.time() * 1000)}
+        payload = json.dumps(scope).encode()
+        signature = hmac.new(agent.Handler.secret.encode(), payload, hashlib.sha256).hexdigest()
+        server = HTTPServer(("127.0.0.1", 0), agent.Handler)
+        thread = threading.Thread(target=server.handle_request)
+        thread.start()
+        with patch.object(exam, "read", return_value={"courseId": "course", "classId": "class"}), \
+             patch.object(exam, "unreported", return_value=[fail]), \
+             patch.object(exam, "notify_fail", return_value=False), \
+             patch.object(exam, "stop") as stop:
+            request = urllib.request.Request(f"http://127.0.0.1:{server.server_port}/exam-stop",
+                                             payload, {"X-CheckHen-Signature": signature})
+            with urllib.request.urlopen(request, timeout=5) as response:
+                body = json.loads(response.read())
+        thread.join(3)
+        server.server_close()
+        # The app's callback failed, yet the exam stops; the app records the fail itself.
+        stop.assert_called_once()
+        self.assertEqual(body, {"unreported": [fail]})
+
     def test_exam_status_reports_monitor_health(self):
         scope = {"courseId": "course", "classId": "class", "timestamp": int(time.time() * 1000)}
         state = {"courseId": "course", "classId": "class", "examId": "exam", "thresholdSeconds": 30,
