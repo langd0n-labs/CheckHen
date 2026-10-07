@@ -7,6 +7,8 @@ import { requireIdentity } from '@/lib/request-scope';
 import coursesRoute from '@/pages/api/courses';
 import rosterRoute from '@/pages/api/admin/roster';
 import uploadRoute from '@/pages/api/student/upload-profile-picture';
+import profileRoute from '@/pages/api/admin/get-student-profile';
+import isAdminRoute from '@/pages/api/auth/is-admin';
 
 jest.mock('@/lib/prisma', () => ({
   prisma: {
@@ -118,4 +120,14 @@ it('takes no profile photos in demo mode', async () => {
   await uploadRoute(req as any, res as any);
   expect(res._getStatusCode()).toBe(403);
   expect(prisma.user.update).not.toHaveBeenCalled();
+});
+
+it('treats the demo instructor as an instructor on every admin route', async () => {
+  const profile = request('GET', '203.0.113.9');
+  profile.req.query = { email: 'clover@demo.checkhen.invalid' };
+  await profileRoute(profile.req as any, profile.res as any);
+  expect(profile.res._getStatusCode()).toBe(200);
+  const admin = request('GET', '203.0.113.9');
+  await isAdminRoute(admin.req as any, admin.res as any);
+  expect(admin.res._getJSONData()).toEqual({ isAdmin: true });
 });

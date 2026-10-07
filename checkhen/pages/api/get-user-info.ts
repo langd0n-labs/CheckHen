@@ -1,5 +1,6 @@
 import { getServerSession } from 'next-auth';
 import { authOptions } from './auth/[...nextauth]';
+import { isInstructor } from '@/lib/instructor';
 import { prisma } from '@/lib/prisma';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
@@ -39,9 +40,7 @@ export default async function handler(
     update: {},
     create: {
       email,
-      isAdmin: process.env.ADMIN_EMAILS?.split(',')
-        .map((e) => `${e.trim()}@${process.env.NEXT_PUBLIC_EMAIL_DOMAIN}`)
-        .includes(email) || false,
+      isAdmin: isInstructor(email),
     },
   });
 

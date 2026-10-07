@@ -1,4 +1,3 @@
-import { getServerSession } from 'next-auth';
 
 function normalizeHex(raw: string): string | null {
   const s = raw.trim();
@@ -7,7 +6,7 @@ function normalizeHex(raw: string): string | null {
   if (/^#[0-9a-fA-F]{8}$/.test(s)) return s.slice(0, 7);
   return null;
 }
-import { authOptions } from '../auth/[...nextauth]';
+import { requireIdentity } from '@/lib/request-scope';
 import { prisma } from '@/lib/prisma';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
@@ -23,12 +22,7 @@ export default async function handler(
     return res.status(405).json({ message: 'Method Not Allowed' });
   }
 
-  const session = await getServerSession(req, res, authOptions);
-  if (!session?.user?.email) return res.status(401).json({ message: 'Unauthorized' });
-
-  const adminEmails = process.env.ADMIN_EMAILS?.split(',')
-    .map((e) => `${e.trim()}@${process.env.NEXT_PUBLIC_EMAIL_DOMAIN}`) || [];
-  if (!adminEmails.includes(session.user.email)) return res.status(403).json({ message: 'Forbidden: Admin only' });
+  if (!(await requireIdentity(req, res, true))) return;
 
   const courseId = req.query.courseId ?? req.body?.courseId;
   if (typeof courseId !== 'string' || !await prisma.course.findUnique({ where: { id: courseId } })) {

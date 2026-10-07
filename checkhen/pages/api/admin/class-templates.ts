@@ -1,6 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '../auth/[...nextauth]';
+import { requireIdentity } from '@/lib/request-scope';
 import { prisma } from '@/lib/prisma';
 
 type ClassTemplateRecord = {
@@ -30,22 +29,11 @@ function normalizeHex(raw: unknown): string | null {
   return null;
 }
 
-function getAdminEmails(): string[] {
-  return (
-    process.env.ADMIN_EMAILS?.split(',').map(
-      (e) => `${e.trim()}@${process.env.NEXT_PUBLIC_EMAIL_DOMAIN}`
-    ) || []
-  );
-}
-
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<ResponseData>
 ) {
-  const session = await getServerSession(req, res, authOptions);
-  if (!session?.user?.email) return res.status(401).json({ message: 'Unauthorized' });
-  if (!getAdminEmails().includes(session.user.email))
-    return res.status(403).json({ message: 'Forbidden: Admin only' });
+  if (!(await requireIdentity(req, res, true))) return;
   const courseId = req.query.courseId ?? req.body?.courseId;
   if (typeof courseId !== 'string' || !await prisma.course.findUnique({ where: { id: courseId } }))
     return res.status(400).json({ message: 'Select a course' });
