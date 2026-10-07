@@ -1248,3 +1248,29 @@ The tunnel stays off until M1 and M2 are fixed and AICP confirms.
   Present again writes a new check-in and restores the credit.
 - A student who checked in on their own (network attendance) is checked out, as
   before: that session still counts as attended.
+
+### Minors m1-m3: tunnel and proxy containers
+
+- cloudflared is pinned to 2026.10.0. Its `--help` confirms the review's concern:
+  with no `--metrics` address it binds every interface when containerized, and the
+  service uses host networking. It now binds metrics to `127.0.0.1:20241`.
+- The tunnel token is the external podman secret `checkhen_demo_tunnel_token`,
+  read with `--token-file`. Checked with a fake value: the token does not appear in
+  `podman inspect` or `podman-compose config`. Stacks without the `tunnel` profile
+  start without the secret; the `tunnel` profile fails with "no such secret".
+- The hosted proxy builds from `network/hosted` only, so the `.env` files never
+  enter its build context.
+
+### Hosted demo runbook (build host)
+
+1. Create the tunnel secret once, from Secrets Manager:
+   `agent-credential run --project fishjump -- podman secret create --env=true checkhen_demo_tunnel_token CHECKHEN_DEMO_TUNNEL_TOKEN`
+2. Start: `podman-compose -p checkhen-demo --env-file .env.hosted --profile hosted --profile tunnel up -d --build`.
+   After a rebuild, add `--force-recreate`: podman-compose does not replace a running
+   container when only its image changed.
+3. A fresh demo database: `podman-compose -p checkhen-demo --env-file .env.hosted --profile hosted down -v`,
+   then start. The first visit to `/demo` seeds it.
+
+Checked on 2026-10-07 after recreating the demo database: `/api/demo` lists 11
+personas and a live session; persona sign-in for the instructor, the call screen
+at 375x667, and a student pass end to end in headless Chromium with no page errors.

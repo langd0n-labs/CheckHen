@@ -123,8 +123,9 @@ services:
     # Hosted mode: one loopback origin for app and socket, for the tunnel to publish.
     profiles: [hosted]
     build:
-      context: .
-      dockerfile: network/hosted/Containerfile
+      # Only this directory, so the gitignored .env files never enter the build context.
+      context: ./network/hosted
+      dockerfile: Containerfile
     network_mode: host
     restart: on-failure
     environment:
@@ -138,18 +139,24 @@ services:
       socket:
         condition: service_started
   tunnel:
-    # Publishes the hosted proxy through a Cloudflare Tunnel. The token (Secrets Manager
-    # key CHECKHEN_DEMO_TUNNEL_TOKEN, project fishjump) comes from the
-    # environment at run time and is never stored in the repository.
+    # Publishes the hosted proxy through a Cloudflare Tunnel. The token is the podman
+    # secret checkhen_demo_tunnel_token, read as a file, so it stays out of the
+    # container environment, `podman inspect`, and `podman-compose config`.
+    # docs/build-log.md, "Hosted demo runbook", says how to create the secret.
     profiles: [tunnel]
-    image: docker.io/cloudflare/cloudflared:latest
-    command: tunnel --no-autoupdate run
+    image: docker.io/cloudflare/cloudflared:2026.10.0
+    # Host networking: without an explicit address, metrics bind to every interface.
+    command: >-
+      tunnel --no-autoupdate --metrics 127.0.0.1:20241
+      run --token-file /run/secrets/checkhen_demo_tunnel_token
     network_mode: host
     restart: on-failure
-    environment:
-      TUNNEL_TOKEN: ${CHECKHEN_DEMO_TUNNEL_TOKEN:-}
+    secrets: [checkhen_demo_tunnel_token]
     depends_on:
       hosted-proxy:
         condition: service_started
 volumes:
   pgdata:
+secrets:
+  checkhen_demo_tunnel_token:
+    external: true
