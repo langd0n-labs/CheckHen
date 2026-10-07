@@ -501,6 +501,7 @@ export default function HomePage() {
                 style={{
                   width: 40,
                   height: 40,
+                  flexShrink: 0,
                   borderRadius: '50%',
                   backgroundColor: theme.colors.buBlue[5],
                   display: 'flex',
@@ -513,7 +514,8 @@ export default function HomePage() {
               </Box>
             </Tooltip>
             <div style={{ minWidth: 0 }}>
-              <Title order={isPhone ? 4 : 3}>CheckHen</Title>
+              {/* On phones the logo stands for the name, leaving room for the icons. */}
+              {!isPhone && <Title order={3}>CheckHen</Title>}
               <Text size="sm" c="dimmed" truncate>
                 {currentClassName}
               </Text>

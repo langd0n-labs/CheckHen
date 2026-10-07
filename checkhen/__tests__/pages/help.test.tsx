@@ -1,10 +1,17 @@
 import type { ComponentType } from 'react';
 import { render, screen, within } from '@testing-library/react';
+import { getServerSession } from 'next-auth';
 import { MantineProvider } from '@mantine/core';
-import InstructorHelp from '@/pages/help/instructor';
+import InstructorHelp, { getServerSideProps } from '@/pages/help/instructor';
 import ProjectionHelp from '@/pages/help/projection';
 import StudentHelp from '@/pages/help/student';
 import { theme } from '../../theme';
+
+jest.mock('next-auth', () => ({ getServerSession: jest.fn() }));
+jest.mock('@/lib/request-scope', () => ({
+  isInstructor: (email: string) => email === 'prof@bu.edu',
+}));
+jest.mock('../../pages/api/auth/[...nextauth]', () => ({ authOptions: {} }));
 
 const view = (Page: ComponentType) =>
   render(
@@ -50,4 +57,20 @@ it('says the room never sees real names or cold-call outcomes', () => {
   expect(anchors()).toEqual(['projection-window', 'slidev']);
   expect(screen.getByText(/never real names/)).toBeInTheDocument();
   expect(screen.getByText(/Cold-call draws and their outcomes never appear/)).toBeInTheDocument();
+});
+
+describe('instructor help access', () => {
+  const load = async (email: string | null) => {
+    (getServerSession as jest.Mock).mockResolvedValue(email ? { user: { email } } : null);
+    return getServerSideProps({ req: {}, res: {} } as any);
+  };
+  it('sends a signed-out visitor to sign in', async () => {
+    expect(await load(null)).toMatchObject({ redirect: { permanent: false } });
+  });
+  it('hides the page from students', async () => {
+    expect(await load('student@bu.edu')).toEqual({ notFound: true });
+  });
+  it('shows it to instructors', async () => {
+    expect(await load('prof@bu.edu')).toEqual({ props: {} });
+  });
 });

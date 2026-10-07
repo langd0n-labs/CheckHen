@@ -1,5 +1,20 @@
+import type { GetServerSideProps } from 'next';
+import { getServerSession } from 'next-auth';
 import { Alert, Text } from '@mantine/core';
 import { HelpLayout, HelpList as List } from '@/components/HelpLayout';
+import { isInstructor } from '@/lib/request-scope';
+import { authOptions } from '../api/auth/[...nextauth]';
+
+/** Instructor help describes grading and draw rules, so only instructors may read it. */
+export const getServerSideProps: GetServerSideProps = async ({ req, res }) => {
+  const session = await getServerSession(req, res, authOptions);
+  if (!session?.user?.email) {
+    return {
+      redirect: { destination: '/api/auth/signin?callbackUrl=/help/instructor', permanent: false },
+    };
+  }
+  return isInstructor(session.user.email) ? { props: {} } : { notFound: true };
+};
 
 /** Help for instructors: the dashboard, cold calling, and exam mode. */
 export default function InstructorHelp() {
@@ -107,7 +122,8 @@ export default function InstructorHelp() {
               <List>
                 <List.Item>
                   Undo has no time limit. The last call has an Undo, and every earlier call in the
-                  session is listed with its own.
+                  session is listed with its own. Recording a corrected outcome on the same card
+                  works for 30 minutes after the draw; after that, call on the student again.
                 </List.Item>
                 <List.Item>
                   During a run, or right after an outcome that ended one, Undo steps back one
@@ -138,7 +154,8 @@ export default function InstructorHelp() {
               <Text fw={600}>Two phones</Text>
               <Text>
                 If you draw on two phones, the newer draw replaces the older one. The older phone
-                clears its card and says so. A draw stays valid for 30 minutes.
+                keeps showing its card until its next tap; that tap is refused, and the card clears
+                with a notice. A draw stays valid for 30 minutes.
               </Text>
             </>
           ),

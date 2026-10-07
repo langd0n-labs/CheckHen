@@ -369,6 +369,16 @@ describe('participation grade', () => {
 });
 
 describe('configuration', () => {
+  it('reports saved values that the reader replaced with defaults', () => {
+    expect(
+      courseConfig({ ratio: -1, pass_cap: 'x', A_min: 9, A_max: 4, recency_multiplier: 1 })
+    ).toEqual({
+      config: { ...DEFAULT_CONFIG, recency_multiplier: 1 },
+      problem: 'Saved values could not be used for pass_cap, ratio, A_min, A_max',
+    });
+    expect(courseConfig({ recency_multiplier: 1 }).problem).toBeNull();
+  });
+
   it('falls back to defaults and reports the problem for unusable saved settings', () => {
     // Only the settings at fault take their defaults; the valid ratio is kept.
     expect(courseConfig({ A_min: 0, A_max: 0, ratio: 0.5 })).toEqual({

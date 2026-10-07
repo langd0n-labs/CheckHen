@@ -115,6 +115,15 @@ export function configProblem(config: ColdCallConfig): string | null {
 export function courseConfig(stored: unknown): { config: ColdCallConfig; problem: string | null } {
   const config = resolveConfig(stored);
   const problems: string[] = [];
+  // resolveConfig drops unusable saved values (negative, not a number, or the lowest A
+  // above the highest) without a word; report each one it replaced.
+  const saved = stored && typeof stored === 'object' ? (stored as Record<string, unknown>) : {};
+  const replaced = (Object.keys(DEFAULT_CONFIG) as (keyof ColdCallConfig)[]).filter(
+    (key) => Object.hasOwn(saved, key) && saved[key] !== config[key]
+  );
+  if (replaced.length) {
+    problems.push(`Saved values could not be used for ${replaced.join(', ')}`);
+  }
   for (const rule of CONFIG_RULES) {
     if (rule.broken(config)) {
       for (const key of rule.keys) {

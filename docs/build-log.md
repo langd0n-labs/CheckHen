@@ -1082,3 +1082,37 @@ Verified: Python unit tests (53); 30 Jest suites and 288 tests;
 `scripts/test-postgres.sh` with 40 route integration cases (adds: the same
 drop reported twice is stored once; a later drop after an excuse is a second
 fail; fails stay after the exam ends).
+
+### Review of b933f3a to 8e5f57c: fixes
+
+- Phone layout (F5): the UI check now also renders 375x553, Safari's visible
+  height on a small iPhone with toolbars. The call screen's spacing, photo,
+  and pronunciation scale with dynamic viewport height, the outcome rows are
+  52 px, and pronouns are hidden during a follow-up run. Answered ends at
+  545 px on a 553 px screen, drawn and in a run (657 px on 667, 832 px on 844).
+- Student page (F3, F4): on phones the header shows the logo, not the word
+  "CheckHen", and the logo no longer shrinks. The course picker is no longer
+  shown above the student page, so the chat input stays on screen.
+- Call screen (F1, F6): the result-line and earlier-call Undo buttons are
+  disabled while a request runs and hold the screen busy until the undo
+  returns, so Call on someone cannot race them. The Help link opens in a new
+  tab, keeping the current card.
+- Settings (F2): saved values that the reader replaces silently (negative,
+  not a number, or the lowest A above the highest) are reported in the
+  settings notice.
+- Help pages: closing or reloading the class page checks the student out;
+  some phones do not report it; and leaving from a second device ends only
+  that device's access. The older phone clears its card on its next tap. Undo
+  has no time limit, but recording a corrected outcome on the same card works
+  for 30 minutes after the draw. Projection access lasts until the scheduled
+  end, and End Class does not close it.
+- F13: `/help/instructor` requires an instructor sign-in, checked on the
+  server. Signed-out visitors go to sign-in; signed-in students get "not
+  found".
+
+Waiting on the operator: F9, the Absent bullet on `/help/student`, stays as
+written until the operator sees it in the demo.
+
+Verified on 2026-10-07 (Nimbus): 30 Jest suites and 292 tests (twice),
+`scripts/test-postgres.sh` with 40 route integration cases, and the browser
+check at 375x553, 375x667, 390x844, and 1280x800 with no sideways scroll.

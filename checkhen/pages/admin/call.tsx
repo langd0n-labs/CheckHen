@@ -211,8 +211,9 @@ export default function ColdCall() {
         minHeight: '100dvh',
         display: 'flex',
         flexDirection: 'column',
-        padding: 12,
-        gap: 12,
+        // Spacing tightens on short screens, such as Safari with its toolbars shown.
+        padding: 'clamp(8px, 1.5dvh, 12px)',
+        gap: 'clamp(6px, 1.5dvh, 12px)',
         maxWidth: 520,
         margin: '0 auto',
       }}
@@ -225,6 +226,9 @@ export default function ColdCall() {
           <Text
             component={Link}
             href="/help/instructor#cold-call"
+            // A new tab keeps the student card on this screen.
+            target="_blank"
+            rel="noopener noreferrer"
             size="sm"
             c="buBlue.7"
             style={{
@@ -306,7 +310,7 @@ export default function ColdCall() {
             <Avatar
               src={student.photo}
               alt=""
-              size={student.followUp ? 'clamp(72px, 14dvh, 168px)' : 'clamp(88px, 19dvh, 168px)'}
+              size={student.followUp ? 'clamp(48px, 9dvh, 168px)' : 'clamp(56px, 14dvh, 168px)'}
               radius={168}
               color="buBlue"
             >
@@ -318,12 +322,13 @@ export default function ColdCall() {
               {student.name}
             </Text>
             {student.pronunciation && (
-              <Text fz={24} fw={500}>
+              <Text fz="clamp(18px, 3.5dvh, 24px)" fw={500}>
                 {student.pronunciation}
               </Text>
             )}
-            {student.pronouns && (
-              <Text fz={18} c="dimmed">
+            {/* Pronouns show with the first question; a run keeps the screen short. */}
+            {student.pronouns && !student.followUp && (
+              <Text fz="clamp(15px, 3dvh, 18px)" c="dimmed">
                 {student.pronouns}
               </Text>
             )}
@@ -335,11 +340,18 @@ export default function ColdCall() {
               variant="subtle"
               size="md"
               h={44}
+              disabled={busy}
               onClick={async () => {
                 const back = undoTo?.callId === last.id ? undoTo : null;
-                if ((await undo(last.id)) && back) {
-                  setUndoTo(null);
-                  setStudent(back.card);
+                // Busy until the undo returns, so Call on someone cannot race it.
+                setBusy(true);
+                try {
+                  if ((await undo(last.id)) && back) {
+                    setUndoTo(null);
+                    setStudent(back.card);
+                  }
+                } finally {
+                  setBusy(false);
                 }
               }}
             >
@@ -381,7 +393,7 @@ export default function ColdCall() {
           <Group grow gap={12}>
             <Button
               size="lg"
-              h={56}
+              h={52}
               fz={18}
               px={4}
               color="gray"
@@ -393,7 +405,7 @@ export default function ColdCall() {
             </Button>
             <Button
               size="lg"
-              h={56}
+              h={52}
               fz={18}
               px={4}
               color="yellow.4"
@@ -406,7 +418,7 @@ export default function ColdCall() {
             {!student.followUp && (
               <Button
                 size="lg"
-                h={56}
+                h={52}
                 fz={18}
                 px={4}
                 color="red.8"
@@ -419,7 +431,7 @@ export default function ColdCall() {
           </Group>
           <Button
             size="lg"
-            h={56}
+            h={52}
             color="green.9"
             variant="outline"
             disabled={busy}
@@ -456,7 +468,15 @@ export default function ColdCall() {
               <Group key={call.id} justify="space-between" wrap="nowrap">
                 <Text size="md">{callLabel(call)}</Text>
                 <UnstyledButton
-                  onClick={() => undo(call.id)}
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true);
+                    try {
+                      await undo(call.id);
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
                   style={{ minHeight: 44, padding: '0 12px' }}
                   c="buBlue.7"
                 >

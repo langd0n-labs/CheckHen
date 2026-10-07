@@ -22,7 +22,11 @@ export default function StudentHelp() {
               <Text>You are checked out when any of these happens:</Text>
               <List>
                 <List.Item>You tap the CheckHen logo (Leave class).</List.Item>
-                <List.Item>You close the class tab or window.</List.Item>
+                <List.Item>
+                  You close or reload the class page. Reloading checks you out too, so join again
+                  afterward. Some phones, iPhones especially, do not report a closed page, so use
+                  Leave class when you leave.
+                </List.Item>
                 <List.Item>
                   Your device&apos;s address on the class Wi-Fi expires. That can take hours after
                   you leave the room, so use Leave class if you leave early.
@@ -32,6 +36,11 @@ export default function StudentHelp() {
                   Your instructor calls on you and marks you Absent, because you left early.
                 </List.Item>
               </List>
+              <Text>
+                Leaving from the device you checked in with checks you out and ends class network
+                access for all your devices. Leaving from a second device ends only that
+                device&apos;s access; you stay checked in.
+              </Text>
               <Text>To check in again, open the join page and join the session again.</Text>
             </>
           ),
