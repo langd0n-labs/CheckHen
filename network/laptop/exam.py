@@ -25,8 +25,12 @@ CONNECTED_SECONDS = 8
 DNS_RELOAD_SECONDS = 1
 SEED_SECONDS = 30
 IDLE_FLUSH_SECONDS = 60
+# Station evidence shows a gap only when the polls around it were this close: after a
+# longer stall, a station's latest activity says nothing about the time in between.
+STATION_POLL_GAP_SECONDS = 2.0
 # Socket heartbeats arrive between monitor passes; the monitor folds them into exam.json.
-HEARTBEATS: dict[tuple[str, str, str], float] = {}
+# Each entry keeps the first and last arrival since the last fold.
+HEARTBEATS: dict[tuple[str, str, str], tuple[float, float]] = {}
 _idle_flushed_at = 0.0
 
 
@@ -216,43 +220,79 @@ def seed_due(state: dict, now: float) -> list[str]:
 
 def heartbeat(scope: dict, user_id: str, now: float | None = None) -> None:
     # In memory: a heartbeat must not cost a file write on the request path.
-    HEARTBEATS[(scope["courseId"], scope["classId"], user_id)] = time.time() if now is None else now
+    clock = time.time() if now is None else now
+    key = (scope["courseId"], scope["classId"], user_id)
+    first = HEARTBEATS[key][0] if key in HEARTBEATS else clock
+    HEARTBEATS[key] = (first, clock)
+
+
+def client_status(client: dict, threshold: int, now: float) -> dict:
+    last_seen = max(client["lastHeartbeat"], client["lastStation"])
+    connected = now - last_seen <= min(CONNECTED_SECONDS, threshold)
+    return {"connected": connected, "disconnectedAt": None if connected else last_seen,
+            "failed": bool(client.get("reported")) or client.get("failedAt") is not None}
 
 
 def connection_status(state: dict, stations: dict[str, float] | None, now: float) -> list[dict]:
-    """Stations map each associated MAC to seconds since the AP last heard it.
+    """Fold one station poll, taken at `now`, and the heartbeats since the last fold.
 
-    A listed station counts only from its last activity, so a device that vanished
-    without leaving the list is not connected. None means station data is
-    unavailable; then no new fail is recorded.
+    Stations map each associated MAC to seconds since the AP last heard it. A listed
+    station counts only from its last activity, so a device that vanished without
+    leaving the list is not connected. None means station data is unavailable; then
+    no new fail is recorded.
+
+    A drop fails in either of two ways: evidence is missing for longer than the
+    threshold now, or evidence returns after a gap longer than the threshold. The
+    second catches a drop that ended between two passes.
     """
+    previous_poll = state.get("stationObservedAt")
+    trusted = (stations is not None and previous_poll is not None and
+               now - previous_poll <= STATION_POLL_GAP_SECONDS)
+    if stations is not None:
+        state["stationObservedAt"] = now
+    threshold = state["thresholdSeconds"]
     result = []
     for user_id, client in state["clients"].items():
+        previous = max(client["lastHeartbeat"], client["lastStation"])
+        arrivals = []
         heard = HEARTBEATS.pop((state["courseId"], state["classId"], user_id), None)
         if heard is not None:
-            client["lastHeartbeat"] = max(client["lastHeartbeat"], heard)
+            if heard[0] > previous:
+                arrivals.append(heard[0])
+            client["lastHeartbeat"] = max(client["lastHeartbeat"], heard[1])
         if stations and client["mac"] in stations:
-            client["lastStation"] = max(client["lastStation"], now - stations[client["mac"]])
+            seen = now - stations[client["mac"]]
+            if seen > previous:
+                arrivals.append(seen)
+            client["lastStation"] = max(client["lastStation"], seen)
+        if client.get("failedAt") is not None and not client.get("failId"):
+            # A fail saved before fail IDs existed gets one, so it can be reported.
+            client["failId"] = secrets.token_hex(16)
         last_seen = max(client["lastHeartbeat"], client["lastStation"])
-        connected = now - last_seen <= min(CONNECTED_SECONDS, state["thresholdSeconds"])
-        if connected and client["reported"]:
+        if now - last_seen <= min(CONNECTED_SECONDS, threshold) and client.get("reported"):
             # The reported drop has ended. A later drop is a separate fail, even after
             # the instructor excused this one.
             client.update(failedAt=None, failId=None, reported=False)
+        missing = now - last_seen > threshold
+        returned_after_gap = trusted and bool(arrivals) and min(arrivals) - previous > threshold
         if (stations is not None and client.get("failedAt") is None and
-                now - last_seen > state["thresholdSeconds"]):
+                (missing or returned_after_gap)):
             client.update(failedAt=now, failId=secrets.token_hex(16))
-        result.append({"userId": user_id, "connected": connected,
-                       "disconnectedAt": None if connected else last_seen,
-                       "failed": client["reported"] or client.get("failedAt") is not None})
+        result.append({"userId": user_id, **client_status(client, threshold, now)})
     return result
+
+
+def status(state: dict, now: float) -> list[dict]:
+    """Read-only view of the evidence the monitor last folded, for /exam-status."""
+    return [{"userId": user_id, **client_status(client, state["thresholdSeconds"], now)}
+            for user_id, client in state["clients"].items()]
 
 
 def unreported(state: dict) -> list[dict]:
     scope = {key: state[key] for key in ("courseId", "classId", "examId")}
-    return [{**scope, "userId": user_id, "failId": client["failId"]}
+    return [{**scope, "userId": user_id, "failId": client.get("failId")}
             for user_id, client in state["clients"].items()
-            if client.get("failedAt") is not None and not client["reported"]]
+            if client.get("failedAt") is not None and not client.get("reported")]
 
 
 def mark_reported(exam_id: str, user_id: str, fail_id: str) -> None:

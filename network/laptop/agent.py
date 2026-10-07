@@ -27,6 +27,8 @@ MAC = re.compile(r"^[0-9a-f]{2}(?::[0-9a-f]{2}){5}$", re.IGNORECASE)
 LOCK = threading.RLock()
 # A pass every half second keeps a 30-second limit accurate to under a second.
 MONITOR_SECONDS = 0.5
+# Detection is healthy while a pass finished this recently.
+MONITOR_STALE_SECONDS = 5
 
 
 def lease_mac(ip: str) -> str | None:
@@ -206,8 +208,9 @@ def reconcile_bindings() -> None:
 def station_activity(interface: str) -> dict[str, float] | None:
     """Map each associated station to seconds since the AP last heard from it."""
     try:
+        # Bounded: a slow poll widens the gap between polls, which the monitor detects.
         result = subprocess.run(["iw", "dev", interface, "station", "dump"],
-                                text=True, capture_output=True, timeout=2)
+                                text=True, capture_output=True, timeout=1)
     except (OSError, subprocess.TimeoutExpired):
         return None
     if result.returncode:
@@ -290,9 +293,10 @@ class Handler(BaseHTTPRequestHandler):
     interface = "wlan0"
     test_mode = False
     exam_callback_url = "http://127.0.0.1:3000/api/internal/exam-failed"
-    # The monitor thread's latest station poll; None when iw failed.
-    stations: dict[str, float] | None = {}
     preauth: list[str] = []
+    # The detection thread's last finished pass, and the last error that stopped one.
+    monitor_at = 0.0
+    monitor_error: str | None = None
 
     def do_POST(self) -> None:
         if self.path not in {"/bind", "/revoke", "/revoke-student", "/revoke-session",
@@ -332,10 +336,19 @@ class Handler(BaseHTTPRequestHandler):
                     if active_exam:
                         if any(active_exam[key] != scope[key] for key in scope):
                             raise PermissionError("Wrong exam session")
-                        for fail in exam.monitor(self.stations):
-                            if exam.notify_fail(fail, self.secret, self.exam_callback_url):
-                                exam.mark_reported(fail["examId"], fail["userId"], fail["failId"])
-                        if exam.unreported(exam.read()):
+                        # Report pending fails without holding the lock, so a slow app
+                        # cannot stall detection or other requests. The worker thread
+                        # retries any that fail.
+                        LOCK.release()
+                        try:
+                            sent = [fail for fail in exam.unreported(active_exam)
+                                    if exam.notify_fail(fail, self.secret, self.exam_callback_url)]
+                        finally:
+                            LOCK.acquire()
+                        for fail in sent:
+                            exam.mark_reported(fail["examId"], fail["userId"], fail["failId"])
+                        current = exam.read()
+                        if current and exam.unreported(current):
                             raise OSError("Automatic fail could not be recorded")
                     exam.stop(scope)
                     body = b'{}'
@@ -346,10 +359,12 @@ class Handler(BaseHTTPRequestHandler):
                     state = exam.read()
                     if state and any(state[key] != scope[key] for key in scope):
                         raise PermissionError("Wrong exam session")
-                    statuses = exam.connection_status(state, self.stations, time.time()) if state else []
-                    if state:
-                        exam.save(state)
-                    body = json.dumps({"active": bool(state), "clients": statuses}).encode()
+                    # Read-only: only the detection thread folds evidence, from its own polls.
+                    statuses = exam.status(state, time.time()) if state else []
+                    monitor = {"healthy": time.time() - Handler.monitor_at <= MONITOR_STALE_SECONDS,
+                               "error": Handler.monitor_error}
+                    body = json.dumps({"active": bool(state), "clients": statuses,
+                                       "monitor": monitor}).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
@@ -435,21 +450,31 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
-def monitor_pass(interface: str | None, checkout_url: str, dns_server: str) -> None:
-    now = time.time()
+def detect_pass(interface: str | None) -> None:
+    """Fold connection evidence. Only local, bounded work runs here: no callbacks or DNS."""
     with LOCK:
         active = exam.read()
     # In AP test mode there is no Wi-Fi interface; heartbeats are the only evidence.
     stations = ({} if interface is None else station_activity(interface)) if active else {}
+    observed_at = time.time()
     with LOCK:
-        Handler.stations = stations
-        prune_bindings(interface)
+        try:
+            prune_bindings(interface)
+        except Exception as error:  # Binding upkeep must not stop exam detection.
+            print(f"Agent binding upkeep failed: {type(error).__name__}", file=sys.stderr)
+        exam.monitor(stations, observed_at)
+        if not exam.read():
+            exam.flush_idle(observed_at)
+
+
+def worker_pass(checkout_url: str, dns_server: str) -> None:
+    """Network work for the monitor: checkouts, fail callbacks, and allowlist seeding."""
+    now = time.time()
+    with LOCK:
         bindings = read_bindings()
-        fails = exam.monitor(stations, now)
         state = exam.read()
+        fails = exam.unreported(state) if state else []
         seeds = exam.seed_due(state, now) if state else []
-        if not state:
-            exam.flush_idle(now)
     flush_checkout_notifications(Handler.secret, checkout_url, bindings)
     # Fail callbacks run outside the lock, so a slow app cannot delay requests.
     for fail in fails:
@@ -465,13 +490,26 @@ def monitor_pass(interface: str | None, checkout_url: str, dns_server: str) -> N
                 exam.add_addresses(addresses)
 
 
-def monitor_loop(interface: str | None, checkout_url: str, dns_server: str) -> None:
+def detect_loop(interface: str | None) -> None:
     while True:
         started = time.monotonic()
         try:
-            monitor_pass(interface, checkout_url, dns_server)
+            detect_pass(interface)
+            Handler.monitor_at = time.time()
+            Handler.monitor_error = None
         except Exception as error:  # Keep monitoring; the next pass retries.
-            print(f"Agent monitor pass failed: {type(error).__name__}", file=sys.stderr)
+            Handler.monitor_error = type(error).__name__
+            print(f"Agent detection pass failed: {type(error).__name__}", file=sys.stderr)
+        time.sleep(max(0.0, MONITOR_SECONDS - (time.monotonic() - started)))
+
+
+def worker_loop(checkout_url: str, dns_server: str) -> None:
+    while True:
+        started = time.monotonic()
+        try:
+            worker_pass(checkout_url, dns_server)
+        except Exception as error:  # Keep working; the next pass retries.
+            print(f"Agent worker pass failed: {type(error).__name__}", file=sys.stderr)
         time.sleep(max(0.0, MONITOR_SECONDS - (time.monotonic() - started)))
 
 
@@ -494,8 +532,9 @@ def main() -> None:
     interface = None if settings.get("AP_TEST_MODE") == "1" else settings["AP_INTERFACE"]
     server = Server((address, 7878), Handler)
     # Maintenance runs off the request path, so a busy class cannot delay /bind or /exam-stop.
-    threading.Thread(target=monitor_loop, daemon=True, args=(
-        interface,
+    # Detection has its own thread, so slow callbacks or DNS cannot delay a fail.
+    threading.Thread(target=detect_loop, daemon=True, args=(interface,)).start()
+    threading.Thread(target=worker_loop, daemon=True, args=(
         settings.get("APP_CALLBACK_URL", "http://127.0.0.1:3000/api/internal/portal-expired"),
         address,
     )).start()

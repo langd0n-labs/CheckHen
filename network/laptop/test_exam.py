@@ -203,6 +203,62 @@ class ExamTests(unittest.TestCase):
         self.assertEqual(exam.monitor({}, 133), [])
         self.assertTrue(exam.read()["clients"]["student"]["reported"])
 
+    def poll_until(self, state, start, end, last_heard, mac="02:00:00:00:00:20"):
+        """Poll every half second; the station was last heard at last_heard."""
+        clock = start
+        while clock <= end + 1e-9:
+            exam.connection_status(state, {mac: clock - last_heard}, clock)
+            clock += 0.5
+        return clock
+
+    def test_drop_that_ends_between_passes_still_fails(self):
+        mac = "02:00:00:00:00:20"
+        state = self.state()
+        self.poll_until(state, 100, 130, 100)
+        self.assertIsNone(state["clients"]["student"]["failedAt"])
+        # The monitor lags: the next pass comes 1.2 s later, after the student is back.
+        # Absent from 100 to 131.1, so the gap shows the drop.
+        self.assertTrue(exam.connection_status(state, {mac: 0.1}, 131.2)[0]["failed"])
+
+    def test_short_drop_that_ends_between_passes_does_not_fail(self):
+        mac = "02:00:00:00:00:20"
+        state = self.state()
+        self.poll_until(state, 100, 129, 100)
+        self.assertFalse(exam.connection_status(state, {mac: 0.1}, 129.5)[0]["failed"])
+
+    def test_heartbeat_after_a_long_gap_fails(self):
+        state = self.state()
+        for clock in (100.5, 110, 120, 130):
+            exam.connection_status(state, {}, clock)
+        self.assertIsNone(state["clients"]["student"]["failedAt"])
+        exam.heartbeat({"courseId": "course", "classId": "class"}, "student", 130.3)
+        self.assertTrue(exam.connection_status(state, {}, 130.5)[0]["failed"])
+
+    def test_stalled_monitor_does_not_invent_a_gap(self):
+        mac = "02:00:00:00:00:20"
+        state = self.state()
+        exam.connection_status(state, {mac: 0}, 100)
+        # No pass for 40 s: the station may have been present the whole time.
+        self.assertFalse(exam.connection_status(state, {mac: 0.2}, 140)[0]["failed"])
+
+    def test_status_reads_without_folding(self):
+        state = self.state()
+        exam.heartbeat({"courseId": "course", "classId": "class"}, "student", 150)
+        before = json.dumps(state, sort_keys=True)
+        status = exam.status(state, 140)[0]
+        self.assertFalse(status["connected"])
+        self.assertEqual(json.dumps(state, sort_keys=True), before)
+        self.assertIn(("course", "class", "student"), exam.HEARTBEATS)
+
+    def test_fail_saved_without_an_id_gets_one_and_is_reported(self):
+        state = self.state()
+        del state["clients"]["student"]["failId"]
+        state["clients"]["student"]["failedAt"] = 99
+        exam.save(state)
+        pending = exam.monitor({}, 101)
+        self.assertEqual(len(pending), 1)
+        self.assertTrue(pending[0]["failId"])
+
     def test_ordinary_class_never_touches_the_exam_gate(self):
         # With no exam running, the monitor and a heartbeat return before any nft,
         # DNS, or callback work, so the exam chains stay empty.

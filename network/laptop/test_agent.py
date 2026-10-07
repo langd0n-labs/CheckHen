@@ -105,6 +105,83 @@ class AgentTests(unittest.TestCase):
         self.nft.assert_not_called()
         self.nft6.assert_not_called()
 
+    def lock_is_free(self):
+        """True when another thread can take the agent lock right now."""
+        result = []
+        def probe():
+            taken = agent.LOCK.acquire(timeout=0.2)
+            result.append(taken)
+            if taken:
+                agent.LOCK.release()
+        thread = threading.Thread(target=probe)
+        thread.start()
+        thread.join()
+        return result[0]
+
+    def test_requests_wait_for_the_lock(self):
+        held, release = threading.Event(), threading.Event()
+        def hold():
+            with agent.LOCK:
+                held.set()
+                release.wait(5)
+        holder = threading.Thread(target=hold)
+        holder.start()
+        held.wait(5)
+        results = []
+        requester = threading.Thread(target=lambda: results.append(self.request("bind")))
+        requester.start()
+        requester.join(0.5)
+        # The bind waits while the monitor holds the lock, then completes.
+        self.assertEqual(results, [])
+        self.nft.assert_not_called()
+        release.set()
+        holder.join(5)
+        requester.join(5)
+        self.assertEqual(results, [200])
+
+    def test_fail_callbacks_run_outside_the_lock(self):
+        fail = {"courseId": "course", "classId": "class", "examId": "exam", "userId": "student",
+                "failId": "fail-1"}
+        state = {"courseId": "course", "classId": "class", "examId": "exam"}
+        free = []
+        def notify(*_args):
+            free.append(self.lock_is_free())
+            return True
+        with patch.object(exam, "read", return_value=state), \
+             patch.object(exam, "unreported", side_effect=[[fail], [], []]), \
+             patch.object(exam, "seed_due", return_value=[]), \
+             patch.object(exam, "mark_reported"), patch.object(exam, "stop"), \
+             patch.object(exam, "notify_fail", side_effect=notify):
+            agent.worker_pass("http://127.0.0.1:9/checkout", "127.0.0.1")
+            scope = {"courseId": "course", "classId": "class", "timestamp": int(time.time() * 1000)}
+            with patch.object(exam, "unreported", side_effect=[[fail], []]):
+                self.assertEqual(self.request("exam-stop", scope), 200)
+        self.assertEqual(free, [True, True])
+
+    def test_exam_status_reports_monitor_health(self):
+        scope = {"courseId": "course", "classId": "class", "timestamp": int(time.time() * 1000)}
+        state = {"courseId": "course", "classId": "class", "examId": "exam", "thresholdSeconds": 30,
+                 "clients": {}}
+        payload = json.dumps(scope).encode()
+        signature = hmac.new(agent.Handler.secret.encode(), payload, hashlib.sha256).hexdigest()
+        server = HTTPServer(("127.0.0.1", 0), agent.Handler)
+        thread = threading.Thread(target=server.handle_request)
+        thread.start()
+        with patch.object(exam, "read", return_value=state), \
+             patch.object(exam, "connection_status") as fold, patch.object(exam, "save") as save, \
+             patch.object(agent.Handler, "monitor_at", time.time() - 60), \
+             patch.object(agent.Handler, "monitor_error", "OSError"):
+            request = urllib.request.Request(f"http://127.0.0.1:{server.server_port}/exam-status",
+                                             payload, {"X-CheckHen-Signature": signature})
+            with urllib.request.urlopen(request, timeout=3) as response:
+                body = json.loads(response.read())
+        thread.join(3)
+        server.server_close()
+        self.assertEqual(body["monitor"], {"healthy": False, "error": "OSError"})
+        # Status is read-only: only the detection thread folds evidence.
+        fold.assert_not_called()
+        save.assert_not_called()
+
     def test_outside_subnet_and_missing_lease(self):
         self.assertEqual(self.request("bind", {"courseId": "course", "classId": "class",
                                                "userId": "student", "ip": "192.0.2.20",

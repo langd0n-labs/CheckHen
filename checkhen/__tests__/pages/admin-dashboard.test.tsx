@@ -148,3 +148,45 @@ it('keeps fails from an ended exam listed and excusable', async () => {
   expect(screen.getByRole('button', { name: 'Excuse Alisha Moreno' })).toBeInTheDocument();
   view.unmount();
 });
+
+it('warns when the access point stops checking connections during an exam', async () => {
+  const socket = { on: jest.fn(), off: jest.fn(), disconnect: jest.fn() };
+  (getSocket as jest.Mock).mockReturnValue(socket);
+  global.fetch = jest.fn(async (input) => {
+    const url = String(input).split('?')[0];
+    let data: unknown = { message: '[]' };
+    if (url === '/api/get-user-info') {
+      data = {
+        user: { id: 'instructor', emailAddresses: [{ emailAddress: 'instructor@example.edu' }] },
+      };
+    } else if (url === '/api/fetch-latest-class') {
+      data = {
+        message: JSON.stringify({
+          id: 'session-1',
+          name: 'Class',
+          createdAt: new Date(),
+          duration: 60,
+        }),
+      };
+    } else if (url === '/api/admin/class-templates') {
+      data = [];
+    } else if (url.includes('pace')) {
+      data = { slowDown: 0, readyToMove: 0 };
+    } else if (url === '/api/admin/exam') {
+      data = {
+        exam: { id: 'exam-1', domains: ['exam.example.edu'], thresholdSeconds: 30, active: true },
+        fails: [],
+        network: { active: true, clients: [], monitor: { healthy: false, error: 'OSError' } },
+        students: [],
+      };
+    }
+    return { ok: true, json: async () => data } as Response;
+  });
+  const view = render(
+    <MantineProvider theme={theme}>
+      <AdminDashboard />
+    </MantineProvider>
+  );
+  expect(await screen.findByText('Connection checks have stopped')).toBeInTheDocument();
+  view.unmount();
+});

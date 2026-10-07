@@ -102,6 +102,8 @@ type ExamStatus = {
       disconnectedAt: number | null;
       failed: boolean;
     }[];
+    // The access point's connection checks; unhealthy means fails are not being recorded.
+    monitor?: { healthy: boolean; error: string | null };
   };
   students: { userId: string; name: string }[];
 };
@@ -669,6 +671,12 @@ export default function AdminDashboard() {
                 ) : exam?.exam?.active ? (
                   <>
                     <Text size="sm">Allowed: {exam.exam.domains.join(', ')}</Text>
+                    {exam.network.monitor?.healthy === false && (
+                      <Alert color="red" title="Connection checks have stopped">
+                        The access point is not checking student connections, so automatic
+                        fails are not being recorded. Check the access point laptop.
+                      </Alert>
+                    )}
                     <Group gap="xs">
                       {exam.network.clients.map((client) => {
                         // Each drop is its own fail; an open one outranks excused ones.

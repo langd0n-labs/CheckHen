@@ -1294,3 +1294,31 @@ at 375x667, and a student pass end to end in headless Chromium with no page erro
 - Each test fails when its fix is reverted (checked by mutation).
 
 Verified: Jest 37 suites, 328 tests; PostgreSQL integration 42 cases.
+
+## Review of M5 fixes 1-3 (550aaa7, 4fd7284, 622f656)
+
+Report: AICP review `review-550aaa7-622f656-exam.md` (kept outside the repository).
+
+### M1: a drop that ends between passes still fails
+
+- A fail now also records when evidence returns after a gap longer than the
+  threshold, not only when a pass sees the student missing. Heartbeats keep the
+  first and last arrival since the last fold, so the gap uses the first.
+- Station evidence shows a gap only when the polls around it were at most 2 s
+  apart: after a longer stall, a station's latest activity says nothing about the
+  time in between, so no gap fail is invented. With polls every 0.5 s, 29 s away
+  still passes and 31 s fails.
+- The agent runs two threads. Detection (`detect_pass`) does only local, bounded
+  work: `iw` (1 s timeout), binding upkeep, and the fold. The worker
+  (`worker_pass`) sends checkouts, fail callbacks, and allowlist seeding.
+- `/exam-status` is read-only. It reports what detection last folded, so a stale
+  station snapshot can no longer credit a departed device. It also reports
+  detection health; the dashboard shows "Connection checks have stopped" when no
+  pass has finished for 5 s.
+- `/exam-stop` sends pending fails without holding the lock (review minor m1).
+- A binding-upkeep error no longer skips exam detection, and a fail saved without a
+  fail ID gets one instead of raising on every pass (part of minor m2).
+- Tests: a request waits for the lock; fail callbacks from the worker and from
+  `/exam-stop` run with the lock free; the gap cases above; status does not fold.
+  Removing the lock from requests, or moving either callback path inside it, fails
+  a test.
