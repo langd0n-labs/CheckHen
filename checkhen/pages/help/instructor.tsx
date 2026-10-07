@@ -188,7 +188,7 @@ export default function InstructorHelp() {
               </Alert>
               <Text>
                 On the dashboard, enter the allowed domains and the disconnect limit in seconds (30
-                by default), then tap Start exam and confirm. While the exam runs:
+                by default, 10 at least), then tap Start exam and confirm. While the exam runs:
               </Text>
               <List>
                 <List.Item>

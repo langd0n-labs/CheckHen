@@ -163,3 +163,9 @@ it('refuses to start or stop an exam in hosted mode', async () => {
     delete process.env.CHECKHEN_MODE;
   }
 });
+
+it('refuses a disconnect limit under ten seconds', async () => {
+  const res = await invoke('start', { domains: ['exam.example.edu'], thresholdSeconds: 9 });
+  expect(res._getStatusCode()).toBe(400);
+  expect(examAgent).not.toHaveBeenCalled();
+});

@@ -158,6 +158,25 @@ class AgentTests(unittest.TestCase):
                 self.assertEqual(self.request("exam-stop", scope), 200)
         self.assertEqual(free, [True, True])
 
+    def test_detection_probes_every_address_of_an_idle_exam_device(self):
+        agent.BINDINGS.write_text(json.dumps({
+            "172.16.77.20": {"mac": "02:00:00:00:00:20", "userId": "student", "courseId": "course",
+                             "classId": "class"},
+            "fd9b:2f69:8c44::20": {"mac": "02:00:00:00:00:20", "userId": "student",
+                                   "courseId": "course", "classId": "class",
+                                   "expiresAt": time.time() + 3600},
+            "172.16.77.21": {"mac": "02:00:00:00:00:21", "userId": "other", "courseId": "course",
+                             "classId": "class"}}))
+        self.lease("02:00:00:00:00:20")
+        state = {"courseId": "course", "classId": "class", "examId": "exam"}
+        with patch.object(exam, "read", return_value=state), patch.object(exam, "monitor"), \
+             patch.object(agent, "station_activity", return_value={"02:00:00:00:00:20": 6}), \
+             patch.object(agent, "prune_bindings"), \
+             patch.object(exam, "probe_due", return_value=["02:00:00:00:00:20"]), \
+             patch.object(exam, "probe") as probe:
+            agent.detect_pass("wlan-test")
+        self.assertEqual(sorted(probe.call_args.args[0]), ["172.16.77.20", "fd9b:2f69:8c44::20"])
+
     def test_exam_status_reports_monitor_health(self):
         scope = {"courseId": "course", "classId": "class", "timestamp": int(time.time() * 1000)}
         state = {"courseId": "course", "classId": "class", "examId": "exam", "thresholdSeconds": 30,

@@ -31,8 +31,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
       const domains = examDomains(req.body?.domains);
       const thresholdSeconds = Number(req.body?.thresholdSeconds ?? 30);
-      if (!Number.isInteger(thresholdSeconds) || thresholdSeconds < 1 || thresholdSeconds > 3600) {
-        return res.status(400).json({ message: 'Invalid disconnect threshold' });
+      // Heartbeats are 5 s apart, so a shorter limit would fail students who never left.
+      if (!Number.isInteger(thresholdSeconds) || thresholdSeconds < 10 || thresholdSeconds > 3600) {
+        return res.status(400).json({ message: 'The disconnect limit must be 10 to 3600 seconds' });
       }
       const clients = state.attendance
         .filter((entry) => entry.isPresent)

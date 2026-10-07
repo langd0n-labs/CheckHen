@@ -1322,3 +1322,21 @@ Report: AICP review `review-550aaa7-622f656-exam.md` (kept outside the repositor
   `/exam-stop` run with the lock free; the gap cases above; status does not fold.
   Removing the lock from requests, or moving either callback path inside it, fails
   a test.
+
+### M2: an idle device that is present stays present
+
+- Confirmed from hostapd source (`src/ap/sta_info.c`, `ap_handle_timer`): an idle
+  station's next check is scheduled at `ap_max_inactivity + fuzz - inactive`, with
+  `fuzz = os_random() % 20`. With `ap_max_inactivity=10`, a present, idle station
+  can reach about 29 s of inactive time before hostapd polls it.
+- Rule: detection sends each exam device that has been idle for 3 s one UDP
+  datagram to the discard port on each bound address, at most every 2 s. The
+  device's 802.11 ACK, ARP reply, or ICMP reply resets its inactive time (mac80211
+  counts the last ACK as activity). The send never blocks.
+- The disconnect limit is now 10 to 3600 s (was 1 to 3600), in the agent, the app,
+  and the dashboard input: heartbeats are 5 s apart.
+- Operator check on x1 (replaces review check 2): during an exam with an idle phone
+  (screen off, CheckHen closed) and an idle laptop, run
+  `iw dev <ap> station dump` every 0.5 s for 5 minutes. Expect `inactive time` to
+  stay under about 5 s for both. If it does not, the driver does not count the
+  probe's ACK; record the driver and the largest value seen.

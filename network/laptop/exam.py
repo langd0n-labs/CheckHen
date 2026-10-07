@@ -25,6 +25,15 @@ CONNECTED_SECONDS = 8
 DNS_RELOAD_SECONDS = 1
 SEED_SECONDS = 30
 IDLE_FLUSH_SECONDS = 60
+# hostapd checks an idle station only after ap_max_inactivity plus up to 19 s of
+# random delay, so a present, idle device can look gone for about 29 s. The agent
+# sends idle exam devices a packet instead; the device's reply or 802.11 ACK resets
+# its inactive time.
+PROBE_AFTER_SECONDS = 3
+PROBE_EVERY_SECONDS = 2
+# The shortest disconnect limit: heartbeats are 5 s apart.
+MIN_THRESHOLD_SECONDS = 10
+_probed: dict[str, float] = {}
 # Station evidence shows a gap only when the polls around it were this close: after a
 # longer stall, a station's latest activity says nothing about the time in between.
 STATION_POLL_GAP_SECONDS = 2.0
@@ -162,7 +171,8 @@ def start(scope: dict, exam_id: str, domains: list[str], clients: list[dict],
     if read():
         raise ValueError("Exam mode is already active")
     domains = validate_domains(domains)
-    if not isinstance(threshold_seconds, int) or not 1 <= threshold_seconds <= 3600:
+    if (not isinstance(threshold_seconds, int) or
+            not MIN_THRESHOLD_SECONDS <= threshold_seconds <= 3600):
         raise ValueError("Invalid exam fail threshold")
     if not isinstance(clients, list) or not clients or any(not isinstance(client, dict) or
                           not isinstance(client.get("userId"), str) or not client["userId"] or
@@ -282,6 +292,33 @@ def connection_status(state: dict, stations: dict[str, float] | None, now: float
     return result
 
 
+def probe_due(state: dict, stations: dict[str, float] | None, now: float) -> list[str]:
+    """Exam device MACs that have been idle long enough to need a probe."""
+    if not stations:
+        return []
+    due = []
+    for client in state["clients"].values():
+        mac = client["mac"]
+        idle = stations.get(mac)
+        if idle is not None and idle >= PROBE_AFTER_SECONDS and \
+                now - _probed.get(mac, 0) >= PROBE_EVERY_SECONDS:
+            _probed[mac] = now
+            due.append(mac)
+    return due
+
+
+def probe(addresses: list[str]) -> None:
+    """Send each address one UDP datagram to the discard port. It never blocks."""
+    for address in addresses:
+        family = socket.AF_INET6 if ipaddress.ip_address(address).version == 6 else socket.AF_INET
+        try:
+            with socket.socket(family, socket.SOCK_DGRAM) as connection:
+                connection.setblocking(False)
+                connection.sendto(b"", (address, 9))
+        except OSError:
+            continue
+
+
 def status(state: dict, now: float) -> list[dict]:
     """Read-only view of the evidence the monitor last folded, for /exam-status."""
     return [{"userId": user_id, **client_status(client, state["thresholdSeconds"], now)}
@@ -323,6 +360,7 @@ def monitor(stations: dict[str, float] | None, now: float | None = None) -> list
     state = read()
     if not state:
         HEARTBEATS.clear()
+        _probed.clear()
         return []
     clock = time.time() if now is None else now
     connection_status(state, stations, clock)

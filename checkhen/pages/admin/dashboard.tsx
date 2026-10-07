@@ -730,7 +730,7 @@ export default function AdminDashboard() {
                     <TextInput
                       label="Disconnect limit (seconds)"
                       type="number"
-                      min={1}
+                      min={10}
                       max={3600}
                       value={examThreshold}
                       onChange={(event) => setExamThreshold(event.currentTarget.value)}

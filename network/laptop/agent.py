@@ -463,8 +463,13 @@ def detect_pass(interface: str | None) -> None:
         except Exception as error:  # Binding upkeep must not stop exam detection.
             print(f"Agent binding upkeep failed: {type(error).__name__}", file=sys.stderr)
         exam.monitor(stations, observed_at)
-        if not exam.read():
+        state = exam.read()
+        if not state:
             exam.flush_idle(observed_at)
+            return
+        due = set(exam.probe_due(state, stations, observed_at))
+        addresses = [ip for ip, binding in read_bindings().items() if binding["mac"] in due]
+    exam.probe(addresses)
 
 
 def worker_pass(checkout_url: str, dns_server: str) -> None:

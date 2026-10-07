@@ -259,6 +259,41 @@ class ExamTests(unittest.TestCase):
         self.assertEqual(len(pending), 1)
         self.assertTrue(pending[0]["failId"])
 
+    def test_idle_exam_devices_are_probed_at_most_every_two_seconds(self):
+        mac = "02:00:00:00:00:20"
+        state = self.state()
+        with patch.object(exam, "_probed", {}):
+            self.assertEqual(exam.probe_due(state, {mac: 2.9}, 100), [])
+            self.assertEqual(exam.probe_due(state, {mac: 3}, 100), [mac])
+            self.assertEqual(exam.probe_due(state, {mac: 4}, 101.5), [])
+            self.assertEqual(exam.probe_due(state, {mac: 5}, 102), [mac])
+            # Another student's device and unknown station data are never probed.
+            self.assertEqual(exam.probe_due(state, {"02:00:00:00:00:99": 9}, 110), [])
+            self.assertEqual(exam.probe_due(state, None, 110), [])
+
+    def test_probe_sends_without_blocking(self):
+        sent = []
+        class Connection:
+            def __init__(self, family, _kind):
+                self.family = family
+            def __enter__(self): return self
+            def __exit__(self, *_args): pass
+            def setblocking(self, flag):
+                sent.append(("blocking", flag))
+            def sendto(self, data, address):
+                sent.append((self.family, address))
+        with patch.object(exam.socket, "socket", Connection):
+            exam.probe(["172.16.77.20", "fd9b:2f69:8c44::20"])
+        self.assertIn((exam.socket.AF_INET, ("172.16.77.20", 9)), sent)
+        self.assertIn((exam.socket.AF_INET6, ("fd9b:2f69:8c44::20", 9)), sent)
+        self.assertEqual(sent.count(("blocking", False)), 2)
+
+    def test_start_refuses_a_limit_under_ten_seconds(self):
+        exam.CLASS_STATE.write_text(json.dumps({"uplink": "eth0", "processes": {"dnsmasq": 123}}))
+        with self.assertRaises(ValueError):
+            exam.start({"courseId": "course", "classId": "class"}, "exam", ["exam.example.edu"],
+                       [{"userId": "student", "mac": "02:00:00:00:00:20"}], 9, now=100)
+
     def test_ordinary_class_never_touches_the_exam_gate(self):
         # With no exam running, the monitor and a heartbeat return before any nft,
         # DNS, or callback work, so the exam chains stay empty.
