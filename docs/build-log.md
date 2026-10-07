@@ -1354,3 +1354,15 @@ Report: AICP review `review-550aaa7-622f656-exam.md` (kept outside the repositor
 - Operator check on x1 (review check 5): on real clients, open a CDN-hosted
   allowlisted site (for example Google Docs or a CloudFront LMS) before the start.
   Check that it loads, after at most one reload, during the first 5 minutes.
+
+### M4: sign-in names under an allowlisted parent
+
+- Seeding now covers both directions: allowlisted names at or under a sign-in name,
+  and sign-in names under an allowlisted name (`google.com` on the allowlist seeds
+  `accounts.google.com` from `PREAUTH_DOMAINS`). dnsmasq sends sign-in names to the
+  preauth sets only, so without seeding they were blocked during the exam.
+- Seeding repeats every 10 s (was 30 s), so a refreshed or rotating answer reaches
+  the exam sets sooner.
+- Limit: only the sign-in names themselves are seeded, not names under them.
+- Operator check on x1 (review check 6): allowlist `google.com` and check that
+  `accounts.google.com` and `ssl.gstatic.com` load during the exam.

@@ -72,7 +72,20 @@ class ExamTests(unittest.TestCase):
         # Every allowlisted name is seeded on the first worker pass after the start.
         self.assertEqual(state["seedDomains"], ["exam.example.edu", "accounts.google.com"])
         self.assertEqual(exam.seed_due(state, 100), ["exam.example.edu", "accounts.google.com"])
-        self.assertEqual(exam.seed_due(state, 129), [])
+        self.assertEqual(exam.seed_due(state, 109), [])
+        self.assertEqual(exam.seed_due(state, 110), ["exam.example.edu", "accounts.google.com"])
+
+    def test_start_seeds_sign_in_names_under_an_allowlisted_parent(self):
+        exam.CLASS_STATE.write_text(json.dumps({"uplink": "eth0", "processes": {"dnsmasq": 123}}))
+        with patch.object(exam, "write_dns"), patch.object(exam, "apply_policy"), \
+             patch.object(exam.time, "sleep"):
+            state = exam.start({"courseId": "course", "classId": "class"}, "exam",
+                               ["google.com", "gstatic.com"],
+                               [{"userId": "student", "mac": "02:00:00:00:00:20"}], 30,
+                               preauth=["accounts.google.com", "ssl.gstatic.com", "login.bu.edu"],
+                               now=100)
+        self.assertEqual(state["seedDomains"],
+                         ["google.com", "gstatic.com", "accounts.google.com", "ssl.gstatic.com"])
 
     def test_start_failure_releases_dns_and_gate(self):
         exam.CLASS_STATE.write_text(json.dumps({"uplink": "eth0", "processes": {"dnsmasq": 123}}))

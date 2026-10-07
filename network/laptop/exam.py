@@ -23,7 +23,8 @@ DOMAIN = re.compile(r"^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-
 CONNECTED_SECONDS = 8
 # dnsmasq applies a servers-file on SIGHUP; wait before the sets are flushed.
 DNS_RELOAD_SECONDS = 1
-SEED_SECONDS = 30
+# Seeding repeats often, so a refreshed or rotating answer reaches the sets quickly.
+SEED_SECONDS = 10
 IDLE_FLUSH_SECONDS = 60
 # hostapd checks an idle station only after ap_max_inactivity plus up to 19 s of
 # random delay, so a present, idle device can look gone for about 29 s. The agent
@@ -188,8 +189,11 @@ def start(scope: dict, exam_id: str, domains: list[str], clients: list[dict],
              "uplink": classroom["uplink"], "dnsmasqPid": classroom["processes"]["dnsmasq"],
              # Seeding puts each allowlisted name's addresses in the exam sets as soon as
              # the gate starts, for clients that resolved them before the exam. It also
-             # covers sign-in names, which dnsmasq sends to the preauth sets only.
-             "seedDomains": domains,
+             # covers sign-in names, which dnsmasq sends to the preauth sets only: both
+             # sign-in names under an allowlisted name (google.com covers
+             # accounts.google.com) and allowlisted names under a sign-in name.
+             "seedDomains": domains + [name for name in preauth or []
+                                       if covered(name, domains) and name not in domains],
              "seededAt": 0,
              "clients": {client["userId"]: {"mac": client["mac"].lower(), "lastHeartbeat": clock,
                         "lastStation": clock, "failedAt": None, "failId": None,
