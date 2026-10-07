@@ -250,8 +250,8 @@ it('shows only the checked-in student’s exam fail', async () => {
     ...checkedIn(),
     exam: { id: 'exam', active: true, domains: ['exam.example.edu'] },
     examFails: [
-      { id: 'own', userId: user.id, excused: false },
-      { id: 'other', userId: 'other', excused: true },
+      { id: 'own', userId: user.id, examId: 'exam', excused: false },
+      { id: 'other', userId: 'other', examId: 'exam', excused: true },
     ],
   });
   const res = await invoke(examStatus, 'GET');

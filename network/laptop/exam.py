@@ -176,7 +176,7 @@ def start(scope: dict, exam_id: str, domains: list[str], clients: list[dict],
              "seedDomains": [domain for domain in domains if covered(domain, preauth or [])],
              "seededAt": 0,
              "clients": {client["userId"]: {"mac": client["mac"].lower(), "lastHeartbeat": clock,
-                        "lastStation": clock, "failedAt": None,
+                        "lastStation": clock, "failedAt": None, "failId": None,
                         "reported": False} for client in clients}}
     try:
         write_dns(domains, state["dnsmasqPid"])
@@ -235,9 +235,13 @@ def connection_status(state: dict, stations: dict[str, float] | None, now: float
             client["lastStation"] = max(client["lastStation"], now - stations[client["mac"]])
         last_seen = max(client["lastHeartbeat"], client["lastStation"])
         connected = now - last_seen <= min(CONNECTED_SECONDS, state["thresholdSeconds"])
+        if connected and client["reported"]:
+            # The reported drop has ended. A later drop is a separate fail, even after
+            # the instructor excused this one.
+            client.update(failedAt=None, failId=None, reported=False)
         if (stations is not None and client.get("failedAt") is None and
                 now - last_seen > state["thresholdSeconds"]):
-            client["failedAt"] = now
+            client.update(failedAt=now, failId=secrets.token_hex(16))
         result.append({"userId": user_id, "connected": connected,
                        "disconnectedAt": None if connected else last_seen,
                        "failed": client["reported"] or client.get("failedAt") is not None})
@@ -246,21 +250,24 @@ def connection_status(state: dict, stations: dict[str, float] | None, now: float
 
 def unreported(state: dict) -> list[dict]:
     scope = {key: state[key] for key in ("courseId", "classId", "examId")}
-    return [{**scope, "userId": user_id} for user_id, client in state["clients"].items()
+    return [{**scope, "userId": user_id, "failId": client["failId"]}
+            for user_id, client in state["clients"].items()
             if client.get("failedAt") is not None and not client["reported"]]
 
 
-def mark_reported(exam_id: str, user_id: str) -> None:
+def mark_reported(exam_id: str, user_id: str, fail_id: str) -> None:
     state = read()
-    if state and state["examId"] == exam_id and user_id in state["clients"]:
-        state["clients"][user_id]["reported"] = True
-        save(state)
+    if state and state["examId"] == exam_id:
+        client = state["clients"].get(user_id)
+        if client and client.get("failId") == fail_id:
+            client["reported"] = True
+            save(state)
 
 
 def notify_fail(fail: dict, secret: str, url: str) -> bool:
     raw = json.dumps({"courseId": fail["courseId"], "classId": fail["classId"],
                       "examId": fail["examId"], "userId": fail["userId"],
-                      "timestamp": int(time.time() * 1000)}).encode()
+                      "failId": fail["failId"], "timestamp": int(time.time() * 1000)}).encode()
     signature = hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
     request = urllib.request.Request(url, raw, {"Content-Type": "application/json",
                                                "X-CheckHen-Signature": signature})

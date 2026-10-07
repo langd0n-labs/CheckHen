@@ -91,7 +91,7 @@ type AttendanceRecord = {
 
 type ExamStatus = {
   exam: { id: string; domains: string[]; thresholdSeconds: number; active: boolean } | null;
-  fails: { id: string; userId: string; excused: boolean; reason: string | null }[];
+  fails: { id: string; userId: string; examId: string; excused: boolean; reason: string | null }[];
   network: {
     active: boolean;
     clients: {
@@ -197,6 +197,34 @@ export default function AdminDashboard() {
     if (response.ok) setExam(await response.json());
   };
 
+  const studentName = (userId: string) =>
+    exam?.students.find((item) => item.userId === userId)?.name || userId;
+  // Fails from ended or earlier exams stay listed and excusable.
+  const earlierFails =
+    (exam?.fails ?? []).filter((fail) => !(exam?.exam?.active && fail.examId === exam.exam.id));
+  const excuseControl = (failId: string, name: string) => (
+    <Group gap="xs">
+      <TextInput
+        size="xs"
+        aria-label={`Reason to excuse ${name}`}
+        placeholder="Reason"
+        value={excuseReasons[failId] || ''}
+        onChange={(event) => {
+          const value = event.currentTarget.value;
+          setExcuseReasons((previous) => ({ ...previous, [failId]: value }));
+        }}
+      />
+      <Button
+        size="xs"
+        variant="light"
+        aria-label={`Excuse ${name}`}
+        disabled={!excuseReasons[failId]?.trim()}
+        onClick={() => examAction('excuse', { failId, reason: excuseReasons[failId].trim() })}
+      >
+        Excuse
+      </Button>
+    </Group>
+  );
   const examAction = async (
     action: 'start' | 'stop' | 'excuse',
     values: Record<string, unknown> = {}
@@ -613,10 +641,13 @@ export default function AdminDashboard() {
                     <Text size="sm">Allowed: {exam.exam.domains.join(', ')}</Text>
                     <Group gap="xs">
                       {exam.network.clients.map((client) => {
-                        const fail = exam.fails.find((item) => item.userId === client.userId);
-                        const name =
-                          exam.students.find((item) => item.userId === client.userId)?.name ||
-                          client.userId;
+                        // Each drop is its own fail; an open one outranks excused ones.
+                        const own = exam.fails.filter(
+                          (item) => item.userId === client.userId && item.examId === exam.exam?.id
+                        );
+                        const open = own.find((item) => !item.excused);
+                        const excused = own.length - (open ? 1 : 0);
+                        const name = studentName(client.userId);
                         const seconds =
                           client.disconnectedAt === null
                             ? 0
@@ -624,53 +655,19 @@ export default function AdminDashboard() {
                         return (
                           <Group key={client.userId} gap="xs">
                             <Text size="sm">{name}</Text>
-                            <Badge
-                              color={
-                                fail && !fail.excused
-                                  ? 'red'
-                                  : client.connected
-                                    ? 'green'
-                                    : 'yellow'
-                              }
-                            >
-                              {fail?.excused
-                                ? 'Excused'
-                                : fail
-                                  ? 'Failed'
-                                  : client.connected
-                                    ? 'Connected'
-                                    : `Disconnected ${seconds}s`}
+                            <Badge color={open ? 'red' : client.connected ? 'green' : 'yellow'}>
+                              {open
+                                ? 'Failed'
+                                : client.connected
+                                  ? 'Connected'
+                                  : `Disconnected ${seconds}s`}
                             </Badge>
-                            {fail && !fail.excused && (
-                              <Group gap="xs">
-                                <TextInput
-                                  size="xs"
-                                  aria-label={`Reason to excuse ${name}`}
-                                  placeholder="Reason"
-                                  value={excuseReasons[client.userId] || ''}
-                                  onChange={(event) => {
-                                    const value = event.currentTarget.value;
-                                    setExcuseReasons((previous) => ({
-                                      ...previous,
-                                      [client.userId]: value,
-                                    }));
-                                  }}
-                                />
-                                <Button
-                                  size="xs"
-                                  variant="light"
-                                  disabled={!excuseReasons[client.userId]?.trim()}
-                                  onClick={() =>
-                                    examAction('excuse', {
-                                      failId: fail.id,
-                                      reason: excuseReasons[client.userId].trim(),
-                                    })
-                                  }
-                                >
-                                  Excuse
-                                </Button>
-                              </Group>
+                            {excused > 0 && (
+                              <Badge color="gray" variant="light">
+                                {excused > 1 ? `Excused ×${excused}` : 'Excused'}
+                              </Badge>
                             )}
+                            {open && excuseControl(open.id, name)}
                           </Group>
                         );
                       })}
@@ -723,6 +720,22 @@ export default function AdminDashboard() {
                       Start exam
                     </Button>
                   </Group>
+                )}
+                {earlierFails.length > 0 && (
+                  <Stack gap={4}>
+                    <Text size="sm" fw={600}>
+                      {exam?.exam?.active ? 'Earlier exam fails' : 'Exam fails'}
+                    </Text>
+                    {earlierFails.map((fail) => (
+                      <Group key={fail.id} gap="xs">
+                        <Text size="sm">{studentName(fail.userId)}</Text>
+                        <Badge color={fail.excused ? 'gray' : 'red'}>
+                          {fail.excused ? 'Excused' : 'Failed'}
+                        </Badge>
+                        {!fail.excused && excuseControl(fail.id, studentName(fail.userId))}
+                      </Group>
+                    ))}
+                  </Stack>
                 )}
               </Stack>
             </>

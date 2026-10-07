@@ -1062,3 +1062,23 @@ adapter check on x1; the namespace test still covers the heartbeat path at
   gap).
 
 Verified: Python unit tests (50). Operator check: rerun the namespace test on x1.
+
+### Fix 3: a fail per drop, kept after the exam (findings 3 and 11)
+
+- Finding 3: each disconnection gets its own fail ID. After a reported drop
+  ends, the agent re-arms, so a student excused once can fail again on a later
+  drop. The callback carries the fail ID and is refused without one; a
+  retried report of the same drop is stored once, checked inside the
+  serialized append.
+- Finding 11: the fold keeps every fail, keyed by its event, with its exam.
+  Starting a new exam no longer clears earlier fails. The dashboard shows
+  each student's open and excused fails in the current exam, and lists fails
+  from ended or earlier exams with an Excuse control. An excuse records the
+  fail's own exam.
+- The instructor help's exam section says each disconnection is its own fail
+  and that fails stay excusable after the exam.
+
+Verified: Python unit tests (53); 30 Jest suites and 288 tests;
+`scripts/test-postgres.sh` with 40 route integration cases (adds: the same
+drop reported twice is stored once; a later drop after an excuse is a second
+fail; fails stay after the exam ends).

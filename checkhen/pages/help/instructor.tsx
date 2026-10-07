@@ -166,7 +166,9 @@ export default function InstructorHelp() {
                   automatic fail, shown on the dashboard.
                 </List.Item>
                 <List.Item>
-                  Excuse a fail with a reason. The fail stays in the record, marked excused.
+                  Excuse a fail with a reason. The fail stays in the record, marked excused. Each
+                  disconnection is its own fail, so a student excused once can fail again on a later
+                  drop. Fails stay listed after the exam ends and can still be excused.
                 </List.Item>
                 <List.Item>
                   End exam restores the normal class network. Ending the session also ends the exam.

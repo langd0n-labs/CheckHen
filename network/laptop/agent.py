@@ -334,7 +334,7 @@ class Handler(BaseHTTPRequestHandler):
                             raise PermissionError("Wrong exam session")
                         for fail in exam.monitor(self.stations):
                             if exam.notify_fail(fail, self.secret, self.exam_callback_url):
-                                exam.mark_reported(fail["examId"], fail["userId"])
+                                exam.mark_reported(fail["examId"], fail["userId"], fail["failId"])
                         if exam.unreported(exam.read()):
                             raise OSError("Automatic fail could not be recorded")
                     exam.stop(scope)
@@ -455,7 +455,7 @@ def monitor_pass(interface: str | None, checkout_url: str, dns_server: str) -> N
     for fail in fails:
         if exam.notify_fail(fail, Handler.secret, Handler.exam_callback_url):
             with LOCK:
-                exam.mark_reported(fail["examId"], fail["userId"])
+                exam.mark_reported(fail["examId"], fail["userId"], fail["failId"])
     # Allowlisted sign-in names reach only the preauth sets through dnsmasq; seed them.
     addresses = [address for domain in seeds for address in exam.resolve(dns_server, domain)]
     if addresses:

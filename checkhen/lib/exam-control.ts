@@ -1,5 +1,8 @@
 import { createHmac } from 'node:crypto';
+import { appendEvent, readState } from './event-store';
+import type { EventScope } from './events';
 import { PortalBindingError } from './portal-binding';
+import { prisma } from './prisma';
 
 export type ExamClient = { userId: string; mac: string };
 export type ExamConnection = {
@@ -57,4 +60,27 @@ export async function examAgent(
     );
   }
   return response.json();
+}
+
+export type ExamFailReport = { examId: string; userId: string; failId: string };
+
+/**
+ * Record one agent-detected drop. Each drop has its own failId, so a student
+ * excused once can fail again; a repeated report of the same drop is stored once.
+ */
+export async function recordExamFail(scope: EventScope, report: ExamFailReport): Promise<void> {
+  const state = await readState(prisma, scope);
+  if (
+    state.exam?.id !== report.examId ||
+    !state.attendance.some((entry) => entry.userId === report.userId)
+  ) {
+    return;
+  }
+  await appendEvent(prisma, {
+    ...scope,
+    actorId: 'system:exam-monitor',
+    userId: report.userId,
+    kind: 'EXAM_FAILED',
+    payload: { examId: report.examId, failId: report.failId },
+  });
 }

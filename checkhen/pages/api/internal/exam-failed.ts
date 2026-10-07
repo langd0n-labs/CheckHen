@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { appendEvent, readState } from '@/lib/event-store';
+import { readState } from '@/lib/event-store';
+import { recordExamFail } from '@/lib/exam-control';
 import { prisma } from '@/lib/prisma';
 
 export const config = { api: { bodyParser: false } };
@@ -30,9 +31,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   } catch {
     return res.status(400).end();
   }
-  const { userId, courseId, classId, examId, timestamp } = body;
+  const { userId, courseId, classId, examId, failId, timestamp } = body;
   if (
-    [userId, courseId, classId, examId].some((value) => typeof value !== 'string' || !value) ||
+    [userId, courseId, classId, examId, failId].some(
+      (value) => typeof value !== 'string' || !value
+    ) ||
     typeof timestamp !== 'number' ||
     Math.abs(Date.now() - timestamp) > 30000
   ) {
@@ -43,20 +46,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!state.exam) {
     return res.status(503).end();
   }
-  if (
-    !state.exam.active ||
-    state.exam.id !== examId ||
-    !state.attendance.some((entry) => entry.userId === userId) ||
-    state.examFails.some((entry) => entry.userId === userId)
-  ) {
-    return res.status(200).json({ ok: true });
-  }
-  await appendEvent(prisma, {
-    ...scope,
-    actorId: 'system:exam-monitor',
+  // Each drop has its own failId, so a student excused once can fail again.
+  await recordExamFail(scope, {
+    examId: examId as string,
     userId: userId as string,
-    kind: 'EXAM_FAILED',
-    payload: { examId: examId as string },
+    failId: failId as string,
   });
   return res.status(200).json({ ok: true });
 }

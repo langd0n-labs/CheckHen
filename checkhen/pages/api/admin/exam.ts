@@ -86,7 +86,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         actorId: user.id,
         userId: fail.userId,
         kind: 'EXAM_EXCUSED',
-        payload: { examId: state.exam?.id, reason: reason.trim() },
+        payload: { examId: fail.examId, reason: reason.trim() },
         supersedesId: fail.id,
       });
       return res.json({ ok: true });

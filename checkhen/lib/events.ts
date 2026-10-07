@@ -123,9 +123,17 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
     }
   >();
   const mutedUsers = new Set<string>();
+  // Keyed by fail event: every drop stays listed, across exams and after an exam ends.
   const examFails = new Map<
     string,
-    { id: string; userId: string; createdAt: Date; excused: boolean; reason: string | null }
+    {
+      id: string;
+      userId: string;
+      examId: string;
+      createdAt: Date;
+      excused: boolean;
+      reason: string | null;
+    }
   >();
   let exam: {
     id: string;
@@ -248,17 +256,24 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
         startedAt: createdAt,
         active: true,
       };
-      examFails.clear();
     } else if (event.kind === 'EXAM_ENDED') {
-      if (exam) exam.active = false;
-    } else if (event.kind === 'EXAM_FAILED' && userId && exam?.id === payload.examId) {
-      examFails.set(userId, { id: event.id, userId, createdAt, excused: false, reason: null });
-    } else if (event.kind === 'EXAM_EXCUSED' && userId && exam?.id === payload.examId) {
+      if (exam && exam.id === payload.examId) exam.active = false;
+    } else if (event.kind === 'EXAM_FAILED' && userId) {
+      examFails.set(event.id, {
+        id: event.id,
+        userId,
+        examId: String(payload.examId),
+        createdAt,
+        excused: false,
+        reason: null,
+      });
+    } else if (event.kind === 'EXAM_EXCUSED' && userId) {
       const failed = byId.get(event.supersedesId!);
-      if (failed?.kind === 'EXAM_FAILED')
-        examFails.set(userId, {
+      if (failed?.kind === 'EXAM_FAILED' && failed.payload.examId === payload.examId)
+        examFails.set(failed.id, {
           id: failed.id,
           userId,
+          examId: String(payload.examId),
           createdAt: failed.createdAt,
           excused: true,
           reason: String(payload.reason),
@@ -287,7 +302,9 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
     instructorMessages,
     mutedUsers: Array.from(mutedUsers),
     exam,
-    examFails: Array.from(examFails.values()),
+    examFails: Array.from(examFails.values()).sort(
+      (a, b) => a.createdAt.getTime() - b.createdAt.getTime()
+    ),
     endedAt,
   };
 }

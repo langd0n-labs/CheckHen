@@ -182,3 +182,25 @@ it('keeps only the newest correction in a chain', () => {
   ];
   expect(foldEvents(events, scope).messages.map((message) => message.message)).toEqual(['Third']);
 });
+
+it('keeps every fail, across exams and after an exam ends (M5 findings 3 and 11)', () => {
+  const start = (id: string, examId: string) =>
+    event(id, 'EXAM_STARTED', { examId, domains: ['exam.example'], thresholdSeconds: 30 });
+  const events = [
+    start('01', 'exam-1'),
+    event('02', 'EXAM_FAILED', { examId: 'exam-1', failId: 'drop-1' }),
+    event('03', 'EXAM_EXCUSED', { examId: 'exam-1', reason: 'AP outage' }, '02'),
+    // A later drop in the same exam, after the excuse, is a second fail.
+    event('04', 'EXAM_FAILED', { examId: 'exam-1', failId: 'drop-2' }),
+    event('05', 'EXAM_ENDED', { examId: 'exam-1' }),
+    start('06', 'exam-2'),
+    event('07', 'EXAM_FAILED', { examId: 'exam-2', failId: 'drop-3' }),
+  ];
+  const state = foldEvents(events, scope);
+  expect(state.exam).toMatchObject({ id: 'exam-2', active: true });
+  expect(state.examFails).toEqual([
+    expect.objectContaining({ id: '02', examId: 'exam-1', excused: true, reason: 'AP outage' }),
+    expect.objectContaining({ id: '04', examId: 'exam-1', excused: false }),
+    expect.objectContaining({ id: '07', examId: 'exam-2', excused: false }),
+  ]);
+});

@@ -120,7 +120,8 @@ class ExamTests(unittest.TestCase):
         return {"courseId": "course", "classId": "class", "examId": "exam",
                 "thresholdSeconds": threshold, "domains": ["exam.example.edu"], "refreshedAt": 1e9,
                 "clients": {"student": {"mac": "02:00:00:00:00:20", "lastHeartbeat": 100,
-                                        "lastStation": 100, "failedAt": None, "reported": False}}}
+                                        "lastStation": 100, "failedAt": None, "failId": None,
+                                        "reported": False}}}
 
     def test_disconnect_fails_after_threshold_from_last_station_activity(self):
         mac = "02:00:00:00:00:20"
@@ -148,6 +149,15 @@ class ExamTests(unittest.TestCase):
         self.assertFalse(status["connected"])
         self.assertTrue(exam.connection_status(state, {}, 201)[0]["failed"])
 
+    def test_fail_callback_carries_its_fail_id(self):
+        response = type("Response", (), {"status": 200, "__enter__": lambda self: self,
+                                          "__exit__": lambda self, *_args: None})()
+        with patch.object(exam.urllib.request, "urlopen", return_value=response) as send:
+            self.assertTrue(exam.notify_fail({"courseId": "course", "classId": "class", "examId": "exam",
+                                              "userId": "student", "failId": "fail-1"},
+                                             "secret", "http://callback"))
+        self.assertEqual(json.loads(send.call_args.args[0].data)["failId"], "fail-1")
+
     def test_heartbeats_do_not_write_exam_state(self):
         exam.save(self.state())
         before = exam.EXAM.stat().st_mtime_ns
@@ -156,14 +166,40 @@ class ExamTests(unittest.TestCase):
         exam.monitor({}, 141)
         self.assertEqual(exam.read()["clients"]["student"]["lastHeartbeat"], 140)
 
+    def test_reported_fail_rearms_after_reconnect(self):
+        mac = "02:00:00:00:00:20"
+        state = self.state()
+        exam.connection_status(state, {}, 131)
+        first = state["clients"]["student"]["failId"]
+        self.assertTrue(first)
+        # An unreported fail survives reconnection.
+        exam.connection_status(state, {mac: 0}, 140)
+        self.assertEqual(state["clients"]["student"]["failId"], first)
+        state["clients"]["student"]["reported"] = True
+        self.assertFalse(exam.connection_status(state, {mac: 0}, 141)[0]["failed"])
+        # A later drop, even after the first was excused, is a new fail with a new ID.
+        self.assertFalse(exam.connection_status(state, {}, 171)[0]["failed"])
+        self.assertTrue(exam.connection_status(state, {}, 171.5)[0]["failed"])
+        self.assertNotEqual(state["clients"]["student"]["failId"], first)
+
+    def test_short_threshold_does_not_rearm_while_absent(self):
+        state = self.state(threshold=5)
+        exam.connection_status(state, {}, 106)
+        state["clients"]["student"]["reported"] = True
+        exam.connection_status(state, {}, 107)
+        self.assertTrue(state["clients"]["student"]["reported"])
+
     def test_failed_callback_retries_without_losing_fail_state(self):
         exam.save(self.state())
         pending = exam.monitor({}, 131)
-        self.assertEqual(pending, [{"courseId": "course", "classId": "class",
-                                    "examId": "exam", "userId": "student"}])
-        # Not marked: the next pass returns it again for another callback.
+        self.assertEqual(pending, [{"courseId": "course", "classId": "class", "examId": "exam",
+                                    "userId": "student", "failId": pending[0]["failId"]}])
+        self.assertTrue(pending[0]["failId"])
+        # Not marked: the next pass returns the same fail again for another callback.
         self.assertEqual(exam.monitor({}, 132), pending)
-        exam.mark_reported("exam", "student")
+        exam.mark_reported("exam", "student", "some-other-fail")
+        self.assertEqual(exam.monitor({}, 132.5), pending)
+        exam.mark_reported("exam", "student", pending[0]["failId"])
         self.assertEqual(exam.monitor({}, 133), [])
         self.assertTrue(exam.read()["clients"]["student"]["reported"])
 

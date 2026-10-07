@@ -272,12 +272,12 @@ export function participationHandler(action: string, adminOnly = false) {
     }
     if (!adminOnly && !checkIn) return res.status(403).json({ message: 'Not checked in' });
     if (action === 'exam-status') {
-      return res.json({
-        exam: state.exam?.active ? state.exam : null,
-        fail: state.exam?.active
-          ? (state.examFails.find((entry) => entry.userId === user.id) ?? null)
-          : null,
-      });
+      const exam = state.exam?.active ? state.exam : null;
+      const own = state.examFails.filter(
+        (entry) => entry.userId === user.id && entry.examId === exam?.id
+      );
+      // An open fail outranks an excused earlier drop.
+      return res.json({ exam, fail: own.find((entry) => !entry.excused) ?? own.at(-1) ?? null });
     }
     if (action === 'fetch-all-chat' || action === 'fetch-last-chat') {
       const source = adminOnly ? (state.instructorMessages ?? state.messages) : state.messages;

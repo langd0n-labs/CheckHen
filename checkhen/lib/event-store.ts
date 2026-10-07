@@ -268,6 +268,23 @@ async function writeEvent(tx: Prisma.TransactionClient, input: AppendInput) {
   } else if (kind === 'UNDO') {
     throw new Error('Undo requires a target event');
   }
+  if (kind === 'EXAM_FAILED' && typeof payload.failId === 'string') {
+    // The agent may report one drop twice (a retried callback); store it once.
+    const reported = await tx.participationEvent.findMany({
+      where: {
+        courseId: input.courseId,
+        classId: input.classId,
+        userId: input.userId,
+        kind: 'EXAM_FAILED',
+      },
+    });
+    const duplicate = reported.find(
+      (event) => (event.payload as Record<string, unknown>).failId === payload.failId
+    );
+    if (duplicate) {
+      return asEvent(duplicate);
+    }
+  }
   const latest = await tx.participationEvent.findFirst({
     where: { courseId: input.courseId, classId: input.classId },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],

@@ -2,7 +2,7 @@
 import { createHmac, randomUUID } from 'node:crypto';
 import { createMocks } from 'node-mocks-http';
 import { appendEvent, readEvents, readState } from '@/lib/event-store';
-import { examAgent } from '@/lib/exam-control';
+import { examAgent, recordExamFail } from '@/lib/exam-control';
 import {
   bindDevice,
   revokeCurrentDevice,
@@ -33,6 +33,7 @@ jest.mock('@/lib/portal-binding', () => ({
   revokeSessionDevices: jest.fn(),
 }));
 jest.mock('@/lib/exam-control', () => ({
+  recordExamFail: jest.requireActual('@/lib/exam-control').recordExamFail,
   examDomains: jest.requireActual('@/lib/exam-control').examDomains,
   examAgent: jest.fn(),
 }));
@@ -1012,6 +1013,41 @@ integration('route → store → attendance fold', () => {
       const undos = (await readEvents(prisma, scope)).filter((event) => event.kind === 'UNDO');
       expect(undos).toHaveLength(1);
     });
+  });
+
+  it('records each drop once, and a later drop after an excuse as a new fail', async () => {
+    await invoke(checkIn, '172.16.77.20');
+    const examId = randomUUID();
+    await appendEvent(prisma, {
+      ...scope,
+      actorId: 'instructor',
+      kind: 'EXAM_STARTED',
+      payload: { examId, domains: ['exam.example.edu'], thresholdSeconds: 30 },
+    });
+    // A retried callback reports the same drop twice.
+    await recordExamFail(scope, { examId, userId: user.id, failId: 'drop-1' });
+    await recordExamFail(scope, { examId, userId: user.id, failId: 'drop-1' });
+    let fails = (await readState(prisma, scope)).examFails;
+    expect(fails).toHaveLength(1);
+    await appendEvent(prisma, {
+      ...scope,
+      actorId: 'instructor',
+      userId: user.id,
+      kind: 'EXAM_EXCUSED',
+      payload: { examId, reason: 'AP outage' },
+      supersedesId: fails[0].id,
+    });
+    await recordExamFail(scope, { examId, userId: user.id, failId: 'drop-2' });
+    fails = (await readState(prisma, scope)).examFails;
+    expect(fails.map((fail) => fail.excused)).toEqual([true, false]);
+    // The fails stay listed after the exam ends.
+    await appendEvent(prisma, {
+      ...scope,
+      actorId: 'instructor',
+      kind: 'EXAM_ENDED',
+      payload: { examId },
+    });
+    expect((await readState(prisma, scope)).examFails).toHaveLength(2);
   });
 
   it('hides a stored message and mutes its student without deleting facts', async () => {

@@ -11,6 +11,7 @@ import failedRoute from '@/pages/api/internal/exam-failed';
 jest.mock('@/lib/request-scope', () => ({ requireScope: jest.fn() }));
 jest.mock('@/lib/event-store', () => ({ appendEvent: jest.fn(), readState: jest.fn() }));
 jest.mock('@/lib/exam-control', () => ({
+  recordExamFail: jest.requireActual('@/lib/exam-control').recordExamFail,
   examDomains: jest.requireActual('@/lib/exam-control').examDomains,
   examAgent: jest.fn(),
 }));
@@ -77,7 +78,7 @@ it('excuses a fail by superseding its immutable event', async () => {
   (readState as jest.Mock).mockResolvedValue({
     ...state,
     exam: { id: 'exam', active: true },
-    examFails: [{ id: 'fail', userId: 'student', excused: false }],
+    examFails: [{ id: 'fail', userId: 'student', examId: 'exam', excused: false }],
   });
   expect(
     (await invoke('excuse', { failId: 'fail', reason: 'Verified disconnect' }))._getStatusCode()
@@ -107,7 +108,13 @@ describe('signed fail callback', () => {
     await failedRoute(req as any, res as any);
     return res;
   };
-  const body = () => ({ ...scope, userId: 'student', examId: 'exam', timestamp: Date.now() });
+  const body = (failId = 'drop-1') => ({
+    ...scope,
+    userId: 'student',
+    examId: 'exam',
+    failId,
+    timestamp: Date.now(),
+  });
   it('rejects forged reports', async () => {
     expect((await signed(body(), 'wrong'))._getStatusCode()).toBe(403);
     expect(appendEvent).not.toHaveBeenCalled();
@@ -121,12 +128,24 @@ describe('signed fail callback', () => {
       expect.objectContaining({ kind: 'EXAM_FAILED', userId: 'student' })
     );
     (appendEvent as jest.Mock).mockClear();
+    // M5 finding 3: after an excused fail, a later drop is a new fail with its own ID.
     (readState as jest.Mock).mockResolvedValue({
       ...state,
       exam: { id: 'exam', active: true },
-      examFails: [{ id: 'fail', userId: 'student', excused: true }],
+      examFails: [{ id: 'fail', userId: 'student', examId: 'exam', excused: true }],
     });
-    expect((await signed(body()))._getStatusCode()).toBe(200);
+    expect((await signed(body('drop-2')))._getStatusCode()).toBe(200);
+    expect(appendEvent).toHaveBeenCalledWith(
+      prisma,
+      expect.objectContaining({
+        kind: 'EXAM_FAILED',
+        payload: { examId: 'exam', failId: 'drop-2' },
+      })
+    );
+  });
+  it('refuses a report without a fail ID', async () => {
+    const { failId: _omitted, ...withoutId } = body();
+    expect((await signed(withoutId))._getStatusCode()).toBe(403);
     expect(appendEvent).not.toHaveBeenCalled();
   });
 });
