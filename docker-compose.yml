@@ -137,7 +137,8 @@ services:
       socket:
         condition: service_started
   tunnel:
-    # Publishes the hosted proxy through a Cloudflare Tunnel. The token comes from the
+    # Publishes the hosted proxy through a Cloudflare Tunnel. The token (Secrets Manager
+    # key CHECKHEN_DEMO_TUNNEL_TOKEN, project fishjump) comes from the
     # environment at run time and is never stored in the repository.
     profiles: [tunnel]
     image: docker.io/cloudflare/cloudflared:latest
@@ -145,7 +146,7 @@ services:
     network_mode: host
     restart: on-failure
     environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+      TUNNEL_TOKEN: ${CHECKHEN_DEMO_TUNNEL_TOKEN:-}
     depends_on:
       hosted-proxy:
         condition: service_started

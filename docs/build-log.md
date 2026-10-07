@@ -1144,7 +1144,7 @@ attendance, participation only, or wait for roll call).
   `/socket.io/` to the socket server and everything else to the app, as the
   classroom proxy does on the access point.
 - Compose profile `hosted` adds that proxy; profile `tunnel` adds cloudflared,
-  which reads `CLOUDFLARE_TUNNEL_TOKEN` from the environment at run time. The
+  which reads `CHECKHEN_DEMO_TUNNEL_TOKEN` from the environment at run time. The
   app and socket host ports are now variables (`APP_PORT`, `SOCKET_PORT`), so a
   second stack can run beside another.
 - `NEXT_PUBLIC_SOCKET_URL` now keeps an empty value at build time (`${VAR-...}`),
