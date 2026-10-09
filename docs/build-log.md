@@ -48,6 +48,15 @@ Branch: build/m0-m2. Scope: M0 through M5, then M7 and M8.
   watch whether the case occurs in class. Relayed by AICP.
 - 2026-10-06, operator: a Retry student comes back by chance, at the retry
   weight, until user testing says otherwise. No call-back control.
+- 2026-10-09, operator: hosted student check-in is self-reported (option b). In
+  hosted mode a student's Join records attendance as self-reported; the
+  instructor's roll call confirms or corrects it, and the course record shows which
+  kind each check-in is. Students can use chat, hands and pace after they join.
+  Relayed by AICP.
+- 2026-10-09, operator: run a second demo stack on a home-network host that listens
+  on the LAN, so the demo can be viewed without an SSH tunnel. Demo mode only, its
+  own database, no tunnel and no public hostname. The build host's stack stays the origin
+  for the public tunnel at checkhen-demo.rfkill.dev. Relayed by AICP.
 - 2026-10-06, operator: the call screen (I3) is the instructor's private phone
   view and is not designed for projection; the brief projects only I5 and I6.
   A projected cold-call view, if one is ever built, shows who is called and
