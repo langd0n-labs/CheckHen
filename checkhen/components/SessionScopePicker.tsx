@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { Button, Group, Select, Text, TextInput } from '@mantine/core';
 import { scopedFetch, selectScope, selectedScope } from '@/lib/scoped-fetch';
+import { useDemoMode } from '@/lib/use-mode';
 
 type Course = { id: string; name: string };
 type ClassSession = { id: string; name: string; active: boolean };
@@ -9,6 +10,8 @@ type ClassSession = { id: string; name: string; active: boolean };
 export function SessionScopePicker() {
   const { status, data: session } = useSession();
   const admin = (session?.user as { isAdmin?: boolean } | undefined)?.isAdmin === true;
+  // The demo refuses new courses, so it offers none.
+  const demo = useDemoMode();
   const [courses, setCourses] = useState<Course[]>([]);
   const [sessions, setSessions] = useState<ClassSession[]>([]);
   const [courseId, setCourseId] = useState<string | null>(null);
@@ -57,7 +60,7 @@ export function SessionScopePicker() {
       <Select aria-label="Class session" placeholder="Select class session"
         data={sessions.filter(item => admin || item.active).map(item => ({ value: item.id, label: item.name }))}
         value={classId} onChange={chooseSession} searchable w={{ base: '100%', xs: 220 }} disabled={!courseId} />
-      {admin && <Group gap="xs">
+      {admin && !demo && <Group gap="xs">
         <TextInput aria-label="New course name" placeholder="New course" value={courseName}
           onChange={event => setCourseName(event.currentTarget.value)} w={220} />
         <Button size="xs" onClick={addCourse}>Create course</Button>

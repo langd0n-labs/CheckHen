@@ -1718,3 +1718,5 @@ correct through the routes, checked against the course record).
   confirms a signal with "Sent to your instructor". The student help says only the
   instructor sees the totals. The button wording is unchanged pending the
   operator's choice.
+- Demo mode hides the "New course / Create course" control in the course picker;
+  the demo refuses new courses (403), so it showed a control that always failed.
