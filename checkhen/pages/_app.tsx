@@ -29,8 +29,8 @@ export default function App({ Component, pageProps: { session, ...pageProps } }:
         </Head>
         {demoFull && (
           <Alert color="yellow" radius={0} title="This demo is full">
-            It has reached its storage limit, so you can look around but changes are not
-            saved. It will be reset soon.
+            It has reached its storage limit, so you can look around but changes are not saved until
+            its operator recreates it.
           </Alert>
         )}
         {/* The call screen shows its own compact scope line to keep both taps on one screen. */}

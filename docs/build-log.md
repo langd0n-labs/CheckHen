@@ -1816,3 +1816,5 @@ Report: AICP review of the PR #3 range (kept outside the repository).
   5.0 s, was 45 s). The hosted proxy keys its per-client limits on the IPv6 /64 and
   limits how fast one client opens socket requests (5 a second, burst 20); checked:
   60 requests from one /64 got 21 through, 60 from separate networks all passed.
+- The "demo is full" notice says changes are not saved until the operator recreates
+  the demo, not that it "will be reset soon".
