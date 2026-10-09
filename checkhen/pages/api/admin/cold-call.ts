@@ -303,6 +303,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             (event) => event.kind === 'CHECK_IN' && event.userId === userId
           );
           if (checkIns.length && checkIns.every((event) => event.payload.rollCall === true)) {
+            const read = checkIns.map((event) => event.id).join(',');
             const [first, ...rest] = checkIns.map((event) => ({
               ...scope,
               actorId: user.id,
@@ -311,7 +312,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               payload: { rollCall: true },
               supersedesId: event.id,
             }));
-            await appendEvent(prisma, { ...first, alsoWrite: async () => rest });
+            await appendEvent(prisma, {
+              ...first,
+              // The check-ins were read before the session lock; refuse if they changed.
+              guard: async (tx) => {
+                const current = effectiveEvents(
+                  (
+                    await tx.participationEvent.findMany({
+                      where: scope,
+                      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+                    })
+                  ).map(asEvent),
+                  scope
+                )
+                  .filter((event) => event.kind === 'CHECK_IN' && event.userId === userId)
+                  .map((event) => event.id)
+                  .join(',');
+                if (current !== read) {
+                  throw new ConflictError('Attendance changed. Mark the student again.');
+                }
+              },
+              alsoWrite: async () => rest,
+            });
           } else {
             await appendEvent(prisma, {
               ...scope,
@@ -324,7 +346,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
       } catch (error) {
         return res
-          .status(400)
+          .status(error instanceof ConflictError ? 409 : 400)
           .json({ message: error instanceof Error ? error.message : 'Could not record' });
       }
     }

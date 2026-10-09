@@ -1562,3 +1562,6 @@ Verified: Python 79 tests; Jest 38 suites, 348 tests.
 - m3: the demo-only database check is cached for 5 s, for gated requests and persona
   sign-in alike, so a flood of reads or sign-ins runs at most two count queries
   every 5 s.
+- m5: the roll-call Absent undo rechecks the student's check-ins under the session
+  lock and returns 409 if they changed since they were read. No test forces the
+  race; the roll-call integration case covers the normal path.
