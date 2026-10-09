@@ -1565,3 +1565,10 @@ Verified: Python 79 tests; Jest 38 suites, 348 tests.
 - m5: the roll-call Absent undo rechecks the student's check-ins under the session
   lock and returns 409 if they changed since they were read. No test forces the
   race; the roll-call integration case covers the normal path.
+- m8: cloudflared is pinned by the digest of the 2026.10.0 multi-arch list
+  (`sha256:9b49eed8…`); it pulls on the build host and compose accepts it.
+- m4 (roster address length) was fixed with A; m1 and m7 are the runbook checks
+  above; m6: the M3 test runs in the PostgreSQL suite, which runs with every
+  change here; m9 accepted as is by the reviewer.
+
+Verified: Jest 38 suites, 351 tests; PostgreSQL 42; Python 79.

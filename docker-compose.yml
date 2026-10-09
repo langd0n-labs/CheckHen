@@ -148,7 +148,8 @@ services:
     # container environment, `podman inspect`, and `podman-compose config`.
     # docs/build-log.md, "Hosted demo runbook", says how to create the secret.
     profiles: [tunnel]
-    image: docker.io/cloudflare/cloudflared:2026.10.0
+    # Pinned by digest (the multi-arch list for 2026.10.0), so the tag cannot move.
+    image: docker.io/cloudflare/cloudflared:2026.10.0@sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07
     # Host networking: without an explicit address, metrics bind to every interface.
     command: >-
       tunnel --no-autoupdate --metrics 127.0.0.1:20241
