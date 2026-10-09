@@ -274,6 +274,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (typeof userId !== 'string' || typeof present !== 'boolean') {
         return res.status(400).json({ message: 'Choose a student and present or absent' });
       }
+      // Roll call lists only active students; a removed student cannot be marked.
+      const entry = await prisma.rosterEntry.findUnique({
+        where: { courseId_userId: { courseId: scope.courseId, userId } },
+      });
+      if (!entry?.active) {
+        return res.status(400).json({ message: 'That student is not active on this roster' });
+      }
       const current = (await readState(prisma, scope)).attendance.find(
         (entry) => entry.userId === userId
       );

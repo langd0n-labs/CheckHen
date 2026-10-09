@@ -829,6 +829,13 @@ integration('route → store → attendance fold', () => {
         // Marking Present again restores the credit.
         await call('POST', { action: 'mark', userId: ada.id, present: true });
         expect(await attended()).toBe(1);
+        // A student removed from the roster cannot be marked.
+        await prisma.rosterEntry.update({
+          where: { courseId_userId: { courseId: scope.courseId, userId: ada.id } },
+          data: { active: false },
+        });
+        const refused = await call('POST', { action: 'mark', userId: ada.id, present: false });
+        expect(refused._getStatusCode()).toBe(400);
       } finally {
         delete process.env.CHECKHEN_MODE;
       }
