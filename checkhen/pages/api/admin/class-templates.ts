@@ -1,5 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { isDemo } from '@/lib/demo';
 import { requireIdentity } from '@/lib/request-scope';
+
+// Each template can start a session every scheduled minute, so a course has a bounded number.
+const MAX_TEMPLATES_PER_COURSE = 50;
 import { prisma } from '@/lib/prisma';
 
 type ClassTemplateRecord = {
@@ -60,6 +64,9 @@ export default async function handler(
 
   // POST — create template
   if (req.method === 'POST') {
+    if (isDemo()) return res.status(403).json({ message: 'The demo has no class schedule' });
+    if ((await prisma.classTemplate.count({ where: { courseId } })) >= MAX_TEMPLATES_PER_COURSE)
+      return res.status(400).json({ message: `A course can have at most ${MAX_TEMPLATES_PER_COURSE} schedules` });
     const { name, color, duration, daysOfWeek, startTime, tz } = req.body;
 
     if (!name || typeof name !== 'string' || name.trim().length === 0 || name.length > 200)

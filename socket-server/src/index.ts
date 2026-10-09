@@ -63,6 +63,9 @@ cron.schedule("* * * * *", async () => {
       });
     } catch (error) { console.error('Session expiry request failed', error); }
   }
+  // A demo has no schedule: its sessions come from the seed, and visitors must not be
+  // able to make the server create sessions on its own.
+  if (process.env.CHECKHEN_DEMO === "1" && process.env.CHECKHEN_MODE === "hosted") return;
   const now = new Date();
   const dayOfWeek = now.getDay();
   const hhmm = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;

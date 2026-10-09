@@ -1472,3 +1472,12 @@ The tunnel stays closed until AICP confirms.
 - A reset runs at the size cap: it adds one small course and keeps its own limit
   of 3 an hour per client. The event log is append-only, so nothing frees space; a
   demo database that reaches the cap is recreated (see the runbook).
+
+### B: no scheduled sessions in the demo
+
+- The socket server's minute cron skips template auto-start when
+  `CHECKHEN_MODE=hosted` and `CHECKHEN_DEMO=1`; compose now passes both to the
+  socket server. Session expiry still runs.
+- Demo mode refuses new class schedules (templates). Every course, in any mode, has
+  at most 50.
+- The socket server has no test harness; the cron check is covered by reading.

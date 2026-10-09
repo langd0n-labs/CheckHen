@@ -10,6 +10,7 @@ import uploadRoute from '@/pages/api/student/upload-profile-picture';
 import profileRoute from '@/pages/api/admin/get-student-profile';
 import isAdminRoute from '@/pages/api/auth/is-admin';
 import eventsRoute from '@/pages/api/admin/events';
+import templatesRoute from '@/pages/api/admin/class-templates';
 
 jest.mock('@/lib/prisma', () => ({
   prisma: {
@@ -17,6 +18,7 @@ jest.mock('@/lib/prisma', () => ({
     user: { count: jest.fn(), findUnique: jest.fn(), upsert: jest.fn(), update: jest.fn() },
     course: { count: jest.fn(), findUnique: jest.fn(), create: jest.fn() },
     rosterEntry: { upsert: jest.fn() },
+    classTemplate: { count: jest.fn(), create: jest.fn() },
   },
 }));
 jest.mock('next-auth', () => ({ getServerSession: jest.fn() }));
@@ -176,4 +178,41 @@ it('lets a reset through at the size cap, within the reset limit', async () => {
     })
   ).toBeNull();
   expect(fourth.res._getStatusCode()).toBe(429);
+});
+
+describe('class schedules', () => {
+  const template = {
+    courseId: 'course',
+    name: 'Lecture',
+    color: '#0066ff',
+    duration: 75,
+    daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+    startTime: '10:00',
+  };
+  const post = async () => {
+    const { req, res } = request('POST', '203.0.113.9', template);
+    await templatesRoute(req as any, res as any);
+    return res._getStatusCode();
+  };
+
+  it('takes none in demo mode', async () => {
+    expect(await post()).toBe(403);
+    expect(prisma.classTemplate.create).not.toHaveBeenCalled();
+  });
+
+  it('allows at most fifty per course in any mode', async () => {
+    process.env.CHECKHEN_MODE = 'classroom';
+    process.env.ADMIN_EMAILS = DEMO_INSTRUCTOR;
+    (prisma.classTemplate.create as jest.Mock).mockResolvedValue({
+      ...template,
+      id: 't',
+      tz: 'America/New_York',
+      createdAt: new Date(),
+    });
+    (prisma.classTemplate.count as jest.Mock).mockResolvedValue(49);
+    expect(await post()).toBe(201);
+    (prisma.classTemplate.count as jest.Mock).mockResolvedValue(50);
+    expect(await post()).toBe(400);
+    delete process.env.ADMIN_EMAILS;
+  });
 });
