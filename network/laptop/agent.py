@@ -150,9 +150,13 @@ def flush_checkout_notifications(secret: str, url: str, bindings: dict[str, dict
                     sent.append(scope)
         except (OSError, urllib.error.HTTPError):
             pass
-    # Send outside the lock; a checkout queued meanwhile stays pending.
+    # Send outside the lock. Remove one entry per checkout sent, so the same checkout
+    # queued again during the send stays pending.
     with LOCK:
-        remaining = [scope for scope in read_pending() if scope not in sent]
+        remaining = read_pending()
+        for scope in sent:
+            if scope in remaining:
+                remaining.remove(scope)
         PENDING.write_text(json.dumps(remaining))
         PENDING.chmod(0o600)
 

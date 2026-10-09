@@ -1540,3 +1540,5 @@ The tunnel stays closed until AICP confirms.
   fails, `exam.json` stays so a retried stop can finish.
 - m9: a station listed by `iw` without an inactive time is unknown, not absent: it
   adds no evidence, records no new fail for that student, and gets no probe.
+- m10: a checkout notice removes one pending entry per send, so the same checkout
+  queued again during the send stays pending.

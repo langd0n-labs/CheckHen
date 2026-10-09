@@ -319,6 +319,19 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(json.loads(request.data)["action"], "portal-expired")
         self.assertEqual(json.loads(agent.PENDING.read_text()), [])
 
+    def test_checkout_queued_again_during_a_send_stays_pending(self):
+        scope = {"userId": "student", "courseId": "course", "classId": "class"}
+        agent.PENDING.write_text(json.dumps([scope]))
+        response = type("Response", (), {"status": 200, "__enter__": lambda self: self,
+                                          "__exit__": lambda self, *_args: None})()
+        def send(*_args, **_kwargs):
+            # The student checks in and leaves again while the first send is out.
+            agent.PENDING.write_text(json.dumps([scope, scope]))
+            return response
+        with patch.object(agent.urllib.request, "urlopen", side_effect=send):
+            agent.flush_checkout_notifications(agent.Handler.secret, "http://127.0.0.1:9/", {})
+        self.assertEqual(json.loads(agent.PENDING.read_text()), [scope])
+
     def test_station_dump_parsing(self):
         output = type("Result", (), {"returncode": 0, "stdout":
                 "Station 02:00:00:00:00:20 (on wlan0)\n\tinactive time:\t1500 ms\n\trx bytes:\t1\n"
