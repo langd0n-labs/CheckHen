@@ -13,7 +13,10 @@ const io = new Server(Number(process.env.PORT || 6060), {
 
 // Only the authenticated application can mint a short-lived socket ticket.
 const roomKey = (courseId: string, classId: string) => courseId + ':' + classId;
+// A ceiling on open sockets, so a flood of connections cannot exhaust the server.
+const MAX_SOCKETS = Number(process.env.MAX_SOCKETS || 1000);
 io.use(async (socket, next) => {
+  if (io.engine.clientsCount > MAX_SOCKETS) return next(new Error('Too many connections'));
   try {
     const ticket = socket.handshake.auth.ticket;
     const [payload, signature] = typeof ticket === 'string' ? ticket.split('.') : [];

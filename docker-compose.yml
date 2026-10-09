@@ -1,5 +1,9 @@
 services:
   app:
+    # Bounds on what one service can take from the host (tightened for a public demo).
+    mem_limit: ${APP_MEM_LIMIT:-2g}
+    cpus: ${APP_CPUS:-2}
+    pids_limit: ${APP_PIDS_LIMIT:-512}
     build:
       context: ./checkhen
       args:
@@ -33,6 +37,10 @@ services:
       timeout: 3s
       retries: 30
   db:
+    # Bounds on what one service can take from the host (tightened for a public demo).
+    mem_limit: ${DB_MEM_LIMIT:-1g}
+    cpus: ${DB_CPUS:-1}
+    pids_limit: ${DB_PIDS_LIMIT:-256}
     image: docker.io/library/postgres:13
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -46,6 +54,10 @@ services:
       timeout: 3s
       retries: 20
   socket:
+    # Bounds on what one service can take from the host (tightened for a public demo).
+    mem_limit: ${SOCKET_MEM_LIMIT:-512m}
+    cpus: ${SOCKET_CPUS:-1}
+    pids_limit: ${SOCKET_PIDS_LIMIT:-256}
     build:
       context: ./socket-server
     ports:
@@ -58,6 +70,7 @@ services:
       APP_INTERNAL_URL: http://app:3000/api/internal/expire-sessions
       CHECKHEN_MODE: ${CHECKHEN_MODE:-classroom}
       CHECKHEN_DEMO: ${CHECKHEN_DEMO:-0}
+      MAX_SOCKETS: ${MAX_SOCKETS:-1000}
       PORTAL_AGENT_URL: ${PORTAL_AGENT_URL:-}
       PORTAL_CONTROL_SECRET: ${PORTAL_CONTROL_SECRET:-}
       DATABASE_URL: postgresql://checkhen:${POSTGRES_PASSWORD:?Run the setup command}@db:5432/checkhen
@@ -122,6 +135,10 @@ services:
       socket:
         condition: service_started
   hosted-proxy:
+    # Bounds on what one service can take from the host (tightened for a public demo).
+    mem_limit: ${PROXY_MEM_LIMIT:-256m}
+    cpus: ${PROXY_CPUS:-1}
+    pids_limit: ${PROXY_PIDS_LIMIT:-128}
     # Hosted mode: one loopback origin for app and socket, for the tunnel to publish.
     profiles: [hosted]
     build:

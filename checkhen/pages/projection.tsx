@@ -29,7 +29,8 @@ export default function ProjectionPage() {
     const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL ?? 'http://localhost:6060';
     const socket = io(socketUrl || undefined, { auth: { ticket } });
     socket.on('fetch-messages', refresh);
-    const timer = window.setInterval(refresh, 500);
+    // Socket notifications bring new messages at once; the poll is only a fallback.
+    const timer = window.setInterval(refresh, 5000);
     return () => { live = false; window.clearInterval(timer); socket.disconnect(); };
   }, [ticket]);
 

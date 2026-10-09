@@ -1747,3 +1747,30 @@ repository). The tunnel stays closed until AICP confirms.
   without creating a counter.
 - Test: 10,000 reset attempts from distinct /48s fill the table; a minute later a new
   visitor can write. Refusing new clients instead fails that test.
+
+### P3: bounds on what the demo takes from the host
+
+- Every service (app, db, socket, hosted proxy) has `mem_limit`, `cpus`, and
+  `pids_limit`, set by `APP_*`, `DB_*`, `SOCKET_*`, `PROXY_*` variables with generous
+  defaults. The demo's `.env.hosted` sets app 1g/1.5 CPU, db 512m/1, socket 256m/0.5,
+  proxy 128m/0.5; `podman inspect` confirms them.
+- The hosted proxy limits `/api/` to 20 requests a second per client (burst 40) and
+  `/socket.io/` to 20 connections per client and 1000 in all, keyed on
+  `cf-connecting-ip`. A burst of 100 requests from one client got 46 through and 54
+  answered 429.
+- The socket server refuses connections past `MAX_SOCKETS` (1000; the demo uses 500).
+- The deck panel and the projection window poll every 5 s instead of every 0.5 s;
+  socket notifications still bring each message at once. The projection chat route
+  serves one read per session for 0.5 s to every window.
+- Proxy access logs record paths only, so projection tickets in query strings stay out
+  (review minor m2). The deck answers with `X-Content-Type-Options: nosniff` and
+  `Referrer-Policy: no-referrer`, so the ticket in its URL never leaves as a Referer
+  (minor m7).
+- Live checks on the build host still pass after the change (end to end, deck panel,
+  simulated chat).
+
+Operator action before opening, in Cloudflare for `checkhen-demo.rfkill.dev`
+(Security > WAF > Rate limiting rules): one rule matching URI path starting with
+`/api/`, counting by IP, 100 requests per 10 seconds, action Block for 1 minute; and
+one matching `/api/demo/reset` and `/api/auth/callback/demo`, 10 requests per minute
+per IP, Block for 10 minutes.

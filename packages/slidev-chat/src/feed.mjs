@@ -15,6 +15,7 @@ export function followChat({ server, ticket, connectSocket, fetchImpl, onMessage
   void refresh();
   const socket = connectSocket(server, { auth: { ticket } });
   socket.on('fetch-messages', refresh);
-  const timer = interval(refresh, 500);
+  // Socket notifications bring new messages at once; the poll is only a fallback.
+  const timer = interval(refresh, 5000);
   return () => { active = false; clear(timer); socket.disconnect(); };
 }
