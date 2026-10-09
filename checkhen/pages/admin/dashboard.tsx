@@ -390,6 +390,26 @@ export default function AdminDashboard() {
     return (await response.json()).ticket;
   };
 
+  /** Demo mode: the sample Slidev lecture, with this session's chat on its slides. */
+  const openDemoLecture = async () => {
+    const target = window.open('about:blank', '_blank');
+    const ticket = await projectionTicket();
+    if (!ticket) {
+      target?.close();
+      return;
+    }
+    if (!target) {
+      notifications.show({
+        title: 'Pop-up blocked',
+        message: 'Allow a new window for the demo lecture.',
+        color: 'red',
+      });
+      return;
+    }
+    target.opener = null;
+    target.location.href = `/deck/?ticket=${encodeURIComponent(ticket)}`;
+  };
+
   const openProjection = async () => {
     const target = window.open('about:blank', '_blank');
     const ticket = await projectionTicket();
@@ -550,6 +570,11 @@ export default function AdminDashboard() {
             >
               Help
             </Button>
+            {demo && (
+              <Button variant="subtle" onClick={openDemoLecture}>
+                Open demo lecture
+              </Button>
+            )}
             {demo && (
               <Button variant="subtle" color="red" onClick={resetDemo}>
                 Reset demo

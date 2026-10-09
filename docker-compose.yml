@@ -125,9 +125,10 @@ services:
     # Hosted mode: one loopback origin for app and socket, for the tunnel to publish.
     profiles: [hosted]
     build:
-      # Only this directory, so the gitignored .env files never enter the build context.
-      context: ./network/hosted
-      dockerfile: Containerfile
+      # The repository root, narrowed by network/hosted/Containerfile.dockerignore to the
+      # proxy template and the demo deck sources; the .env files stay out.
+      context: .
+      dockerfile: network/hosted/Containerfile
     network_mode: host
     restart: on-failure
     environment:

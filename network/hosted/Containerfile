@@ -1,3 +1,14 @@
+# The demo lecture deck: the sample Slidev deck, built to static files under /deck/.
+FROM docker.io/library/node:22-alpine AS deck
+WORKDIR /src
+COPY packages/slidev-chat packages/slidev-chat
+COPY examples/slidev-chat/package.json examples/slidev-chat/package-lock.json examples/slidev-chat/
+# The lock file copies the local chat package (install-links) instead of linking it.
+RUN cd examples/slidev-chat && npm ci --install-links --no-audit --no-fund
+COPY examples/slidev-chat examples/slidev-chat
+RUN cd examples/slidev-chat && npx slidev build demo-lecture.md --base /deck/ --out /deck
+
 FROM docker.io/library/nginx:stable-alpine
-COPY default.conf.template /etc/nginx/templates/default.conf.template
+COPY network/hosted/default.conf.template /etc/nginx/templates/default.conf.template
+COPY --from=deck /deck /usr/share/nginx/deck
 ENV NGINX_ENVSUBST_FILTER="^(HOSTED_BIND_ADDRESS|HOSTED_PORT|APP_PORT|SOCKET_PORT|HOSTED_FORWARDED_PROTO)$"

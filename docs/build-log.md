@@ -1654,3 +1654,24 @@ correct through the routes, checked against the course record).
   (Swift Panda, ...) on the dashboard. Pronouns vary: she/her, he/him, and
   they/them. The animal avatars and notes stay. A reset applies them to an existing
   demo database.
+
+### Demo lecture deck
+
+- Operator request, 2026-10-09: in demo mode the dashboard has **Open demo
+  lecture** beside Reset demo. It gets a projection ticket for the current session
+  and opens `/deck/?ticket=…` in a new tab.
+- `examples/slidev-chat/demo-lecture.md` is a six-slide "Farm Science 101" lecture
+  with the chat (I6) on three slides. The hosted proxy image builds it with Slidev
+  (`--base /deck/`) and serves it at `/deck/`, on the app's own origin, so it needs
+  no `SLIDEV_ORIGIN` or deck URL. The proxy build context is the repository root,
+  narrowed by `network/hosted/Containerfile.dockerignore` to the template and the
+  deck sources (checked: podman honors the file, and `.env` stays out).
+- The deck keeps the ticket for the tab (`setup/main.ts`), and the chat component
+  uses the page's origin when `VITE_CHECKHEN_URL` is unset.
+- The sample deck's lock file copies the local chat package, so the build runs
+  `npm ci --install-links`.
+- First live browser run of I6, on the build-host demo (closes the open M4 item): the
+  dashboard button opened the deck with a ticket; slide 3 showed the seeded chat
+  after keyboard navigation; a student's message reached the slide in about 200 ms;
+  hiding it on the dashboard removed it in under 100 ms. The only page error was
+  Slidev's screen wake lock, which headless Chromium denies.
