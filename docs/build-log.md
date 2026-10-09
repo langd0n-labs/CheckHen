@@ -1270,6 +1270,20 @@ The tunnel stays off until M1 and M2 are fixed and AICP confirms.
    container when only its image changed.
 3. A fresh demo database: `podman-compose -p checkhen-demo --env-file .env.hosted --profile hosted down -v`,
    then start. The first visit to `/demo` seeds it.
+   Do this too when the database reaches `DEMO_MAX_DATABASE_MB` and writes return
+   507: the event log is append-only, so nothing else frees space.
+
+Before opening the tunnel, confirm in `.env.hosted`:
+
+- `APP_BIND_ADDRESS=127.0.0.1` and `HOSTED_BIND_ADDRESS=127.0.0.1`. The rate limits
+  trust `cf-connecting-ip`, which is safe only while the app and proxy accept
+  loopback connections alone.
+- `AUTH_SECRET` is the demo's own. `podman inspect` shows it, so no other
+  deployment may share it.
+
+Confirmed on the build host on 2026-10-09: both bind addresses are 127.0.0.1, and the
+`AUTH_SECRET` in `.env.hosted` (generated for the demo) matches no other CheckHen
+env file on this host.
 
 Checked on 2026-10-07 after recreating the demo database: `/api/demo` lists 11
 personas and a live session; persona sign-in for the instructor, the call screen
