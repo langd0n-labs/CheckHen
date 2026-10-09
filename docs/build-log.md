@@ -1552,3 +1552,10 @@ The tunnel stays closed until AICP confirms.
 - Needs x1 hardware: none of m2-m12. The x1 operator checks above still apply.
 
 Verified: Python 79 tests; Jest 38 suites, 348 tests.
+
+### Demo security review minors (from 989d088-8fee9f6)
+
+- m2: the rate limiter holds at most 10,000 client counters; when full, it prunes
+  expired ones and refuses new clients until space frees. Each counter now expires
+  on its own window: before, a prune during a write cleared the hourly reset
+  counters too.

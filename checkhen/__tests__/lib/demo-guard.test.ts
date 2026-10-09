@@ -1,7 +1,7 @@
 import { createMocks } from 'node-mocks-http';
 import { getServerSession } from 'next-auth';
 import { DEMO_INSTRUCTOR } from '@/lib/demo';
-import { clientKey, demoGate, resetDemoLimits } from '@/lib/demo-guard';
+import { clientKey, demoGate, demoLimitKeys, resetDemoLimits } from '@/lib/demo-guard';
 import { prisma } from '@/lib/prisma';
 import { requireIdentity } from '@/lib/request-scope';
 import coursesRoute from '@/pages/api/courses';
@@ -243,4 +243,30 @@ it('keys an IPv6 client by its /64', async () => {
     await gate('POST', `2001:db8:1:2::${i.toString(16)}`);
   }
   expect(await gate('POST', '2001:db8:1:2::ffff')).toEqual({ allowed: false, status: 429 });
+});
+
+describe('counter memory', () => {
+  afterEach(() => jest.useRealTimers());
+
+  it('stops adding clients at the counter limit, so memory stays bounded', async () => {
+    for (let i = 0; i < 10_050; i += 1) {
+      await gate('POST', `10.${(i >> 16) & 255}.${(i >> 8) & 255}.${i & 255}`);
+    }
+    expect(demoLimitKeys()).toBeLessThanOrEqual(10_000);
+    expect((await gate('POST', '192.0.2.200')).status).toBe(429);
+  });
+
+  it('keeps hourly reset counters when write counters expire', async () => {
+    jest.useFakeTimers({ now: Date.parse('2026-10-09T12:00:00Z') });
+    for (let i = 0; i < 3; i += 1) {
+      await gate('POST', '203.0.113.5', 'reset');
+    }
+    for (let i = 0; i < 9_997; i += 1) {
+      await gate('POST', `10.0.${(i >> 8) & 255}.${i & 255}`);
+    }
+    jest.setSystemTime(Date.parse('2026-10-09T12:02:00Z'));
+    // The prune clears the expired write counters but not the reset counter.
+    await gate('POST', '198.51.100.9');
+    expect(await gate('POST', '203.0.113.5', 'reset')).toEqual({ allowed: false, status: 429 });
+  });
 });

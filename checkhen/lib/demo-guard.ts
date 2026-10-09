@@ -16,8 +16,16 @@ type Bucket = keyof typeof LIMITS;
 const DEFAULT_MAX_DATABASE_MB = 512;
 const SIZE_CHECK_MS = 30_000;
 
-const windows = new Map<string, { start: number; count: number }>();
+// Counters for at most this many clients; under an address flood, new clients wait.
+const MAX_KEYS = 10_000;
+
+const windows = new Map<string, { start: number; count: number; windowMs: number }>();
 let sizeCheck: { at: number; bytes: number } | null = null;
+
+/** Tests only: how many counters are held. */
+export function demoLimitKeys(): number {
+  return windows.size;
+}
 
 /** Tests only: forget every counter and the cached database size. */
 export function resetDemoLimits() {
@@ -59,7 +67,10 @@ export function clientKey(req: NextApiRequest): string {
 function take(key: string, max: number, windowMs: number, now: number): boolean {
   const current = windows.get(key);
   if (!current || now - current.start >= windowMs) {
-    windows.set(key, { start: now, count: 1 });
+    if (!current && windows.size >= MAX_KEYS) {
+      return false;
+    }
+    windows.set(key, { start: now, count: 1, windowMs });
     return true;
   }
   current.count += 1;
@@ -69,9 +80,11 @@ function take(key: string, max: number, windowMs: number, now: number): boolean 
 function allowed(req: NextApiRequest, bucket: Bucket): boolean {
   const { perClient, overall, windowMs } = LIMITS[bucket];
   const now = Date.now();
-  if (windows.size > 10_000) {
+  if (windows.size >= MAX_KEYS) {
+    // Each counter expires on its own window: a write must not clear the hourly
+    // reset counters.
     windows.forEach((value, key) => {
-      if (now - value.start >= windowMs) windows.delete(key);
+      if (now - value.start >= value.windowMs) windows.delete(key);
     });
   }
   // A client over its own limit is refused before it reaches the shared limit, so one
