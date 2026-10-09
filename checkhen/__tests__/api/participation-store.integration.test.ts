@@ -14,6 +14,7 @@ import { requireIdentity, requireScope } from '@/lib/request-scope';
 import { expireSessions } from '@/lib/session-expiry';
 import coldCallRoute from '@/pages/api/admin/cold-call';
 import courseReportRoute from '@/pages/api/admin/course-report';
+import demoResetRoute from '@/pages/api/demo/reset';
 import examRoute from '@/pages/api/admin/exam';
 import fetchAllChat from '@/pages/api/admin/fetch-all-chat';
 import hideChat from '@/pages/api/admin/hide-chat';
@@ -1221,6 +1222,26 @@ integration('route → store → attendance fold', () => {
     expect(await prisma.participationEvent.count({ where: { courseId: first.courseId } })).toBe(
       events.length
     );
+    // A reset through the route ends the set-aside course's live session.
+    process.env.CHECKHEN_DEMO = '1';
+    process.env.CHECKHEN_MODE = 'hosted';
+    try {
+      (requireIdentity as jest.Mock).mockResolvedValue({
+        user: { id: 'instructor' },
+        admin: true,
+      });
+      const { req, res } = createMocks({ method: 'POST' });
+      await demoResetRoute(req as any, res as any);
+      expect(res._getStatusCode()).toBe(200);
+      const ended = await readState(prisma, {
+        courseId: second.courseId,
+        classId: second.liveClassId,
+      });
+      expect(ended.endedAt).not.toBeNull();
+    } finally {
+      delete process.env.CHECKHEN_DEMO;
+      delete process.env.CHECKHEN_MODE;
+    }
   });
 
   it('hides a stored message and mutes its student without deleting facts', async () => {

@@ -1,16 +1,17 @@
-import { createMocks } from 'node-mocks-http';
 import { getServerSession } from 'next-auth';
+import { createMocks } from 'node-mocks-http';
 import { DEMO_INSTRUCTOR } from '@/lib/demo';
 import { clientKey, demoGate, demoLimitKeys, resetDemoLimits } from '@/lib/demo-guard';
 import { prisma } from '@/lib/prisma';
 import { requireIdentity } from '@/lib/request-scope';
-import coursesRoute from '@/pages/api/courses';
-import rosterRoute from '@/pages/api/admin/roster';
-import uploadRoute from '@/pages/api/student/upload-profile-picture';
-import profileRoute from '@/pages/api/admin/get-student-profile';
-import isAdminRoute from '@/pages/api/auth/is-admin';
-import eventsRoute from '@/pages/api/admin/events';
 import templatesRoute from '@/pages/api/admin/class-templates';
+import eventsRoute from '@/pages/api/admin/events';
+import profileRoute from '@/pages/api/admin/get-student-profile';
+import rosterRoute from '@/pages/api/admin/roster';
+import newClassRoute from '@/pages/api/admin/start-new-class';
+import isAdminRoute from '@/pages/api/auth/is-admin';
+import coursesRoute from '@/pages/api/courses';
+import uploadRoute from '@/pages/api/student/upload-profile-picture';
 
 jest.mock('@/lib/prisma', () => ({
   prisma: {
@@ -277,4 +278,14 @@ it('checks the database for demo-only data at most every five seconds', async ()
   }
   expect(prisma.user.count).toHaveBeenCalledTimes(1);
   expect(prisma.course.count).toHaveBeenCalledTimes(1);
+});
+
+it('starts no new classes in demo mode', async () => {
+  const { req, res } = request('POST', '203.0.113.9', {
+    courseId: 'course',
+    name: 'Extra',
+    duration: 480,
+  });
+  await newClassRoute(req as any, res as any);
+  expect(res._getStatusCode()).toBe(403);
 });

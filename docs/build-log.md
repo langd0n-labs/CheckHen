@@ -1720,3 +1720,19 @@ correct through the routes, checked against the course record).
   operator's choice.
 - Demo mode hides the "New course / Create course" control in the course picker;
   the demo refuses new courses (403), so it showed a control that always failed.
+
+## Pre-public review of 25e3a02 to e3b4576
+
+Report: AICP review `review-25e3a02-e3b4576-public.md` (kept outside the
+repository). The tunnel stays closed until AICP confirms.
+
+### P1: one simulated chat, in the live session only
+
+- At most one simulated chat runs in the whole demo. A start while one runs changes
+  nothing; it no longer extends the running one.
+- It runs only in the demo's live session (the newest session of the current demo
+  course); any other session gets 409.
+- Demo mode refuses new classes, so the live session is the only open one.
+- A reset stops the simulated chat and ends every open session of the course it sets
+  aside.
+- Each start is still a write through the request limits.

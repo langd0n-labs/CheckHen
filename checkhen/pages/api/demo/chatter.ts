@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { isDemo } from '@/lib/demo';
+import { currentDemoCourse, isDemo } from '@/lib/demo';
 import { chatterStatus, startChatter, stopChatter } from '@/lib/demo-chatter';
 import { prisma } from '@/lib/prisma';
 import { requireScope } from '@/lib/request-scope';
@@ -17,6 +17,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return;
   }
   const { scope } = context;
+  // Only the demo's own live session: the newest session of the current demo course.
+  const course = await currentDemoCourse(prisma);
+  const live = course
+    ? await prisma.class.findFirst({
+        where: { courseId: course.id },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      })
+    : null;
+  if (!live || live.id !== scope.classId || course!.id !== scope.courseId) {
+    return res.status(409).json({ message: 'Simulated chat runs only in the live demo session' });
+  }
   if (req.method === 'GET') {
     return res.json(chatterStatus(scope));
   }

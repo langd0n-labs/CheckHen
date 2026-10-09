@@ -67,19 +67,28 @@ export const CHATTER_LINES = [
   'can you post the slides after class?',
 ];
 
-type Running = { timer: ReturnType<typeof setTimeout>; endsAt: number; next: number };
-const running = new Map<string, Running>();
-const key = (scope: EventScope) => `${scope.courseId}:${scope.classId}`;
+type Running = {
+  scope: EventScope;
+  timer: ReturnType<typeof setTimeout>;
+  endsAt: number;
+  next: number;
+};
+// At most one simulated chat runs in the whole demo; its writes bypass the request
+// limits, so their number must stay fixed.
+let running: Running | null = null;
+const same = (a: EventScope, b: EventScope) => a.courseId === b.courseId && a.classId === b.classId;
 
 export function chatterStatus(scope: EventScope): { running: boolean; endsAt: number | null } {
-  const entry = running.get(key(scope));
-  return { running: !!entry, endsAt: entry?.endsAt ?? null };
+  const active = !!running && same(running.scope, scope);
+  return { running: active, endsAt: active ? running!.endsAt : null };
 }
 
-export function stopChatter(scope: EventScope): void {
-  const entry = running.get(key(scope));
-  if (entry) clearTimeout(entry.timer);
-  running.delete(key(scope));
+/** Stop the simulated chat for this session, or any that runs when no scope is given. */
+export function stopChatter(scope?: EventScope): void {
+  if (running && (!scope || same(running.scope, scope))) {
+    clearTimeout(running.timer);
+    running = null;
+  }
 }
 
 /** Post one line from a random checked-in, unmuted student. False when it should stop. */
@@ -101,15 +110,16 @@ export async function postChatter(db: PrismaClient, scope: EventScope, line: str
   return true;
 }
 
-/** Start, or keep running, simulated chat for this session. */
+/**
+ * Start simulated chat for this session. A start while one is running changes nothing:
+ * it neither starts a second one nor extends the first.
+ */
 export function startChatter(db: PrismaClient, scope: EventScope, now = Date.now()) {
-  const id = key(scope);
-  const existing = running.get(id);
-  if (existing) {
-    existing.endsAt = now + CHATTER_MAX_MS;
+  if (running) {
     return chatterStatus(scope);
   }
   const entry: Running = {
+    scope,
     timer: setTimeout(() => undefined, 0),
     endsAt: now + CHATTER_MAX_MS,
     next: Math.floor(Math.random() * CHATTER_LINES.length),
@@ -119,7 +129,7 @@ export function startChatter(db: PrismaClient, scope: EventScope, now = Date.now
     entry.timer = setTimeout(tick, gap);
   };
   const tick = async () => {
-    if (running.get(id) !== entry) return;
+    if (running !== entry) return;
     try {
       if (Date.now() >= entry.endsAt || (await databaseFull())) {
         stopChatter(scope);
@@ -135,10 +145,10 @@ export function startChatter(db: PrismaClient, scope: EventScope, now = Date.now
       stopChatter(scope);
       return;
     }
-    if (running.get(id) === entry) schedule();
+    if (running === entry) schedule();
   };
   clearTimeout(entry.timer);
-  running.set(id, entry);
+  running = entry;
   schedule();
   return chatterStatus(scope);
 }

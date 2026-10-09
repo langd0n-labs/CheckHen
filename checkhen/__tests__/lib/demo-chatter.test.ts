@@ -1,4 +1,5 @@
 import { createMocks } from 'node-mocks-http';
+import { currentDemoCourse } from '@/lib/demo';
 import {
   CHATTER_LINES,
   CHATTER_MAX_MS,
@@ -9,13 +10,18 @@ import {
 } from '@/lib/demo-chatter';
 import { databaseFull } from '@/lib/demo-guard';
 import { appendEvent, readState } from '@/lib/event-store';
+import { prisma } from '@/lib/prisma';
 import { requireScope } from '@/lib/request-scope';
 import chatterRoute from '@/pages/api/demo/chatter';
 
 jest.mock('@/lib/event-store', () => ({ appendEvent: jest.fn(), readState: jest.fn() }));
 jest.mock('@/lib/demo-guard', () => ({ databaseFull: jest.fn() }));
 jest.mock('@/lib/request-scope', () => ({ requireScope: jest.fn() }));
-jest.mock('@/lib/prisma', () => ({ prisma: {} }));
+jest.mock('@/lib/prisma', () => ({ prisma: { class: { findFirst: jest.fn() } } }));
+jest.mock('@/lib/demo', () => ({
+  ...jest.requireActual('@/lib/demo'),
+  currentDemoCourse: jest.fn(),
+}));
 
 const scope = { courseId: 'course', classId: 'class' };
 const db = {} as any;
@@ -42,8 +48,14 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  stopChatter(scope);
+  stopChatter();
   jest.useRealTimers();
+});
+
+it('runs one simulated chat in the whole demo and never extends it', async () => {
+  const first = startChatter(db, scope, 0);
+  expect(startChatter(db, { courseId: 'course', classId: 'other' }, 0).running).toBe(false);
+  expect(startChatter(db, scope, 60_000).endsAt).toBe(first.endsAt);
 });
 
 it('posts as a checked-in, unmuted student under their anonymous name', async () => {
@@ -113,10 +125,22 @@ describe('the route', () => {
     expect(chatterStatus(scope).running).toBe(false);
   });
 
+  it('runs only in the live demo session', async () => {
+    process.env.CHECKHEN_DEMO = '1';
+    process.env.CHECKHEN_MODE = 'hosted';
+    (requireScope as jest.Mock).mockResolvedValue({ scope, user: { id: 'hoot' }, admin: true });
+    (currentDemoCourse as jest.Mock).mockResolvedValue({ id: 'course' });
+    (prisma.class.findFirst as jest.Mock).mockResolvedValue({ id: 'newer-session' });
+    expect((await invoke('POST', { action: 'start' }))._getStatusCode()).toBe(409);
+    expect(chatterStatus(scope).running).toBe(false);
+  });
+
   it('starts and stops for the selected session', async () => {
     process.env.CHECKHEN_DEMO = '1';
     process.env.CHECKHEN_MODE = 'hosted';
     (requireScope as jest.Mock).mockResolvedValue({ scope, user: { id: 'hoot' }, admin: true });
+    (currentDemoCourse as jest.Mock).mockResolvedValue({ id: 'course' });
+    (prisma.class.findFirst as jest.Mock).mockResolvedValue({ id: 'class' });
     expect((await invoke('POST', { action: 'start' }))._getJSONData().running).toBe(true);
     expect((await invoke('GET'))._getJSONData().running).toBe(true);
     expect((await invoke('POST', { action: 'stop' }))._getJSONData().running).toBe(false);

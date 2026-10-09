@@ -1,5 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { isDemo, seedDemo } from '@/lib/demo';
+import { currentDemoCourse, isDemo, seedDemo } from '@/lib/demo';
+import { stopChatter } from '@/lib/demo-chatter';
+import { appendEvent, readState } from '@/lib/event-store';
 import { prisma } from '@/lib/prisma';
 import { requireIdentity } from '@/lib/request-scope';
 
@@ -19,6 +21,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const identity = await requireIdentity(req, res, true, { bucket: 'reset', pastSizeCap: true });
   if (!identity) {
     return;
+  }
+  // The old demo course is set aside: end its open sessions and its simulated chat, so
+  // nothing keeps running against it.
+  stopChatter();
+  const previous = await currentDemoCourse(prisma);
+  if (previous) {
+    for (const session of await prisma.class.findMany({ where: { courseId: previous.id } })) {
+      const scope = { courseId: previous.id, classId: session.id };
+      if (!(await readState(prisma, scope)).endedAt) {
+        await appendEvent(prisma, {
+          ...scope,
+          actorId: identity.user.id,
+          kind: 'SESSION_ENDED',
+          payload: {},
+        });
+      }
+    }
   }
   return res.json(await seedDemo(prisma));
 }

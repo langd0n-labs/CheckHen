@@ -6,6 +6,7 @@ function normalizeHex(raw: string): string | null {
   if (/^#[0-9a-fA-F]{8}$/.test(s)) return s.slice(0, 7);
   return null;
 }
+import { isDemo } from '@/lib/demo';
 import { requireIdentity } from '@/lib/request-scope';
 import { prisma } from '@/lib/prisma';
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -23,6 +24,8 @@ export default async function handler(
   }
 
   if (!(await requireIdentity(req, res, true))) return;
+  // The demo has one live session; Reset demo starts over with a fresh one.
+  if (isDemo()) return res.status(403).json({ message: 'The demo cannot start new classes' });
 
   const courseId = req.query.courseId ?? req.body?.courseId;
   if (typeof courseId !== 'string' || !await prisma.course.findUnique({ where: { id: courseId } })) {
