@@ -124,8 +124,8 @@ export default function StudentHelp() {
                 open on another device does not count. If CheckHen hears nothing from it for longer
                 than the limit your instructor set (30 seconds unless they chose another), CheckHen
                 records an automatic fail. The time counts from the last time CheckHen heard your
-                device, which can be a few seconds before it disconnected. Raise your hand if that happens; your instructor can excuse the
-                fail with a reason.
+                device, which can be a few seconds before it disconnected. Raise your hand if that
+                happens; your instructor can excuse the fail with a reason.
               </Text>
             </>
           ),

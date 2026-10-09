@@ -196,16 +196,15 @@ export default function InstructorHelp() {
                   already checked in cannot join.
                 </List.Item>
                 <List.Item>
-                  A student who opened an allowed site before the start may need to reload it
-                  once.
+                  A student who opened an allowed site before the start may need to reload it once.
                 </List.Item>
                 <List.Item>
                   CheckHen watches each student&apos;s exam device: the device they checked in with
                   first. Both its open class page and its Wi-Fi connection count; another device
                   does not. A student whose exam device CheckHen has not heard from for longer than
                   the limit gets an automatic fail, shown on the dashboard. The time counts from the
-                  last time CheckHen heard the device, which can be a few seconds before it left. Tell students to take the exam on
-                  the device they checked in with first.
+                  last time CheckHen heard the device, which can be a few seconds before it left.
+                  Tell students to take the exam on the device they checked in with first.
                 </List.Item>
                 <List.Item>
                   Excuse a fail with a reason. The fail stays in the record, marked excused. Each
