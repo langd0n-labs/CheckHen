@@ -249,7 +249,8 @@ def client_status(client: dict, threshold: int, now: float) -> dict:
     last_seen = max(client["lastHeartbeat"], client["lastStation"])
     connected = now - last_seen <= min(CONNECTED_SECONDS, threshold)
     return {"connected": connected, "disconnectedAt": None if connected else last_seen,
-            "failed": bool(client.get("reported")) or client.get("failedAt") is not None}
+            "failed": bool(client.get("reported") or client.get("pendingFails")) or
+            client.get("failedAt") is not None}
 
 
 def connection_status(state: dict, stations: dict[str, float] | None, now: float) -> list[dict]:
@@ -290,9 +291,12 @@ def connection_status(state: dict, stations: dict[str, float] | None, now: float
             # A fail saved before fail IDs existed gets one, so it can be reported.
             client["failId"] = secrets.token_hex(16)
         last_seen = max(client["lastHeartbeat"], client["lastStation"])
-        if now - last_seen <= min(CONNECTED_SECONDS, threshold) and client.get("reported"):
-            # The reported drop has ended. A later drop is a separate fail, even after
-            # the instructor excused this one.
+        if now - last_seen <= min(CONNECTED_SECONDS, threshold) and client.get("failedAt") is not None:
+            # The drop has ended. A later drop is a separate fail, even after the
+            # instructor excused this one. A fail not yet reported waits in
+            # pendingFails, so a second drop never merges into it.
+            if not client.get("reported"):
+                client.setdefault("pendingFails", []).append(client["failId"])
             client.update(failedAt=None, failId=None, reported=False)
         missing = now - last_seen > threshold
         returned_after_gap = trusted and bool(arrivals) and min(arrivals) - previous > threshold
@@ -340,9 +344,13 @@ def status(state: dict, now: float) -> list[dict]:
 
 def unreported(state: dict) -> list[dict]:
     scope = {key: state[key] for key in ("courseId", "classId", "examId")}
-    return [{**scope, "userId": user_id, "failId": client.get("failId")}
-            for user_id, client in state["clients"].items()
-            if client.get("failedAt") is not None and not client.get("reported")]
+    fails = []
+    for user_id, client in state["clients"].items():
+        fail_ids = list(client.get("pendingFails", []))
+        if client.get("failedAt") is not None and not client.get("reported"):
+            fail_ids.append(client.get("failId"))
+        fails.extend({**scope, "userId": user_id, "failId": fail_id} for fail_id in fail_ids)
+    return fails
 
 
 def mark_reported(exam_id: str, user_id: str, fail_id: str) -> None:
@@ -351,6 +359,9 @@ def mark_reported(exam_id: str, user_id: str, fail_id: str) -> None:
         client = state["clients"].get(user_id)
         if client and client.get("failId") == fail_id:
             client["reported"] = True
+            save(state)
+        elif client and fail_id in client.get("pendingFails", []):
+            client["pendingFails"].remove(fail_id)
             save(state)
 
 

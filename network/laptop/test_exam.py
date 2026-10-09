@@ -187,15 +187,33 @@ class ExamTests(unittest.TestCase):
         exam.connection_status(state, {}, 131)
         first = state["clients"]["student"]["failId"]
         self.assertTrue(first)
-        # An unreported fail survives reconnection.
+        # An unreported fail survives reconnection, waiting to be reported.
         exam.connection_status(state, {mac: 0}, 140)
-        self.assertEqual(state["clients"]["student"]["failId"], first)
-        state["clients"]["student"]["reported"] = True
+        self.assertEqual(state["clients"]["student"]["pendingFails"], [first])
+        self.assertEqual([fail["failId"] for fail in exam.unreported(state)], [first])
+        self.assertTrue(exam.connection_status(state, {mac: 0}, 140.5)[0]["failed"])
+        state["clients"]["student"]["pendingFails"] = []
         self.assertFalse(exam.connection_status(state, {mac: 0}, 141)[0]["failed"])
         # A later drop, even after the first was excused, is a new fail with a new ID.
         self.assertFalse(exam.connection_status(state, {}, 171)[0]["failed"])
         self.assertTrue(exam.connection_status(state, {}, 171.5)[0]["failed"])
         self.assertNotEqual(state["clients"]["student"]["failId"], first)
+
+    def test_second_drop_while_callbacks_fail_is_its_own_fail(self):
+        mac = "02:00:00:00:00:20"
+        state = self.state()
+        exam.save(state)
+        first = exam.monitor({}, 131)
+        exam.monitor({mac: 0}, 140)
+        exam.monitor({mac: 30.5}, 170.5)
+        pending = exam.monitor({mac: 30.5}, 171)
+        self.assertEqual(len(pending), 2)
+        self.assertEqual(pending[0]["failId"], first[0]["failId"])
+        self.assertNotEqual(pending[1]["failId"], first[0]["failId"])
+        # Reporting each one clears it, in any order.
+        exam.mark_reported("exam", "student", pending[1]["failId"])
+        exam.mark_reported("exam", "student", pending[0]["failId"])
+        self.assertEqual(exam.unreported(exam.read()), [])
 
     def test_short_threshold_does_not_rearm_while_absent(self):
         state = self.state(threshold=5)

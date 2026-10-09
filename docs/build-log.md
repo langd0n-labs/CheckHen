@@ -1525,3 +1525,6 @@ The tunnel stays closed until AICP confirms.
   during an exam. The rules load in nftables (checked in a scratch namespace).
 - m4: the dashboard counts open and excused fails separately; two open fails show
   "Failed ×2", not "Failed" and "Excused".
+- m5: when a student reconnects before their fail is reported, the fail moves to
+  `pendingFails` and detection re-arms, so a second drop while callbacks fail is a
+  second fail. The worker reports each pending fail by its ID.
