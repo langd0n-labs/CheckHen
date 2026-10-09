@@ -1535,3 +1535,6 @@ The tunnel stays closed until AICP confirms.
   boot ID; after a reboot (the state directory is on disk), evidence starts over
   from the first pass instead of failing everyone. `/exam-status` converts
   disconnect times to wall-clock time for the dashboard.
+- m8: exam stop clears the DNS filter before the gate and ignores a dnsmasq process
+  that is gone (a restarted dnsmasq already read the emptied file). If a step
+  fails, `exam.json` stays so a retried stop can finish.

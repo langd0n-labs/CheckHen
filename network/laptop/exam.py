@@ -236,8 +236,14 @@ def stop(scope: dict) -> None:
         return
     if any(state[key] != scope[key] for key in ("courseId", "classId")):
         raise PermissionError("Wrong exam session")
+    # Clear the DNS filter before the gate. If a step fails, exam.json stays and a
+    # retried stop finishes the job; a dnsmasq that has restarted already read the
+    # emptied file, so its old process ID is no reason to stop.
+    try:
+        write_dns([], state["dnsmasqPid"])
+    except ProcessLookupError:
+        pass
     apply_policy(False, state["uplink"])
-    write_dns([], state["dnsmasqPid"])
     EXAM.unlink(missing_ok=True)
     for key in [key for key in HEARTBEATS if key[:2] == (scope["courseId"], scope["classId"])]:
         del HEARTBEATS[key]

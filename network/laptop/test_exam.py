@@ -354,6 +354,23 @@ class ExamTests(unittest.TestCase):
         status = exam.status(state, 140, wall=1_700_000_040)[0]
         self.assertEqual(status["disconnectedAt"], 1_700_000_000)
 
+    def test_stop_finishes_when_dnsmasq_has_restarted(self):
+        exam.save({**self.state(), "uplink": "eth0", "dnsmasqPid": 999999})
+        with patch.object(exam.os, "kill", side_effect=ProcessLookupError), \
+             patch.object(exam, "apply_policy") as gate:
+            exam.stop({"courseId": "course", "classId": "class"})
+        gate.assert_called_once_with(False, "eth0")
+        self.assertEqual(exam.DNS_SERVERS.read_text(), "\n")
+        self.assertIsNone(exam.read())
+
+    def test_failed_stop_keeps_the_exam_for_a_retry(self):
+        exam.save({**self.state(), "uplink": "eth0", "dnsmasqPid": 123})
+        with patch.object(exam.os, "kill"), \
+             patch.object(exam, "apply_policy", side_effect=subprocess.CalledProcessError(1, "nft")), \
+             self.assertRaises(subprocess.CalledProcessError):
+            exam.stop({"courseId": "course", "classId": "class"})
+        self.assertIsNotNone(exam.read())
+
     def test_ordinary_class_never_touches_the_exam_gate(self):
         # With no exam running, the monitor and a heartbeat return before any nft,
         # DNS, or callback work, so the exam chains stay empty.
