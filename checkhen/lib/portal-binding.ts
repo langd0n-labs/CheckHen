@@ -105,25 +105,31 @@ export async function bindDevice(
   return (await callAgent('bind', { ...scope, userId: user.id, ip: clientAddress(req) }))!;
 }
 
+/** Without an agent nothing was ever bound, so there is nothing to revoke. */
+const noAgent = () => !process.env.PORTAL_AGENT_URL;
+
 export async function revokeDevice(
   binding: DeviceBinding | null,
   scope: Scope,
   user: Identity
 ): Promise<void> {
-  if (!binding) {
+  if (!binding || noAgent()) {
     return;
   }
   await callAgent('revoke', { ...scope, userId: user.id, ip: binding.ip });
 }
 
 export async function revokeCurrentDevice(req: NextApiRequest, scope: Scope, user: Identity): Promise<void> {
+  if (noAgent()) return;
   await callAgent('revoke', { ...scope, userId: user.id, ip: clientAddress(req) });
 }
 
 export async function revokeStudentDevices(scope: Scope, user: Identity): Promise<void> {
+  if (noAgent()) return;
   await callAgent('revoke-student', { ...scope, userId: user.id });
 }
 
 export async function revokeSessionDevices(scope: Scope): Promise<void> {
+  if (noAgent()) return;
   await callAgent('revoke-session', scope);
 }

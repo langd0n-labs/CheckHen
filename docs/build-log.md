@@ -1614,3 +1614,10 @@ The host's firewall must allow TCP 8190.
 Checked on 2026-10-09 from the build host over the LAN: `/api/mode` reports hosted demo,
 `/api/demo` lists 11 personas and a live session, and the instructor, caller
 (375x667), and student pass end to end in headless Chromium with no page errors.
+
+### Ending a hosted class without an agent
+
+- End class, checkout, and session expiry called the agent to revoke devices, and
+  with no agent configured (hosted mode) that call failed with 503, so a hosted
+  class could not be ended. Revocation now does nothing without an agent: nothing
+  can have been bound.

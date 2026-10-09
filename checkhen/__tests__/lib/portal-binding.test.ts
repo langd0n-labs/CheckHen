@@ -88,3 +88,15 @@ it('revokes only the requesting second device', async () => {
   expect(global.fetch).toHaveBeenCalledWith('http://127.0.0.1:7878/revoke',
     expect.objectContaining({ body: expect.stringContaining('172.16.77.21') }));
 });
+
+it('revokes nothing, and does not fail, when no agent is configured', async () => {
+  const url = process.env.PORTAL_AGENT_URL;
+  delete process.env.PORTAL_AGENT_URL;
+  try {
+    await revokeSessionDevices(scope);
+    await revokeStudentDevices(scope, user);
+    expect(global.fetch).not.toHaveBeenCalled();
+  } finally {
+    process.env.PORTAL_AGENT_URL = url;
+  }
+});
