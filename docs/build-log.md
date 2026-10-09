@@ -1646,3 +1646,11 @@ correct through the routes, checked against the course record).
   beside Cold call. It opens the call screen straight into roll call
   (`/admin/call?roll-call`), and Done returns to the dashboard. The Roll call button
   on the call screen stays.
+
+### Demo personas with names and pronouns
+
+- Operator request, 2026-10-09: students now have person-style names (Clover Mead,
+  Pepper Hogan, ...), so a real name is easy to tell from an anonymous chat name
+  (Swift Panda, ...) on the dashboard. Pronouns vary: she/her, he/him, and
+  they/them. The animal avatars and notes stay. A reset applies them to an existing
+  demo database.

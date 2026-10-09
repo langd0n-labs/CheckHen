@@ -34,76 +34,94 @@ export async function demoDatabaseProblem(db: PrismaClient): Promise<string | nu
   return users || courses ? DEMO_DATABASE_REFUSED : null;
 }
 
-export type Persona = { email: string; name: string; emoji: string; color: string; note: string };
+export type Persona = {
+  email: string;
+  /** A person's name, unlike the animal-style anonymous names students chat under. */
+  name: string;
+  pronouns: string;
+  emoji: string;
+  color: string;
+  note: string;
+};
 
 /** Each student shows a pattern in the seed, so every feature has data to look at. */
 export const DEMO_STUDENTS: Persona[] = [
   {
     email: `clover@${DEMO_DOMAIN}`,
-    name: 'Clover the Cow',
+    name: 'Clover Mead',
+    pronouns: 'she/her',
     emoji: '🐄',
     color: '#e8f1ff',
     note: 'answers when called',
   },
   {
     email: `pepper@${DEMO_DOMAIN}`,
-    name: 'Pepper the Pig',
+    name: 'Pepper Hogan',
+    pronouns: 'he/him',
     emoji: '🐖',
     color: '#ffe8ef',
     note: 'had a follow-up run',
   },
   {
     email: `sage@${DEMO_DOMAIN}`,
-    name: 'Sage the Sheep',
+    name: 'Sage Woolsey',
+    pronouns: 'they/them',
     emoji: '🐑',
     color: '#f1f1f1',
     note: 'never called',
   },
   {
     email: `gus@${DEMO_DOMAIN}`,
-    name: 'Gus the Goat',
+    name: 'Gus Billings',
+    pronouns: 'he/him',
     emoji: '🐐',
     color: '#f3eee4',
     note: 'passes often',
   },
   {
     email: `daisy@${DEMO_DOMAIN}`,
-    name: 'Daisy the Duck',
+    name: 'Daisy Puddleton',
+    pronouns: 'she/her',
     emoji: '🦆',
     color: '#fff6d6',
     note: 'volunteers often',
   },
   {
     email: `hank@${DEMO_DOMAIN}`,
-    name: 'Hank the Horse',
+    name: 'Hank Stableford',
+    pronouns: 'he/him',
     emoji: '🐎',
     color: '#f5e9df',
     note: 'had a Retry',
   },
   {
     email: `rosie@${DEMO_DOMAIN}`,
-    name: 'Rosie the Rabbit',
+    name: 'Rosie Burrows',
+    pronouns: 'she/her',
     emoji: '🐇',
     color: '#f6eefc',
     note: 'has an excused absence',
   },
   {
     email: `lulu@${DEMO_DOMAIN}`,
-    name: 'Lulu the Llama',
+    name: 'Lulu Andes',
+    pronouns: 'she/her',
     emoji: '🦙',
     color: '#eaf7ee',
     note: 'answers follow-ups',
   },
   {
     email: `chip@${DEMO_DOMAIN}`,
-    name: 'Chip the Rooster',
+    name: 'Chip Crowley',
+    pronouns: 'he/him',
     emoji: '🐓',
     color: '#fff0e6',
     note: 'was skipped',
   },
   {
     email: `theo@${DEMO_DOMAIN}`,
-    name: 'Theo the Turkey',
+    name: 'Theo Turner',
+    pronouns: 'they/them',
     emoji: '🦃',
     color: '#f7ece6',
     note: 'left early once',
@@ -112,6 +130,7 @@ export const DEMO_STUDENTS: Persona[] = [
 export const DEMO_INSTRUCTOR_PERSONA: Persona = {
   email: DEMO_INSTRUCTOR,
   name: 'Professor Hoot',
+  pronouns: 'he/him',
   emoji: '🦉',
   color: '#e6f0ff',
   note: 'the instructor',
@@ -250,7 +269,7 @@ export async function seedDemo(db: Db, now = new Date()) {
     const profile = {
       displayName: persona.name,
       profilePicture: avatar(persona),
-      pronouns: 'they/them',
+      pronouns: persona.pronouns,
       namePronunciation: null,
       foodAllergies: null,
       bio: null,

@@ -1212,7 +1212,7 @@ integration('route → store → attendance fold', () => {
     const second = await seedDemo(prisma, new Date('2026-10-06T19:00:00Z'));
     expect(await prisma.user.findUnique({ where: { email: clover } })).toMatchObject({
       bio: null,
-      pronouns: 'they/them',
+      pronouns: 'she/her',
       namePronunciation: null,
       foodAllergies: null,
     });
