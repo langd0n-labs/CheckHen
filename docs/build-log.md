@@ -1545,3 +1545,10 @@ The tunnel stays closed until AICP confirms.
 - m11: the instructor help says the allowlist works by address, so a site on a
   shared content network can let a determined student reach other sites there.
   `docs/network-filtering.md` lists the same limit.
+- m12: tests added for the worker's seeding path (addresses are added only while
+  the same exam runs) and, in Jest, for the fail-ID dedupe (it fails when the dedupe
+  is removed). The lock, callback, stall, stale-snapshot, and two-device tests came
+  with the M1 and M5 fixes.
+- Needs x1 hardware: none of m2-m12. The x1 operator checks above still apply.
+
+Verified: Python 79 tests; Jest 38 suites, 348 tests.

@@ -213,6 +213,22 @@ class AgentTests(unittest.TestCase):
         stop.assert_called_once()
         self.assertEqual(body, {"unreported": [fail]})
 
+    def test_worker_adds_seeded_addresses_only_to_the_same_exam(self):
+        state = {"courseId": "course", "classId": "class", "examId": "exam"}
+        with patch.object(exam, "unreported", return_value=[]), \
+             patch.object(exam, "seed_due", return_value=["accounts.google.com"]), \
+             patch.object(exam, "resolve", return_value=["142.250.80.45"]) as resolve, \
+             patch.object(exam, "add_addresses") as add:
+            with patch.object(exam, "read", return_value=state):
+                agent.worker_pass("http://127.0.0.1:9/checkout", "172.16.77.1")
+            resolve.assert_called_once_with("172.16.77.1", "accounts.google.com")
+            add.assert_called_once_with(["142.250.80.45"])
+            add.reset_mock()
+            # The exam changed while the lookup ran: its answers are not added.
+            with patch.object(exam, "read", side_effect=[state, {**state, "examId": "next"}]):
+                agent.worker_pass("http://127.0.0.1:9/checkout", "172.16.77.1")
+            add.assert_not_called()
+
     def test_exam_status_reports_monitor_health(self):
         scope = {"courseId": "course", "classId": "class", "timestamp": int(time.time() * 1000)}
         state = {"courseId": "course", "classId": "class", "examId": "exam", "thresholdSeconds": 30,

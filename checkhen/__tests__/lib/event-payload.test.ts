@@ -1,4 +1,4 @@
-import { validatePayload } from '@/lib/event-store';
+import { appendEvent, validatePayload } from '@/lib/event-store';
 
 jest.mock('@/lib/prisma', () => ({ prisma: {} }));
 
@@ -30,4 +30,44 @@ it('still accepts an exam start with fifty long domains', () => {
   expect(() =>
     validatePayload('EXAM_STARTED', { examId: 'exam', domains, thresholdSeconds: 30 })
   ).not.toThrow();
+});
+
+describe('a repeated exam fail report', () => {
+  const stored = {
+    id: 'fail-event',
+    courseId: 'course',
+    classId: 'class',
+    userId: 'student',
+    actorId: 'system:exam-monitor',
+    kind: 'EXAM_FAILED',
+    payload: { examId: 'exam', failId: 'drop-1' },
+    createdAt: new Date(),
+    supersedesId: null,
+  };
+  const tx = {
+    $queryRaw: jest.fn().mockResolvedValue([{ id: 'class' }]),
+    rosterEntry: { findUnique: jest.fn().mockResolvedValue({ active: true }) },
+    participationEvent: {
+      findMany: jest.fn().mockResolvedValue([stored]),
+      findFirst: jest.fn().mockResolvedValue(stored),
+      create: jest.fn(async ({ data }) => data),
+    },
+  };
+  const db = { $transaction: (run: (client: typeof tx) => unknown) => run(tx) } as any;
+  const report = (failId: string) =>
+    appendEvent(db, {
+      courseId: 'course',
+      classId: 'class',
+      actorId: 'system:exam-monitor',
+      userId: 'student',
+      kind: 'EXAM_FAILED',
+      payload: { examId: 'exam', failId },
+    });
+
+  it('is stored once, by its fail ID', async () => {
+    expect((await report('drop-1')).id).toBe('fail-event');
+    expect(tx.participationEvent.create).not.toHaveBeenCalled();
+    await report('drop-2');
+    expect(tx.participationEvent.create).toHaveBeenCalledTimes(1);
+  });
 });
