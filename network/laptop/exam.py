@@ -304,7 +304,10 @@ def connection_status(state: dict, stations: dict[str, float] | None, now: float
             if heard[0] > previous:
                 arrivals.append(heard[0])
             client["lastHeartbeat"] = max(client["lastHeartbeat"], heard[1])
-        if stations and client["mac"] in stations:
+        # A listed station with no inactive time is unknown, not absent: no evidence,
+        # and no new fail for this client from this poll.
+        unknown = bool(stations) and client["mac"] in stations and stations[client["mac"]] is None
+        if stations and client["mac"] in stations and not unknown:
             seen = now - stations[client["mac"]]
             if seen > previous:
                 arrivals.append(seen)
@@ -322,7 +325,7 @@ def connection_status(state: dict, stations: dict[str, float] | None, now: float
             client.update(failedAt=None, failId=None, reported=False)
         missing = now - last_seen > threshold
         returned_after_gap = trusted and bool(arrivals) and min(arrivals) - previous > threshold
-        if (stations is not None and client.get("failedAt") is None and
+        if (stations is not None and not unknown and client.get("failedAt") is None and
                 (missing or returned_after_gap)):
             client.update(failedAt=now, failId=secrets.token_hex(16))
         result.append({"userId": user_id, **client_status(client, threshold, now)})

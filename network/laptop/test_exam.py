@@ -371,6 +371,14 @@ class ExamTests(unittest.TestCase):
             exam.stop({"courseId": "course", "classId": "class"})
         self.assertIsNotNone(exam.read())
 
+    def test_station_with_unknown_inactive_time_records_no_fail(self):
+        mac = "02:00:00:00:00:20"
+        state = self.state()
+        status = exam.connection_status(state, {mac: None}, 200)[0]
+        self.assertFalse(status["failed"])
+        self.assertEqual(state["clients"]["student"]["lastStation"], 100)
+        self.assertEqual(exam.probe_due(state, {mac: None}, 200), [])
+
     def test_ordinary_class_never_touches_the_exam_gate(self):
         # With no exam running, the monitor and a heartbeat return before any nft,
         # DNS, or callback work, so the exam chains stay empty.

@@ -322,10 +322,13 @@ class AgentTests(unittest.TestCase):
     def test_station_dump_parsing(self):
         output = type("Result", (), {"returncode": 0, "stdout":
                 "Station 02:00:00:00:00:20 (on wlan0)\n\tinactive time:\t1500 ms\n\trx bytes:\t1\n"
-                "Station 02:00:00:00:00:21 (on wlan0)\n\tinactive time: 12 ms\n"})()
+                "Station 02:00:00:00:00:21 (on wlan0)\n\tinactive time: 12 ms\n"
+                "Station 02:00:00:00:00:22 (on wlan0)\n\trx bytes:\t1\n"})()
         with patch.object(agent.subprocess, "run", return_value=output):
+            # A station without an inactive time is listed as unknown, not dropped.
             self.assertEqual(agent.station_activity("wlan0"),
-                             {"02:00:00:00:00:20": 1.5, "02:00:00:00:00:21": 0.012})
+                             {"02:00:00:00:00:20": 1.5, "02:00:00:00:00:21": 0.012,
+                              "02:00:00:00:00:22": None})
         failed = type("Result", (), {"returncode": 1, "stdout": ""})()
         with patch.object(agent.subprocess, "run", return_value=failed):
             self.assertIsNone(agent.station_activity("wlan0"))

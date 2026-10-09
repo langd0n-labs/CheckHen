@@ -206,8 +206,11 @@ def reconcile_bindings() -> None:
     save(current)
 
 
-def station_activity(interface: str) -> dict[str, float] | None:
-    """Map each associated station to seconds since the AP last heard from it."""
+def station_activity(interface: str) -> dict[str, float | None] | None:
+    """Map each associated station to seconds since the AP last heard from it.
+
+    A station listed without an inactive time maps to None: present, time unknown.
+    """
     try:
         # Bounded: a slow poll widens the gap between polls, which the monitor detects.
         result = subprocess.run(["iw", "dev", interface, "station", "dump"],
@@ -216,12 +219,13 @@ def station_activity(interface: str) -> dict[str, float] | None:
         return None
     if result.returncode:
         return None
-    stations: dict[str, float] = {}
+    stations: dict[str, float | None] = {}
     mac = None
     for line in result.stdout.splitlines():
         fields = line.split()
         if line.startswith("Station ") and len(fields) >= 2 and MAC.fullmatch(fields[1]):
             mac = fields[1].lower()
+            stations[mac] = None
         elif mac and (match := re.match(r"\s*inactive time:\s*(\d+) ms", line)):
             stations[mac] = int(match.group(1)) / 1000
             mac = None

@@ -1538,3 +1538,5 @@ The tunnel stays closed until AICP confirms.
 - m8: exam stop clears the DNS filter before the gate and ignores a dnsmasq process
   that is gone (a restarted dnsmasq already read the emptied file). If a step
   fails, `exam.json` stays so a retried stop can finish.
+- m9: a station listed by `iw` without an inactive time is unknown, not absent: it
+  adds no evidence, records no new fail for that student, and gets no probe.
