@@ -1783,3 +1783,14 @@ Operator action before opening, in Cloudflare for `checkhen-demo.rfkill.dev`
 `/api/`, counting by IP, 100 requests per 10 seconds, action Block for 1 minute; and
 one matching `/api/demo/reset` and `/api/auth/callback/demo`, 10 requests per minute
 per IP, Block for 10 minutes.
+
+### A full demo says so
+
+- The event log is append-only, so a reset cannot free space. The answer to a full demo
+  is the documented recreate (`down -v`, then start). Until then, `/api/mode` reports
+  `full: true` and every page shows "This demo is full: you can look around but changes
+  are not saved." (review item 5 and minor m1).
+- Minors: m3 (shared reset cap) is covered by the Cloudflare rule on `/api/demo/reset`;
+  m4 by the first `/demo` visit in the pre-open list; m6 (two concurrent schedule
+  creations can pass 50 outside demo mode) is left as is; m5 (private details in the
+  unpushed history) waits on the operator's choice before any push.
