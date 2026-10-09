@@ -1448,3 +1448,10 @@ cases.
 - The namespace test signs its actions too.
 
 Verified: Python 71 tests; Jest 37 suites, 336 tests.
+
+### Fix 6: `docs/network-filtering.md` rewritten (M5 review finding 12)
+
+- The doc now describes the laptop AP design: the components, class-network
+  admission and sign-in domains, exam start, allowed addresses, connection
+  checks, stop, signed requests, limits, commands, and troubleshooting. The Pi,
+  iptables, the dnsmasq container, and the Google address ranges are gone.
