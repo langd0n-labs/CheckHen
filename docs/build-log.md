@@ -57,6 +57,12 @@ Branch: build/m0-m2. Scope: M0 through M5, then M7 and M8.
   on the LAN, so the demo can be viewed without an SSH tunnel. Demo mode only, its
   own database, no tunnel and no public hostname. The build host's stack stays the origin
   for the public tunnel at checkhen-demo.rfkill.dev. Relayed by AICP.
+- 2026-10-09, operator: before any push, rewrite the unpushed commits to remove
+  private host details (LAN address, host names, local paths) from the build log and
+  the commit messages; push the cleaned branch as `build/m0-m8` (approved); open a
+  pull request from it to `main` in `langd0n-labs/CheckHen`, which AICP and the
+  operator merge. A pull request to upstream (`a1icja/CheckHen`) comes later, from a
+  clean branch cut from `main`. Relayed by AICP.
 - 2026-10-06, operator: the call screen (I3) is the instructor's private phone
   view and is not designed for projection; the brief projects only I5 and I6.
   A projected cold-call view, if one is ever built, shows who is called and
