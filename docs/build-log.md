@@ -1810,3 +1810,9 @@ Report: AICP review of the PR #3 range (kept outside the repository).
   photo upload no longer calls the gate: demo mode refuses it before, and outside demo
   mode the gate does nothing. Every other write reaches the gate through
   `requireIdentity`, which checks the session first.
+- Socket cap: the socket server counts only sockets that passed the ticket check
+  toward `MAX_SOCKETS`, and drops a connection that has not joined with a valid ticket
+  after 5 s (`connectTimeout`; checked: a raw connection with no ticket closed after
+  5.0 s, was 45 s). The hosted proxy keys its per-client limits on the IPv6 /64 and
+  limits how fast one client opens socket requests (5 a second, burst 20); checked:
+  60 requests from one /64 got 21 through, 60 from separate networks all passed.

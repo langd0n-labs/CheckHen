@@ -9,14 +9,18 @@ const io = new Server(Number(process.env.PORT || 6060), {
   cors: {
     origin: [process.env.NEXTAUTH_URL || "http://localhost:3000", process.env.SLIDEV_ORIGIN].filter(Boolean) as string[],
   },
+  // A connection that has not joined with a valid ticket is dropped after 5 s.
+  connectTimeout: 5000,
 });
 
 // Only the authenticated application can mint a short-lived socket ticket.
 const roomKey = (courseId: string, classId: string) => courseId + ':' + classId;
-// A ceiling on open sockets, so a flood of connections cannot exhaust the server.
+// A ceiling on open sockets that passed the ticket check, so connections without a
+// valid ticket cannot fill it and stop live updates for everyone.
 const MAX_SOCKETS = Number(process.env.MAX_SOCKETS || 1000);
+let ticketed = 0;
 io.use(async (socket, next) => {
-  if (io.engine.clientsCount > MAX_SOCKETS) return next(new Error('Too many connections'));
+  if (ticketed >= MAX_SOCKETS) return next(new Error('Too many connections'));
   try {
     const ticket = socket.handshake.auth.ticket;
     const [payload, signature] = typeof ticket === 'string' ? ticket.split('.') : [];
@@ -102,6 +106,8 @@ cron.schedule("* * * * *", async () => {
 
 // Join only after scope and roster validation. Client messages cannot request broadcasts.
 io.on("connection", socket => {
+  ticketed += 1;
+  socket.on("disconnect", () => { ticketed -= 1; });
   const room = roomKey(socket.data.courseId, socket.data.classId);
   socket.join(room);
   if (!socket.data.admin && socket.data.userId) {
