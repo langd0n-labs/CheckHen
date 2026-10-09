@@ -121,6 +121,34 @@ describe('event-backed check-in', () => {
       })
     );
   });
+  describe('in hosted mode', () => {
+    beforeEach(() => {
+      process.env.CHECKHEN_MODE = 'hosted';
+    });
+    afterEach(() => {
+      delete process.env.CHECKHEN_MODE;
+    });
+    it('records a self-reported check-in without binding a device', async () => {
+      expect((await invoke(checkIn, 'POST'))._getStatusCode()).toBe(200);
+      expect(bindDevice).not.toHaveBeenCalled();
+      expect(appendEvent).toHaveBeenCalledWith(
+        prisma,
+        expect.objectContaining({
+          kind: 'CHECK_IN',
+          payload: { anonymousName: 'Calm Otter', selfReported: true },
+        })
+      );
+    });
+    it('checks out without the network agent', async () => {
+      (readState as jest.Mock).mockResolvedValue(checkedIn());
+      expect((await invoke(checkOut, 'POST'))._getStatusCode()).toBe(200);
+      expect(revokeStudentDevices).not.toHaveBeenCalled();
+      expect(appendEvent).toHaveBeenCalledWith(
+        prisma,
+        expect.objectContaining({ kind: 'CHECK_OUT' })
+      );
+    });
+  });
   it('does not duplicate an active check-in', async () => {
     (readState as jest.Mock).mockResolvedValue(checkedIn());
     expect((await invoke(checkIn, 'POST'))._getStatusCode()).toBe(200);

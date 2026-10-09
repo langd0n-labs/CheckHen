@@ -841,6 +841,50 @@ integration('route → store → attendance fold', () => {
       }
     });
 
+    it('lets roll call confirm or correct a hosted self check-in', async () => {
+      process.env.CHECKHEN_MODE = 'hosted';
+      try {
+        const bea = await prisma.user.create({
+          data: { email: `self-${randomUUID()}@example.edu`, displayName: 'Bea' },
+        });
+        await prisma.rosterEntry.create({ data: { courseId: scope.courseId, userId: bea.id } });
+        (requireScope as jest.Mock).mockResolvedValueOnce({
+          user: bea,
+          selected,
+          scope,
+          admin: false,
+        });
+        const joined = createMocks({ method: 'POST', query: scope });
+        await checkIn(joined.req as any, joined.res as any);
+        expect(joined.res._getStatusCode()).toBe(200);
+        const roll = async () =>
+          (await call('POST', { action: 'roll-call' }))
+            ._getJSONData()
+            .students.find((entry: any) => entry.userId === bea.id);
+        (requireIdentity as jest.Mock).mockResolvedValue({
+          user: { id: 'instructor' },
+          admin: true,
+        });
+        const record = async () => {
+          const { req, res } = createMocks({ method: 'GET', query: { courseId: scope.courseId } });
+          await courseReportRoute(req as any, res as any);
+          return res._getJSONData().report.students.find((row: any) => row.userId === bea.id);
+        };
+        expect(await roll()).toMatchObject({ present: true, selfReported: true });
+        expect(await record()).toMatchObject({ sessionsAttended: 1, sessionsSelfReported: 1 });
+        // Present confirms it.
+        await call('POST', { action: 'mark', userId: bea.id, present: true });
+        expect(await roll()).toMatchObject({ present: true, selfReported: false });
+        expect(await record()).toMatchObject({ sessionsAttended: 1, sessionsSelfReported: 0 });
+        // Absent corrects it: the session no longer counts.
+        await call('POST', { action: 'mark', userId: bea.id, present: false });
+        expect(await roll()).toMatchObject({ present: false });
+        expect(await record()).toMatchObject({ sessionsAttended: 0, sessionsSelfReported: 0 });
+      } finally {
+        delete process.env.CHECKHEN_MODE;
+      }
+    });
+
     it('makes an absent student callable again when they check back in', async () => {
       const late = await student('Kim');
       await record((await draw()).draw, 'absent');

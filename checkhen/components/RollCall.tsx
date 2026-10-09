@@ -9,6 +9,8 @@ type RosterStudent = {
   pronunciation: string | null;
   photo: string | null;
   present: boolean;
+  /** Hosted mode: checked in on their own word; Present confirms, Absent corrects. */
+  selfReported?: boolean;
 };
 
 const post = (body: Record<string, unknown>) =>
@@ -100,6 +102,9 @@ export function RollCall({ onDone }: { onDone: () => void }) {
             {student.name}
           </Text>
           {student.pronunciation && <Text fz={20}>{student.pronunciation}</Text>}
+          {student.present && student.selfReported && (
+            <Text c="dimmed">Checked in on their own</Text>
+          )}
           <Text fz={22} fw={600} mt="xs">
             Present?
           </Text>
@@ -128,12 +133,22 @@ export function RollCall({ onDone }: { onDone: () => void }) {
             <Group justify="space-between" wrap="nowrap">
               <Text fw={position === index ? 700 : 400}>{entry.name}</Text>
               <Badge
-                color={entry.present ? 'green' : markedAbsent.has(entry.userId) ? 'red' : 'gray'}
+                color={
+                  entry.present
+                    ? entry.selfReported
+                      ? 'yellow'
+                      : 'green'
+                    : markedAbsent.has(entry.userId)
+                      ? 'red'
+                      : 'gray'
+                }
                 variant="light"
                 tt="none"
               >
                 {entry.present
-                  ? 'Present'
+                  ? entry.selfReported
+                    ? 'Self-reported'
+                    : 'Present'
                   : markedAbsent.has(entry.userId)
                     ? 'Absent'
                     : 'Not marked'}

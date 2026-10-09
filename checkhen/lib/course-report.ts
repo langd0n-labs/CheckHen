@@ -10,6 +10,8 @@ export type StudentRow = {
   name: string;
   email: string;
   sessionsAttended: number;
+  /** Attended sessions where the only check-in is the student's own, unconfirmed. */
+  sessionsSelfReported: number;
   sessionsHeld: number;
   handRaises: number;
   volunteerAnswers: number;
@@ -31,6 +33,8 @@ export type SessionRow = {
   name: string;
   startedAt: Date;
   checkedIn: number;
+  /** Students whose only check-in is their own, unconfirmed by roll call. */
+  selfReported: number;
   /** Every recorded question, follow-ups included; skips are not questions. */
   questions: number;
   answers: number;
@@ -76,6 +80,7 @@ export function courseReport(
   const nameOf = (userId: string) =>
     roster.find((student) => student.userId === userId)?.name ?? userId;
   const attended = new Map<string, number>();
+  const selfAttended = new Map<string, number>();
   const handRaises = new Map<string, number>();
   const examFails = new Map<string, { fails: number; excused: number }>();
   const sessionRows: SessionRow[] = [];
@@ -91,8 +96,18 @@ export function courseReport(
     const checkedIn = new Set(
       effective.filter((event) => event.kind === 'CHECK_IN').map((event) => event.userId!)
     );
+    // Hosted mode: a check-in the student made counts as attended but stays marked
+    // self-reported until roll call confirms it.
+    const selfOnly = Array.from(checkedIn).filter((userId) =>
+      effective
+        .filter((event) => event.kind === 'CHECK_IN' && event.userId === userId)
+        .every((event) => event.payload.selfReported === true)
+    );
     for (const userId of Array.from(checkedIn)) {
       attended.set(userId, (attended.get(userId) ?? 0) + 1);
+    }
+    for (const userId of selfOnly) {
+      selfAttended.set(userId, (selfAttended.get(userId) ?? 0) + 1);
     }
     let questions = 0;
     let answers = 0;
@@ -153,6 +168,7 @@ export function courseReport(
       name: session.name,
       startedAt: session.startedAt,
       checkedIn: checkedIn.size,
+      selfReported: selfOnly.length,
       questions,
       answers,
       absences: absent,
@@ -169,6 +185,7 @@ export function courseReport(
       name: student.name,
       email: student.email,
       sessionsAttended: attended.get(student.userId) ?? 0,
+      sessionsSelfReported: selfAttended.get(student.userId) ?? 0,
       sessionsHeld: meetings.length,
       handRaises: handRaises.get(student.userId) ?? 0,
       volunteerAnswers: grade.volunteerAnswers,
@@ -228,6 +245,7 @@ export function studentsCsv(report: CourseReport, config: ColdCallConfig, export
       'name',
       'email',
       'sessions_attended',
+      'sessions_self_reported',
       'sessions_held',
       'hand_raises',
       'answers',
@@ -249,6 +267,7 @@ export function studentsCsv(report: CourseReport, config: ColdCallConfig, export
       row.name,
       row.email,
       row.sessionsAttended,
+      row.sessionsSelfReported,
       row.sessionsHeld,
       row.handRaises,
       row.answers,
@@ -276,6 +295,7 @@ export function sessionsCsv(report: CourseReport, config: ColdCallConfig, export
       'session',
       'started_at',
       'checked_in',
+      'self_reported',
       'questions_asked',
       'answers',
       'absences',
@@ -289,6 +309,7 @@ export function sessionsCsv(report: CourseReport, config: ColdCallConfig, export
       row.name,
       row.startedAt.toISOString(),
       row.checkedIn,
+      row.selfReported,
       row.questions,
       row.answers,
       row.absences,

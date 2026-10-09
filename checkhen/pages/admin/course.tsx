@@ -230,6 +230,11 @@ export default function CourseRecord() {
                       </Table.Td>
                       <Table.Td ta="right">
                         {student.sessionsAttended} of {student.sessionsHeld}
+                        {student.sessionsSelfReported > 0 && (
+                          <Text size="sm" c="dimmed">
+                            {student.sessionsSelfReported} self-reported
+                          </Text>
+                        )}
                       </Table.Td>
                       <Table.Td ta="right">{student.answers}</Table.Td>
                       <Table.Td ta="right">{student.passes}</Table.Td>
@@ -288,7 +293,14 @@ export default function CourseRecord() {
                     <Table.Tr key={session.classId}>
                       <Table.Td>{date(session.startedAt)}</Table.Td>
                       <Table.Td>{session.name}</Table.Td>
-                      <Table.Td ta="right">{session.checkedIn}</Table.Td>
+                      <Table.Td ta="right">
+                        {session.checkedIn}
+                        {session.selfReported > 0 && (
+                          <Text size="sm" c="dimmed">
+                            {session.selfReported} self-reported
+                          </Text>
+                        )}
+                      </Table.Td>
                       <Table.Td ta="right">{session.questions}</Table.Td>
                       <Table.Td ta="right">{session.answers}</Table.Td>
                       <Table.Td ta="right">{session.volunteerAnswers}</Table.Td>

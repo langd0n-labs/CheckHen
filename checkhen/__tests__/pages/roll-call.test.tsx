@@ -42,3 +42,37 @@ it('steps through the roster, marking each student, and finishes', async () => {
   expect(screen.getByText('Absent', { selector: '.mantine-Badge-label' })).toBeInTheDocument();
   expect(screen.queryByText('Not marked')).not.toBeInTheDocument();
 });
+
+it('shows a self-reported check-in until roll call confirms it', async () => {
+  sessionStorage.setItem('checkhen.scope', JSON.stringify({ courseId: 'c', classId: 's' }));
+  const students = [
+    {
+      userId: 'a',
+      name: 'Ada',
+      pronunciation: null,
+      photo: null,
+      present: true,
+      selfReported: true,
+    },
+  ];
+  global.fetch = jest.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body));
+    if (body.action === 'mark') {
+      students[0] = { ...students[0], selfReported: false };
+    }
+    return { ok: true, json: async () => ({ students }) } as Response;
+  }) as jest.Mock;
+  render(
+    <MantineProvider theme={theme}>
+      <RollCall onDone={jest.fn()} />
+    </MantineProvider>
+  );
+  expect(await screen.findByText('Checked in on their own')).toBeInTheDocument();
+  expect(
+    screen.getByText('Self-reported', { selector: '.mantine-Badge-label' })
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Present' }));
+  expect(
+    await screen.findByText('Present', { selector: '.mantine-Badge-label' })
+  ).toBeInTheDocument();
+});

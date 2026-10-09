@@ -43,8 +43,9 @@ export default function StudentHelp() {
               </Text>
               <Text>To check in again, open the join page and join the session again.</Text>
               <Text>
-                When CheckHen runs at a regular web address instead of the class Wi-Fi, your
-                instructor takes attendance by roll call.
+                When CheckHen runs at a regular web address instead of the class Wi-Fi, joining the
+                session checks you in on your own word, and your instructor confirms it with roll
+                call.
               </Text>
             </>
           ),

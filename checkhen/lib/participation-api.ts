@@ -4,6 +4,7 @@ import { instructorChat, studentChat } from './chat-view';
 import { appendEvent, readState } from './event-store';
 import type { EventKind } from './events';
 import { examAgent, releaseExamNetwork } from './exam-control';
+import { checkhenMode } from './mode';
 import {
   bindDevice,
   PortalBindingError,
@@ -65,6 +66,18 @@ export function participationHandler(action: string, adminOnly = false) {
       !checkIn?.isPresent
     ) {
       return res.status(400).json({ message: 'Not currently checked in to this class' });
+    }
+    if (checkhenMode() === 'hosted' && ['check-in', 're-bind', 'check-out'].includes(action)) {
+      // Hosted mode has no access point: joining is self-reported attendance, which the
+      // instructor's roll call confirms or corrects.
+      if (action === 'check-in' && !checkIn?.isPresent) {
+        const anonymousName =
+          checkIn?.anonymousName ??
+          generateUniqueAnonymousName(state.attendance.map((entry) => entry.anonymousName));
+        await append('CHECK_IN', { anonymousName, selfReported: true });
+      }
+      if (action === 'check-out' && checkIn?.isPresent) await append('CHECK_OUT');
+      return res.json({ message: action === 'check-out' ? 'Checked out' : 'Checked in' });
     }
     if (action === 'check-in' || action === 're-bind') {
       if (action === 're-bind' && !checkIn?.isPresent) {

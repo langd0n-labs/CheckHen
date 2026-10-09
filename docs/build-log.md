@@ -1621,3 +1621,21 @@ Checked on 2026-10-09 from the build host over the LAN: `/api/mode` reports host
   with no agent configured (hosted mode) that call failed with 503, so a hosted
   class could not be ended. Revocation now does nothing without an agent: nothing
   can have been bound.
+
+## Hosted self-reported check-in (operator option b)
+
+- In hosted mode, Join writes a check-in marked `selfReported`, with no device
+  binding; check-out writes a check-out without the agent, and re-bind is a no-op.
+  Chat, hands, and pace work after joining, as for any checked-in student.
+- Roll call shows such a student as "Self-reported" ("Checked in on their own" on the
+  card). Present confirms it: a correction of the student's check-in, marked
+  `rollCall`, that keeps their anonymous name. Absent undoes the whole chain (the
+  confirmation and the original), so the session does not count. Both recheck the
+  check-ins under the session lock.
+- The course record counts, per student, sessions attended only by an unconfirmed
+  self-report (`sessions_self_reported`), and per session the students in that state
+  (`self_reported`). The course page shows both under the attendance figures.
+- Help pages describe the hosted flow. Classroom mode is unchanged.
+
+Verified: Jest 38 suites, 356 tests; PostgreSQL 43 cases (adds join, confirm, and
+correct through the routes, checked against the course record).

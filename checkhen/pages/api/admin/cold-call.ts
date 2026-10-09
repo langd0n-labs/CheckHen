@@ -284,6 +284,44 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const current = (await readState(prisma, scope)).attendance.find(
         (entry) => entry.userId === userId
       );
+      const sessionEvents = await readEvents(prisma, scope);
+      const checkIns = effectiveEvents(sessionEvents, scope).filter(
+        (event) => event.kind === 'CHECK_IN' && event.userId === userId
+      );
+      // A confirmed check-in is a correction of the student's own; undoing only the
+      // correction would bring the original back, so Absent undoes the whole chain.
+      const chains = checkIns.flatMap((event) => {
+        const chain = [event];
+        let target = event.supersedesId;
+        while (target) {
+          const earlier = sessionEvents.find((candidate) => candidate.id === target);
+          if (!earlier || earlier.kind !== 'CHECK_IN') break;
+          chain.push(earlier);
+          target = earlier.supersedesId;
+        }
+        return chain;
+      });
+      const read = checkIns.map((event) => event.id).join(',');
+      // The check-ins were read before the session lock; refuse if they changed.
+      const guard = async (tx: Prisma.TransactionClient) => {
+        const now = effectiveEvents(
+          (
+            await tx.participationEvent.findMany({
+              where: scope,
+              orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            })
+          ).map(asEvent),
+          scope
+        )
+          .filter((event) => event.kind === 'CHECK_IN' && event.userId === userId)
+          .map((event) => event.id)
+          .join(',');
+        if (now !== read) {
+          throw new ConflictError('Attendance changed. Mark the student again.');
+        }
+      };
+      const selfReportedOnly =
+        checkIns.length > 0 && checkIns.every((event) => event.payload.selfReported === true);
       try {
         if (present && !current?.isPresent) {
           // The same check-in event network attendance writes; the store keeps the
@@ -295,16 +333,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             kind: 'CHECK_IN',
             payload: { anonymousName: generateAnonymousName(), rollCall: true },
           });
+        } else if (present && current?.isPresent && selfReportedOnly) {
+          // Present confirms a self-reported check-in: a correction that keeps the
+          // student's anonymous name and marks it as confirmed by roll call.
+          await appendEvent(prisma, {
+            ...scope,
+            actorId: user.id,
+            userId,
+            kind: 'CHECK_IN',
+            payload: { anonymousName: current.anonymousName, rollCall: true },
+            supersedesId: checkIns[checkIns.length - 1].id,
+            guard,
+          });
         } else if (!present && current?.isPresent) {
-          // A roll-call Absent corrects a roll-call Present: undo the check-in, so the
-          // course record does not count the session as attended. A student who
-          // checked in on their own is checked out instead.
-          const checkIns = effectiveEvents(await readEvents(prisma, scope), scope).filter(
-            (event) => event.kind === 'CHECK_IN' && event.userId === userId
+          // Absent corrects a roll-call Present or a self-reported check-in: undo it, so
+          // the course record does not count the session as attended. A student
+          // checked in by the access point is checked out instead.
+          const correctable = checkIns.every(
+            (event) => event.payload.rollCall === true || event.payload.selfReported === true
           );
-          if (checkIns.length && checkIns.every((event) => event.payload.rollCall === true)) {
-            const read = checkIns.map((event) => event.id).join(',');
-            const [first, ...rest] = checkIns.map((event) => ({
+          if (checkIns.length && correctable) {
+            const [first, ...rest] = chains.map((event) => ({
               ...scope,
               actorId: user.id,
               userId,
@@ -312,28 +361,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               payload: { rollCall: true },
               supersedesId: event.id,
             }));
-            await appendEvent(prisma, {
-              ...first,
-              // The check-ins were read before the session lock; refuse if they changed.
-              guard: async (tx) => {
-                const current = effectiveEvents(
-                  (
-                    await tx.participationEvent.findMany({
-                      where: scope,
-                      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-                    })
-                  ).map(asEvent),
-                  scope
-                )
-                  .filter((event) => event.kind === 'CHECK_IN' && event.userId === userId)
-                  .map((event) => event.id)
-                  .join(',');
-                if (current !== read) {
-                  throw new ConflictError('Attendance changed. Mark the student again.');
-                }
-              },
-              alsoWrite: async () => rest,
-            });
+            await appendEvent(prisma, { ...first, guard, alsoWrite: async () => rest });
           } else {
             await appendEvent(prisma, {
               ...scope,
@@ -350,7 +378,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           .json({ message: error instanceof Error ? error.message : 'Could not record' });
       }
     }
-    const state = await readState(prisma, scope);
+    const events = await readEvents(prisma, scope);
+    const state = foldEvents(events, scope);
+    const effective = effectiveEvents(events, scope);
+    // Present on their own word only: every check-in this session is self-reported.
+    const selfReported = (userId: string) => {
+      const own = effective.filter((event) => event.kind === 'CHECK_IN' && event.userId === userId);
+      return own.length > 0 && own.every((event) => event.payload.selfReported === true);
+    };
     const roster = await prisma.rosterEntry.findMany({
       where: { courseId: scope.courseId, active: true },
       include: { user: true },
@@ -365,6 +400,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           present: state.attendance.some(
             (attendee) => attendee.userId === entry.userId && attendee.isPresent
           ),
+          selfReported: selfReported(entry.userId),
         }))
         .sort((a, b) => a.name.localeCompare(b.name) || a.userId.localeCompare(b.userId)),
     });

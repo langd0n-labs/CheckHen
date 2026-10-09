@@ -270,3 +270,30 @@ describe('CSV export', () => {
     expect(studentsCsv(build(), config, exportedAt)).toContain(",'=Cal,");
   });
 });
+
+it('marks attendance that only the student reported', () => {
+  const own = event('m1', 'b', 'CHECK_IN', { anonymousName: 'b', selfReported: true });
+  const meeting: Meeting = {
+    courseId: 'course',
+    classId: 'm1',
+    events: [
+      event('m1', 'a', 'CHECK_IN', { anonymousName: 'a', selfReported: true }),
+      own,
+      // Roll call confirmed Ben: a correction of his own check-in.
+      event('m1', 'b', 'CHECK_IN', { anonymousName: 'b', rollCall: true }, own.id),
+      checkIn('m1', 'c'),
+    ],
+  };
+  const report = courseReport([meeting], sessions.slice(0, 1), roster, DEFAULT_CONFIG);
+  expect(
+    report.students.map((row) => [row.userId, row.sessionsAttended, row.sessionsSelfReported])
+  ).toEqual([
+    ['a', 1, 1],
+    ['b', 1, 0],
+    ['c', 1, 0],
+  ]);
+  expect(report.sessions[0]).toMatchObject({ checkedIn: 3, selfReported: 1 });
+  expect(studentsCsv(report, DEFAULT_CONFIG, new Date()).split('\n')[0]).toContain(
+    'sessions_attended,sessions_self_reported'
+  );
+});

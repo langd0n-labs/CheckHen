@@ -170,10 +170,12 @@ export default function InstructorHelp() {
                 in by joining that network, and exam mode is available.
               </Text>
               <Text>
-                In hosted mode, CheckHen runs at a regular web address with no access point. You
-                take attendance with roll call on the cold-call screen, and exam mode is not
-                available. Chat, hands, pace, cold calling, the course record, and projection work
-                the same in both modes.
+                In hosted mode, CheckHen runs at a regular web address with no access point.
+                Students check themselves in by joining the session. Roll call on the cold-call
+                screen confirms each check-in (Present) or corrects it (Absent), and the course
+                record shows sessions a student only self-reported. Exam mode is not available.
+                Chat, hands, pace, cold calling, the course record, and projection work the same in
+                both modes.
               </Text>
             </>
           ),
