@@ -1289,6 +1289,15 @@ Before opening the tunnel, confirm in `.env.hosted`:
   loopback connections alone.
 - `AUTH_SECRET` is the demo's own. `podman inspect` shows it, so no other
   deployment may share it.
+- `NEXTAUTH_URL=https://checkhen-demo.rfkill.dev`. Sign-in redirects and the socket
+  server's allowed origin come from it; the loopback URL sends a public visitor to
+  127.0.0.1, and the session cookie is `Secure` only with https. Recreate the stack
+  after the change.
+- The demo limits (`APP_MEM_LIMIT` and the rest, `MAX_SOCKETS`) are set, and the
+  Cloudflare rate-limiting rules above exist.
+- Visit `/demo` once yourself so the seed exists before the first public visitors.
+- After the tunnel is up, sign in as a persona through the public hostname and check
+  that the dashboard and a student page load there.
 
 Confirmed on the build host on 2026-10-09: both bind addresses are 127.0.0.1, and the
 `AUTH_SECRET` in `.env.hosted` (generated for the demo) matches no other CheckHen
