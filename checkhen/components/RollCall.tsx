@@ -29,6 +29,9 @@ export function RollCall({ onDone }: { onDone: () => void }) {
   const [students, setStudents] = useState<RosterStudent[] | null>(null);
   const [index, setIndex] = useState(0);
   const [busy, setBusy] = useState(false);
+  // Absence is the default (no check-in), so the server keeps no record of an Absent
+  // mark. This roll call remembers its own, to tell "Absent" from "not asked yet".
+  const [markedAbsent, setMarkedAbsent] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     post({ action: 'roll-call' }).then(async (response) => {
@@ -52,6 +55,13 @@ export function RollCall({ onDone }: { onDone: () => void }) {
         return;
       }
       setStudents((await response.json()).students);
+      const userId = students[index].userId;
+      setMarkedAbsent((current) => {
+        const next = new Set(current);
+        if (present) next.delete(userId);
+        else next.add(userId);
+        return next;
+      });
       setIndex((current) => current + 1);
     } finally {
       setBusy(false);
@@ -117,8 +127,16 @@ export function RollCall({ onDone }: { onDone: () => void }) {
           >
             <Group justify="space-between" wrap="nowrap">
               <Text fw={position === index ? 700 : 400}>{entry.name}</Text>
-              <Badge color={entry.present ? 'green' : 'gray'} variant="light" tt="none">
-                {entry.present ? 'Present' : 'Not present'}
+              <Badge
+                color={entry.present ? 'green' : markedAbsent.has(entry.userId) ? 'red' : 'gray'}
+                variant="light"
+                tt="none"
+              >
+                {entry.present
+                  ? 'Present'
+                  : markedAbsent.has(entry.userId)
+                    ? 'Absent'
+                    : 'Not marked'}
               </Badge>
             </Group>
           </UnstyledButton>

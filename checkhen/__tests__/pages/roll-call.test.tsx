@@ -38,4 +38,7 @@ it('steps through the roster, marking each student, and finishes', async () => {
     ])
   );
   expect(screen.getByText('Roll call: 1 of 2 present')).toBeInTheDocument();
+  // An Absent mark shows as Absent, not as a student no one has asked about yet.
+  expect(screen.getByText('Absent', { selector: '.mantine-Badge-label' })).toBeInTheDocument();
+  expect(screen.queryByText('Not marked')).not.toBeInTheDocument();
 });

@@ -1503,3 +1503,10 @@ The tunnel stays closed until AICP confirms.
   resets for an hour.
 - IPv6 clients are keyed by their /64, so rotating addresses within one network
   share one limit.
+
+### Hosted/demo review minors (from 8fd5f4d-c0b5b4b)
+
+- m5: roll call refuses a mark for a student not active on the roster.
+- m6: roll call shows "Absent" for students it marked absent and "Not marked" for
+  students not yet asked. Absence is the default, so the event log still records
+  only check-ins; the course record is unchanged.
