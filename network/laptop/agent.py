@@ -139,7 +139,8 @@ def flush_checkout_notifications(secret: str, url: str, bindings: dict[str, dict
         if any(all(binding.get(key) == value for key, value in scope.items())
                for binding in bindings.values()):
             continue
-        raw = json.dumps({**scope, "timestamp": int(time.time() * 1000)}).encode()
+        raw = json.dumps({**scope, "action": "portal-expired",
+                          "timestamp": int(time.time() * 1000)}).encode()
         signature = hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
         request = urllib.request.Request(url, raw, {"Content-Type": "application/json",
                                                   "X-CheckHen-Signature": signature})
@@ -318,6 +319,10 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(raw)
             if abs(time.time() * 1000 - data["timestamp"]) > 30000:
                 raise PermissionError("Expired request")
+            # The signed body names its action, so a captured body for one action
+            # cannot be replayed against another.
+            if data.get("action") != self.path[1:]:
+                raise PermissionError("Signed action does not match the request")
             keys = (("userId", "courseId", "classId") if self.path in
                     {"/bind", "/revoke", "/revoke-student", "/exam-heartbeat"} else ("courseId", "classId"))
             if not all(isinstance(data.get(key), str) and data[key] for key in keys):

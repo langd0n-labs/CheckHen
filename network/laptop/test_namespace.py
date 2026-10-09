@@ -76,7 +76,7 @@ def ipv6_forward_probe(target: str) -> str:
 
 
 def signed_agent(address: str, secret: str, action: str, payload: dict) -> dict:
-    raw = json.dumps({**payload, "timestamp": int(time.time() * 1000)}).encode()
+    raw = json.dumps({**payload, "action": action, "timestamp": int(time.time() * 1000)}).encode()
     signature = hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
     request = urllib.request.Request(f"http://{address}:7878/{action}", raw,
                                      {"Content-Type": "application/json", "X-CheckHen-Signature": signature})
@@ -142,7 +142,11 @@ def main() -> None:
                     self.headers.get("X-CheckHen-Signature", ""), expected):
                 self.send_error(403)
                 return
-            callback_records.append(json.loads(raw))
+            record = json.loads(raw)
+            if record.get("action") != "exam-failed":
+                self.send_error(403)
+                return
+            callback_records.append(record)
             self.send_response(200)
             self.end_headers()
 
@@ -327,7 +331,7 @@ def main() -> None:
         ):
             invalid_payload = json.dumps({"courseId": "namespace-course", "classId": "namespace-session",
                                           "userId": "namespace-student", "ip": candidate_ip,
-                                          "timestamp": timestamp}).encode()
+                                          "action": "bind", "timestamp": timestamp}).encode()
             invalid_signature = hmac.new(secret.encode(), invalid_payload, hashlib.sha256).hexdigest()
             invalid_request = urllib.request.Request(f"http://{address}:7878/bind", invalid_payload,
                                                      {"X-CheckHen-Signature": invalid_signature if valid_signature else "wrong"})
@@ -341,7 +345,7 @@ def main() -> None:
                 raise RuntimeError(f"The agent accepted {label}")
         payload = json.dumps({"courseId": "namespace-course", "classId": "namespace-session",
                               "userId": "namespace-student", "ip": lease_ip,
-                              "timestamp": int(time.time() * 1000)}).encode()
+                              "action": "bind", "timestamp": int(time.time() * 1000)}).encode()
         signature = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
         request = urllib.request.Request(f"http://{address}:7878/bind", payload,
                                          {"Content-Type": "application/json",
@@ -376,7 +380,7 @@ def main() -> None:
         namespace("ip", "-4", "route", "flush", "dev", SECOND_CLIENT_IF, name=SECOND_NAMESPACE)
         second_payload = json.dumps({"courseId": "namespace-course", "classId": "namespace-session",
                                      "userId": "namespace-student-2", "ip": second_ip6,
-                                     "timestamp": int(time.time() * 1000)}).encode()
+                                     "action": "bind", "timestamp": int(time.time() * 1000)}).encode()
         second_signature = hmac.new(secret.encode(), second_payload, hashlib.sha256).hexdigest()
         second_request = urllib.request.Request(f"http://{address}:7878/bind", second_payload,
                                                 {"X-CheckHen-Signature": second_signature})
@@ -524,7 +528,7 @@ def main() -> None:
             raise RuntimeError(f"An address off the allowlist stayed blocked after exam-stop: {reopened.stderr}")
         revoke_payload = json.dumps({"courseId": "namespace-course", "classId": "namespace-session",
                                      "userId": "namespace-student", "ip": lease_ip,
-                                     "timestamp": int(time.time() * 1000)}).encode()
+                                     "action": "revoke", "timestamp": int(time.time() * 1000)}).encode()
         revoke_signature = hmac.new(secret.encode(), revoke_payload, hashlib.sha256).hexdigest()
         with urllib.request.urlopen(urllib.request.Request(f"http://{address}:7878/revoke", revoke_payload,
                 {"X-CheckHen-Signature": revoke_signature}), timeout=5) as response:
@@ -555,7 +559,7 @@ def main() -> None:
             raise RuntimeError("A stale binding survived the second class cycle")
         payload = json.dumps({"courseId": "namespace-course", "classId": "namespace-session",
                               "userId": "namespace-student", "ip": lease_ip,
-                              "timestamp": int(time.time() * 1000)}).encode()
+                              "action": "bind", "timestamp": int(time.time() * 1000)}).encode()
         signature = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
         request = urllib.request.Request(f"http://{address}:7878/bind", payload,
                                          {"X-CheckHen-Signature": signature})

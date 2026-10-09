@@ -31,7 +31,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   } catch {
     return res.status(400).end();
   }
-  const { userId, courseId, classId, examId, failId, timestamp } = body;
+  const { userId, courseId, classId, examId, failId, timestamp, action } = body;
+  // The signed action stops a body signed for another agent call from being replayed here.
+  if (action !== 'exam-failed') {
+    return res.status(403).end();
+  }
   if (
     [userId, courseId, classId, examId, failId].some(
       (value) => typeof value !== 'string' || !value

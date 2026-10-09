@@ -40,7 +40,8 @@ export async function examAgent(
   if (!url || !secret) {
     throw new PortalBindingError('Exam network agent is not configured', 503);
   }
-  const payload = JSON.stringify({ ...body, timestamp: Date.now() });
+  // The signed body names its action, so it cannot be replayed against another one.
+  const payload = JSON.stringify({ ...body, action, timestamp: Date.now() });
   const signature = createHmac('sha256', secret).update(payload).digest('hex');
   let response: Response;
   try {

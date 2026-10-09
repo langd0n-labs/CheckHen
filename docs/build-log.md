@@ -1434,3 +1434,17 @@ Verified: Python 69 tests; Jest 37 suites, 330 tests.
 
 Verified: Python 70 tests; Jest 37 suites, 334 tests; PostgreSQL integration 42
 cases.
+
+### Fix 5: the signature covers the action (M5 review finding 9)
+
+- Every body signed with `PORTAL_CONTROL_SECRET` names its action: the app's and
+  socket server's calls to the agent (`bind`, `revoke`, `revoke-student`,
+  `revoke-session`, `exam-start`, `exam-stop`, `exam-status`, `exam-heartbeat`),
+  and the agent's callbacks to the app (`portal-expired`, `exam-failed`). Each
+  receiver refuses a body whose action does not match the route, so a captured
+  heartbeat or callback cannot be replayed against another action.
+- The session-expiry call signs with `AUTH_SECRET`, a different key, so it is
+  unchanged.
+- The namespace test signs its actions too.
+
+Verified: Python 71 tests; Jest 37 suites, 336 tests.

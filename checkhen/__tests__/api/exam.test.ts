@@ -115,6 +115,7 @@ describe('signed fail callback', () => {
     userId: 'student',
     examId: 'exam',
     failId,
+    action: 'exam-failed',
     timestamp: Date.now(),
   });
   it('rejects forged reports', async () => {
@@ -144,6 +145,11 @@ describe('signed fail callback', () => {
         payload: { examId: 'exam', failId: 'drop-2' },
       })
     );
+  });
+  it('refuses a body signed for another action', async () => {
+    (readState as jest.Mock).mockResolvedValue({ ...state, exam: { id: 'exam', active: true } });
+    expect((await signed({ ...body(), action: 'exam-heartbeat' }))._getStatusCode()).toBe(403);
+    expect(appendEvent).not.toHaveBeenCalled();
   });
   it('refuses a report without a fail ID', async () => {
     const { failId: _omitted, ...withoutId } = body();

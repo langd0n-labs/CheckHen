@@ -40,8 +40,14 @@ describe('portal expiry callback', () => {
   it('rejects malformed signed JSON', async () => {
     expect((await invoke('{bad'))._getStatusCode()).toBe(400);
   });
+  it('refuses a body signed for another action', async () => {
+    const raw = JSON.stringify({ ...scope, action: 'exam-heartbeat', timestamp: Date.now() });
+    expect((await invoke(raw))._getStatusCode()).toBe(403);
+    expect((await invoke(JSON.stringify({ ...scope, timestamp: Date.now() })))._getStatusCode()).toBe(403);
+    expect(appendEvent).not.toHaveBeenCalled();
+  });
   it('checks out only a present student', async () => {
-    const raw = JSON.stringify({ ...scope, timestamp: Date.now() });
+    const raw = JSON.stringify({ ...scope, action: 'portal-expired', timestamp: Date.now() });
     expect((await invoke(raw))._getStatusCode()).toBe(200);
     expect(appendEvent).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       kind: 'CHECK_OUT', userId: 'student', courseId: 'course', classId: 'class',

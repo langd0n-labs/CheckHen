@@ -27,7 +27,11 @@ describe('exam control', () => {
       expect(request.headers['X-CheckHen-Signature']).toBe(
         createHmac('sha256', 'test-secret').update(request.body).digest('hex')
       );
-      expect(JSON.parse(request.body)).toMatchObject({ courseId: 'course', classId: 'class' });
+      expect(JSON.parse(request.body)).toMatchObject({
+        courseId: 'course',
+        classId: 'class',
+        action: 'exam-status',
+      });
     } finally {
       global.fetch = original;
       AbortSignal.timeout = timeout;

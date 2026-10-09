@@ -114,7 +114,8 @@ io.on("connection", socket => {
       if (now - (lastHeartbeat.get(key) ?? 0) < HEARTBEAT_INTERVAL_MS) return;
       lastHeartbeat.set(key, now);
       const body = JSON.stringify({ courseId: socket.data.courseId,
-        classId: socket.data.classId, userId: socket.data.userId, ip, timestamp: now });
+        classId: socket.data.classId, userId: socket.data.userId, ip, action: "exam-heartbeat",
+        timestamp: now });
       const signature = createHmac("sha256", secret).update(body).digest("hex");
       try {
         await fetch(`${url.replace(/\/$/, "")}/exam-heartbeat`, { method: "POST", body,

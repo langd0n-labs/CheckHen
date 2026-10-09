@@ -18,7 +18,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return res.status(403).end();
   let body: Record<string, unknown>;
   try { body = JSON.parse(raw.toString('utf8')); } catch { return res.status(400).end(); }
-  const { userId, courseId, classId, timestamp } = body;
+  const { userId, courseId, classId, timestamp, action } = body;
+  // The signed action stops a body signed for another agent call from being replayed here.
+  if (action !== 'portal-expired') return res.status(403).end();
   if (typeof userId !== 'string' || !userId || typeof courseId !== 'string' || !courseId ||
       typeof classId !== 'string' || !classId ||
       typeof timestamp !== 'number' || Math.abs(Date.now() - timestamp) > 30000) return res.status(403).end();

@@ -171,6 +171,7 @@ class ExamTests(unittest.TestCase):
                                               "userId": "student", "failId": "fail-1"},
                                              "secret", "http://callback"))
         self.assertEqual(json.loads(send.call_args.args[0].data)["failId"], "fail-1")
+        self.assertEqual(json.loads(send.call_args.args[0].data)["action"], "exam-failed")
 
     def test_heartbeats_do_not_write_exam_state(self):
         exam.save(self.state())

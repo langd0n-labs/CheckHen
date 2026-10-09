@@ -73,8 +73,10 @@ it('sends signed bulk revocations for checkout and session end', async () => {
   expect((global.fetch as jest.Mock).mock.calls.map(call => call[0])).toEqual([
     'http://127.0.0.1:7878/revoke-student', 'http://127.0.0.1:7878/revoke-session',
   ]);
-  for (const [, options] of (global.fetch as jest.Mock).mock.calls) {
+  for (const [url, options] of (global.fetch as jest.Mock).mock.calls) {
     expect(options.headers['X-CheckHen-Signature']).toMatch(/^[0-9a-f]{64}$/);
+    // The signed body names the action the URL asks for.
+    expect(JSON.parse(options.body).action).toBe(String(url).split('/').pop());
   }
 });
 

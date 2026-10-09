@@ -50,8 +50,11 @@ class AgentTests(unittest.TestCase):
             agent.prune_bindings(None)
 
     def request(self, path, data=None, signed=True):
-        payload = json.dumps(data or {"courseId": "course", "classId": "class", "userId": "student",
-                                      "ip": "172.16.77.20", "timestamp": int(time.time() * 1000)}).encode()
+        body = dict(data or {"courseId": "course", "classId": "class", "userId": "student",
+                             "ip": "172.16.77.20", "timestamp": int(time.time() * 1000)})
+        # Each signed body names its action; a test may set another to check the refusal.
+        body.setdefault("action", path)
+        payload = json.dumps(body).encode()
         signature = hmac.new(agent.Handler.secret.encode(), payload, hashlib.sha256).hexdigest()
         server = HTTPServer(("127.0.0.1", 0), agent.Handler)
         thread = threading.Thread(target=server.handle_request)
@@ -68,6 +71,16 @@ class AgentTests(unittest.TestCase):
         finally:
             thread.join(timeout=3)
             server.server_close()
+
+    def test_signed_body_for_one_action_is_refused_by_another(self):
+        scope = {"courseId": "course", "classId": "class", "userId": "student", "ip": "172.16.77.20",
+                 "timestamp": int(time.time() * 1000)}
+        self.assertEqual(self.request("bind"), 200)
+        # A heartbeat body, replayed to the revoke routes, is refused.
+        for path in ("revoke-student", "revoke", "exam-stop"):
+            self.assertEqual(self.request(path, {**scope, "action": "exam-heartbeat"}), 403)
+        self.assertEqual(self.request("revoke-student", {**scope}), 200)
+        self.assertEqual(self.request("bind", {k: v for k, v in scope.items()} | {"action": None}), 403)
 
     def test_signature_and_expiry(self):
         self.assertEqual(self.request("bind", signed=False), 403)
@@ -181,7 +194,7 @@ class AgentTests(unittest.TestCase):
         fail = {"courseId": "course", "classId": "class", "examId": "exam", "userId": "student",
                 "failId": "fail-1"}
         scope = {"courseId": "course", "classId": "class", "timestamp": int(time.time() * 1000)}
-        payload = json.dumps(scope).encode()
+        payload = json.dumps({**scope, "action": "exam-stop"}).encode()
         signature = hmac.new(agent.Handler.secret.encode(), payload, hashlib.sha256).hexdigest()
         server = HTTPServer(("127.0.0.1", 0), agent.Handler)
         thread = threading.Thread(target=server.handle_request)
@@ -204,7 +217,7 @@ class AgentTests(unittest.TestCase):
         scope = {"courseId": "course", "classId": "class", "timestamp": int(time.time() * 1000)}
         state = {"courseId": "course", "classId": "class", "examId": "exam", "thresholdSeconds": 30,
                  "clients": {}}
-        payload = json.dumps(scope).encode()
+        payload = json.dumps({**scope, "action": "exam-status"}).encode()
         signature = hmac.new(agent.Handler.secret.encode(), payload, hashlib.sha256).hexdigest()
         server = HTTPServer(("127.0.0.1", 0), agent.Handler)
         thread = threading.Thread(target=server.handle_request)
@@ -303,6 +316,7 @@ class AgentTests(unittest.TestCase):
         request = send.call_args.args[0]
         expected = hmac.new(agent.Handler.secret.encode(), request.data, hashlib.sha256).hexdigest()
         self.assertEqual(request.get_header("X-checkhen-signature"), expected)
+        self.assertEqual(json.loads(request.data)["action"], "portal-expired")
         self.assertEqual(json.loads(agent.PENDING.read_text()), [])
 
     def test_station_dump_parsing(self):

@@ -355,7 +355,8 @@ def mark_reported(exam_id: str, user_id: str, fail_id: str) -> None:
 def notify_fail(fail: dict, secret: str, url: str) -> bool:
     raw = json.dumps({"courseId": fail["courseId"], "classId": fail["classId"],
                       "examId": fail["examId"], "userId": fail["userId"],
-                      "failId": fail["failId"], "timestamp": int(time.time() * 1000)}).encode()
+                      "failId": fail["failId"], "action": "exam-failed",
+                      "timestamp": int(time.time() * 1000)}).encode()
     signature = hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
     request = urllib.request.Request(url, raw, {"Content-Type": "application/json",
                                                "X-CheckHen-Signature": signature})
