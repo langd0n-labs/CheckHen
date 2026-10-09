@@ -683,8 +683,9 @@ export default function AdminDashboard() {
                         const own = exam.fails.filter(
                           (item) => item.userId === client.userId && item.examId === exam.exam?.id
                         );
-                        const open = own.find((item) => !item.excused);
-                        const excused = own.length - (open ? 1 : 0);
+                        const opens = own.filter((item) => !item.excused);
+                        const open = opens[0];
+                        const excused = own.filter((item) => item.excused).length;
                         const name = studentName(client.userId);
                         const seconds =
                           client.disconnectedAt === null
@@ -695,7 +696,9 @@ export default function AdminDashboard() {
                             <Text size="sm">{name}</Text>
                             <Badge color={open ? 'red' : client.connected ? 'green' : 'yellow'}>
                               {open
-                                ? 'Failed'
+                                ? opens.length > 1
+                                  ? `Failed ×${opens.length}`
+                                  : 'Failed'
                                 : client.connected
                                   ? 'Connected'
                                   : `Disconnected ${seconds}s`}

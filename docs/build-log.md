@@ -1523,3 +1523,5 @@ The tunnel stays closed until AICP confirms.
 - m3: the exam gate's accept rules exclude `private4` and `private6`, so an
   allowlisted name that resolves to a LAN or campus-private address stays blocked
   during an exam. The rules load in nftables (checked in a scratch namespace).
+- m4: the dashboard counts open and excused fails separately; two open fails show
+  "Failed ×2", not "Failed" and "Excused".

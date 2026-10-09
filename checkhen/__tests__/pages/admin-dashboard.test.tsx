@@ -190,3 +190,52 @@ it('warns when the access point stops checking connections during an exam', asyn
   expect(await screen.findByText('Connection checks have stopped')).toBeInTheDocument();
   view.unmount();
 });
+
+it('counts two open fails as failed, not excused', async () => {
+  const socket = { on: jest.fn(), off: jest.fn(), disconnect: jest.fn() };
+  (getSocket as jest.Mock).mockReturnValue(socket);
+  global.fetch = jest.fn(async (input) => {
+    const url = String(input).split('?')[0];
+    let data: unknown = { message: '[]' };
+    if (url === '/api/get-user-info') {
+      data = {
+        user: { id: 'instructor', emailAddresses: [{ emailAddress: 'instructor@example.edu' }] },
+      };
+    } else if (url === '/api/fetch-latest-class') {
+      data = {
+        message: JSON.stringify({
+          id: 'session-1',
+          name: 'Class',
+          createdAt: new Date(),
+          duration: 60,
+        }),
+      };
+    } else if (url === '/api/admin/class-templates') {
+      data = [];
+    } else if (url.includes('pace')) {
+      data = { slowDown: 0, readyToMove: 0 };
+    } else if (url === '/api/admin/exam') {
+      data = {
+        exam: { id: 'exam-1', domains: ['exam.example.edu'], thresholdSeconds: 30, active: true },
+        fails: [
+          { id: 'fail-1', userId: 'student', examId: 'exam-1', excused: false, reason: null },
+          { id: 'fail-2', userId: 'student', examId: 'exam-1', excused: false, reason: null },
+        ],
+        network: {
+          active: true,
+          clients: [{ userId: 'student', connected: true, disconnectedAt: null, failed: true }],
+        },
+        students: [{ userId: 'student', name: 'Alisha Moreno' }],
+      };
+    }
+    return { ok: true, json: async () => data } as Response;
+  });
+  const view = render(
+    <MantineProvider theme={theme}>
+      <AdminDashboard />
+    </MantineProvider>
+  );
+  expect(await screen.findByText('Failed ×2')).toBeInTheDocument();
+  expect(screen.queryByText('Excused')).not.toBeInTheDocument();
+  view.unmount();
+});
