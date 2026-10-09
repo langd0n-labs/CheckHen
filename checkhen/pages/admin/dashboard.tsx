@@ -555,6 +555,12 @@ export default function AdminDashboard() {
                 Reset demo
               </Button>
             )}
+            {mode === 'hosted' && (
+              // Hosted mode has no access point: attendance is taken by roll call.
+              <Button variant="light" onClick={() => router.push('/admin/call?roll-call')}>
+                Roll call
+              </Button>
+            )}
             <Button variant="light" onClick={() => router.push('/admin/call')}>
               Cold call
             </Button>

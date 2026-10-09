@@ -67,6 +67,14 @@ export default function ColdCall() {
   const [configProblem, setConfigProblem] = useState<string | null>(null);
   const mode = useCheckhenMode();
   const [rollCall, setRollCall] = useState(false);
+  // The dashboard's Roll call button opens this screen straight into roll call.
+  const [fromDashboard, setFromDashboard] = useState(false);
+  useEffect(() => {
+    if (mode === 'hosted' && new URLSearchParams(window.location.search).has('roll-call')) {
+      setRollCall(true);
+      setFromDashboard(true);
+    }
+  }, [mode]);
   const [calls, setCalls] = useState<Call[]>([]);
   const [present, setPresent] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -269,6 +277,10 @@ export default function ColdCall() {
       {rollCall ? (
         <RollCall
           onDone={() => {
+            if (fromDashboard) {
+              window.location.assign('/admin/dashboard');
+              return;
+            }
             setRollCall(false);
             refresh();
           }}

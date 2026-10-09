@@ -1639,3 +1639,10 @@ Checked on 2026-10-09 from the build host over the LAN: `/api/mode` reports host
 
 Verified: Jest 38 suites, 356 tests; PostgreSQL 43 cases (adds join, confirm, and
 correct through the routes, checked against the course record).
+
+### Roll call button on the dashboard
+
+- Operator request, 2026-10-09: in hosted mode the dashboard has a Roll call button
+  beside Cold call. It opens the call screen straight into roll call
+  (`/admin/call?roll-call`), and Done returns to the dashboard. The Roll call button
+  on the call screen stays.

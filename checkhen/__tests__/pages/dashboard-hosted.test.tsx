@@ -1,10 +1,11 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MantineProvider } from '@mantine/core';
 import { getSocket } from '@/lib/socket';
 import AdminDashboard from '@/pages/admin/dashboard';
 import { theme } from '../../theme';
 
-jest.mock('next/router', () => ({ useRouter: () => ({ push: jest.fn() }) }));
+const push = jest.fn();
+jest.mock('next/router', () => ({ useRouter: () => ({ push }) }));
 jest.mock('@/lib/socket', () => ({ getSocket: jest.fn() }));
 jest.mock('@/components/Admin/StudentProfileModal', () => ({ StudentProfileModal: () => null }));
 
@@ -44,4 +45,7 @@ it('explains that exam mode is unavailable in hosted mode', async () => {
   );
   expect(await screen.findByText(/not available in hosted mode/)).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Start exam' })).not.toBeInTheDocument();
+  // Roll call has its own button beside Cold call, and opens straight into roll call.
+  fireEvent.click(screen.getByRole('button', { name: 'Roll call' }));
+  expect(push).toHaveBeenCalledWith('/admin/call?roll-call');
 });
