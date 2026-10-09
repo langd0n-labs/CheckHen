@@ -15,11 +15,15 @@ it('opens the demo lecture with a chat ticket for this session', async () => {
     off: jest.fn(),
     disconnect: jest.fn(),
   });
-  global.fetch = jest.fn(async (input) => {
+  const chatterCalls: ({ action: string } | null)[] = [];
+  global.fetch = jest.fn(async (input, init?: RequestInit) => {
     const url = String(input).split('?')[0];
     let data: unknown = { message: '[]' };
     if (url === '/api/mode') {
       data = { mode: 'hosted', demo: true };
+    } else if (url === '/api/demo/chatter') {
+      chatterCalls.push(init?.body ? JSON.parse(String(init.body)) : null);
+      data = { running: chatterCalls.at(-1)?.action === 'start' };
     } else if (url === '/api/admin/projection-ticket') {
       data = { ticket: 'signed ticket' };
     } else if (url === '/api/get-user-info') {
@@ -50,4 +54,9 @@ it('opens the demo lecture with a chat ticket for this session', async () => {
   fireEvent.click(await screen.findByRole('button', { name: 'Open demo lecture' }));
   await waitFor(() => expect(target.location.href).toBe('/deck/?ticket=signed%20ticket'));
   expect(target.opener).toBeNull();
+  // Simulated chat starts and stops from the same button.
+  fireEvent.click(await screen.findByRole('button', { name: 'Start simulated chat' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Stop simulated chat' }));
+  await screen.findByRole('button', { name: 'Start simulated chat' });
+  expect(chatterCalls.filter(Boolean)).toEqual([{ action: 'start' }, { action: 'stop' }]);
 });

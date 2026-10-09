@@ -132,6 +132,35 @@ export default function AdminDashboard() {
   const [examClock, setExamClock] = useState(Date.now());
   const mode = useCheckhenMode();
   const demo = useDemoMode();
+  // Demo mode: simulated student chat for this session, started and stopped here.
+  const [chatter, setChatter] = useState(false);
+  const chatterRequest = async (body?: { action: 'start' | 'stop' }) => {
+    const response = await fetch('/api/demo/chatter', {
+      method: body ? 'POST' : 'GET',
+      ...(body
+        ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+        : {}),
+    }).catch(() => null);
+    if (!response?.ok) {
+      if (body) {
+        notifications.show({
+          title: 'Error',
+          message: 'Could not change the simulated chat. Try again.',
+          color: 'red',
+        });
+      }
+      return;
+    }
+    setChatter((await response.json()).running === true);
+  };
+  useEffect(() => {
+    if (!demo) return;
+    void chatterRequest();
+    // It stops on its own after ten minutes; keep the button in step.
+    const timer = window.setInterval(() => void chatterRequest(), 15000);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [demo]);
   // Demo mode: restore the seed (as a new demo course) and open its live session.
   const resetDemo = async () => {
     if (
@@ -573,6 +602,14 @@ export default function AdminDashboard() {
             {demo && (
               <Button variant="subtle" onClick={openDemoLecture}>
                 Open demo lecture
+              </Button>
+            )}
+            {demo && (
+              <Button
+                variant={chatter ? 'filled' : 'subtle'}
+                onClick={() => chatterRequest({ action: chatter ? 'stop' : 'start' })}
+              >
+                {chatter ? 'Stop simulated chat' : 'Start simulated chat'}
               </Button>
             )}
             {demo && (

@@ -1687,3 +1687,17 @@ correct through the routes, checked against the course record).
   it hides on the `chat: false` slide and returns, still connected, on the next;
   a hidden message leaves it in under 200 ms. No page errors in Firefox; Chromium's
   only error is the headless wake-lock denial.
+
+### Simulated chat in the demo
+
+- Operator request, 2026-10-09: in demo mode the dashboard has **Start simulated
+  chat** / **Stop simulated chat**. While it runs, the app posts a chat message every
+  2-6 s from a random checked-in, unmuted student, under that student's anonymous
+  name, from about 50 lines that fit the demo lecture (`lib/demo-chatter.ts`). They
+  are ordinary chat events, so the dashboard, the projection window, and the deck
+  panel show them the usual way, and Hide and Mute work on them.
+- It runs per session in the app process, stops on Stop, after 10 minutes, when the
+  session ends, when no student is present, or at the demo size cap. The route
+  (`/api/demo/chatter`) exists only in demo mode and requires the instructor.
+- Live check on the build host: Start, three simulated lines reached the deck panel within
+  about 13 s, and none arrived in the 8 s after Stop.

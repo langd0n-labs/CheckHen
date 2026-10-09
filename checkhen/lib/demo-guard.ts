@@ -108,7 +108,7 @@ function allowed(req: NextApiRequest, bucket: Bucket): boolean {
   return take(`${bucket}:all`, overall, windowMs, now);
 }
 
-async function databaseFull(): Promise<boolean> {
+export async function databaseFull(): Promise<boolean> {
   const maxMb = Number(process.env.DEMO_MAX_DATABASE_MB) || DEFAULT_MAX_DATABASE_MB;
   const now = Date.now();
   if (!sizeCheck || now - sizeCheck.at >= SIZE_CHECK_MS) {
