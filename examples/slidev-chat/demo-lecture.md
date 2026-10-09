@@ -1,7 +1,7 @@
 ---
 theme: default
 title: 'Farm Science 101: Variables on the farm'
-info: A pretend lecture for the CheckHen demo, with the class chat on its slides.
+info: A pretend lecture for the CheckHen demo. The class chat runs down the right side.
 ---
 
 # Farm Science 101
@@ -16,15 +16,11 @@ Professor Hoot
 
 - Two kinds of variables
 - How to sample a flock
-- Your questions, live in the class chat
+- Your questions, any time, in the class chat on the right
 
-<br>
+Chat from the student page. Messages appear under each student's anonymous name; the
+instructor can hide one from the dashboard.
 
-Chat from the student page. Messages appear on these slides under each student's
-anonymous name; the instructor can hide one from the dashboard.
-
----
-layout: two-cols
 ---
 
 # Continuous or categorical?
@@ -36,9 +32,20 @@ Decide for each, then say why in the chat.
 - Eggs laid this week
 - Wool grade: fine, medium, coarse
 
-::right::
+---
+chat: false
+---
 
-<LiveChat />
+# Answers
+
+The chat is hidden on this slide, so the room sees only the answers.
+
+| Variable | Kind |
+| --- | --- |
+| Milk yield, in litres a day | Continuous |
+| Breed of each cow | Categorical |
+| Eggs laid this week | Discrete count |
+| Wool grade | Categorical, ordered |
 
 ---
 
@@ -53,8 +60,6 @@ You cannot weigh every sheep, so you weigh some of them.
 Which one would you trust for the whole farm?
 
 ---
-layout: two-cols
----
 
 # Discussion
 
@@ -62,12 +67,8 @@ Can goats be a control group for a study about sheep?
 
 Make the case for or against in the chat.
 
-::right::
-
-<LiveChat />
-
 ---
 
 # Questions?
 
-<LiveChat />
+Ask in the chat.

@@ -1675,3 +1675,15 @@ correct through the routes, checked against the course record).
   after keyboard navigation; a student's message reached the slide in about 200 ms;
   hiding it on the dashboard removed it in under 100 ms. The only page error was
   Slidev's screen wake lock, which headless Chromium denies.
+- Operator request, same day: the chat is a stream-style panel, not boxes inside
+  slides. `@checkhen/slidev-chat/panel` (`CheckHenChatPanel.vue`) is a fixed strip,
+  15% of the slide width: newest line at the bottom, older lines clipped off the top,
+  no animation, each anonymous name in a stable color. The demo deck shows it on every
+  slide from a Slidev global layer (`global-top.vue`), which stays connected across
+  slides; a slide hides it with `chat: false` (the lecture's Answers slide does).
+  `style.css` pads slide content clear of it.
+- Live check on the build host in Chromium and Firefox: the panel shows on the title slide;
+  slide text ends left of the panel; a student's message reaches it in 80-210 ms;
+  it hides on the `chat: false` slide and returns, still connected, on the next;
+  a hidden message leaves it in under 200 ms. No page errors in Firefox; Chromium's
+  only error is the headless wake-lock denial.

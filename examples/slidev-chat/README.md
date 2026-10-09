@@ -12,7 +12,10 @@ uses the projection API and socket notifications. It renders anonymous names
 only. The token expires when the class ends or after four hours, whichever
 comes first.
 
-`demo-lecture.md` is a short pretend lecture with the chat on three slides. A hosted
+`demo-lecture.md` is a short pretend lecture. `global-top.vue` puts the class chat in a
+stream-style panel down the right 15% of every slide (`@checkhen/slidev-chat/panel`):
+newest line at the bottom, older lines scroll off the top. A slide hides it with
+`chat: false` in its frontmatter. `style.css` keeps slide content clear of the panel. A hosted
 demo serves it at `/deck/`, and the dashboard's **Open demo lecture** opens it with a
 ticket for the current session. The deck keeps the ticket for the browser tab, so the
 chat works on any slide.

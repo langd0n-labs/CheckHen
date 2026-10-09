@@ -3,9 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "files": ["src"],
+  "files": [
+    "src"
+  ],
   "exports": {
-    ".": "./src/CheckHenChat.vue"
+    ".": "./src/CheckHenChat.vue",
+    "./panel": "./src/CheckHenChatPanel.vue"
   },
   "dependencies": {
     "socket.io-client": "4.8.1"
