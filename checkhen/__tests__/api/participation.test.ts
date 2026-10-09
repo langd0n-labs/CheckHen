@@ -24,6 +24,7 @@ import fetchLastChat from '@/pages/api/student/fetch-last-chat';
 import reBind from '@/pages/api/student/re-bind';
 import sendChat from '@/pages/api/student/send-chat';
 import paceSignal from '@/pages/api/student/send-pace-signal';
+import fetchPace from '@/pages/api/student/fetch-pace-signals';
 import startup from '@/pages/api/student/startup';
 
 jest.mock('@/lib/request-scope', () => ({ requireScope: jest.fn(), isInstructor: jest.fn() }));
@@ -435,5 +436,23 @@ describe('instructor actions', () => {
     (readState as jest.Mock).mockResolvedValue(checkedIn());
     (isInstructor as jest.Mock).mockReturnValue(true);
     expect(JSON.parse((await invoke(fetchCheckIns, 'GET'))._getJSONData().message)).toEqual([]);
+  });
+});
+
+describe('pace totals', () => {
+  it('go to the instructor only', async () => {
+    (readState as jest.Mock).mockResolvedValue(checkedIn());
+    const student = await invoke(fetchPace, 'GET');
+    expect(student._getStatusCode()).toBe(403);
+    (isInstructor as jest.Mock).mockReturnValue(true);
+    const instructor = await invoke(fetchPace, 'GET');
+    expect(instructor._getStatusCode()).toBe(200);
+    expect(instructor._getJSONData()).toMatchObject({ slowDown: 0, readyToMove: 0 });
+  });
+  it('are not in the student start-up data', async () => {
+    (readState as jest.Mock).mockResolvedValue(checkedIn());
+    const res = await invoke(startup, 'GET');
+    expect(res._getStatusCode()).toBe(200);
+    expect(res._getJSONData()).not.toHaveProperty('paceSignals');
   });
 });

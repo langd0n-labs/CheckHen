@@ -1709,3 +1709,12 @@ correct through the routes, checked against the course record).
   48em they now stack full width in that order, the page scrolls, the discussion
   scrolls inside a 60vh panel, and the column resize handles are hidden. Wider
   screens keep the resizable columns.
+
+### Pace totals for the instructor only
+
+- Operator request, 2026-10-09: students no longer see how many classmates chose
+  Slow down or Ready. The pace-totals route answers the instructor only (403 for
+  students), the student start-up data leaves the totals out, and the student page
+  confirms a signal with "Sent to your instructor". The student help says only the
+  instructor sees the totals. The button wording is unchanged pending the
+  operator's choice.

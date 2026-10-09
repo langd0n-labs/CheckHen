@@ -76,7 +76,6 @@ export default function HomePage() {
   const [checkInResolved, setCheckInResolved] = useState(false);
   const [anonymousName, setAnonymousName] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState('');
-  const [paceSignals, setPaceSignals] = useState({ slowDown: 0, readyToMove: 0 });
   const [sendingMessage, setSendingMessage] = useState(false);
   const [classEnded, setClassEnded] = useState(false);
   const prevClassNameRef = useRef('');
@@ -223,18 +222,6 @@ export default function HomePage() {
     });
   };
 
-  // Fetch pace signals
-  const fetchPaceSignals = async () => {
-    const response = await fetch('/api/student/fetch-pace-signals');
-    if (response.ok) {
-      const data = await response.json();
-      setPaceSignals({
-        slowDown: data.slowDown || 0,
-        readyToMove: data.readyToMove || 0,
-      });
-    }
-  };
-
   const fetchExamState = async () => {
     const response = await fetch('/api/student/exam-status');
     if (!response.ok) return;
@@ -264,7 +251,12 @@ export default function HomePage() {
       classId: currentClassId,
       signalType,
     });
-    fetchPaceSignals();
+    // Students never see the room's totals; confirm only that this one was sent.
+    notifications.show({
+      message: 'Sent to your instructor',
+      color: 'successGreen',
+      autoClose: 2000,
+    });
   };
 
   // Initial setup: one startup request instead of 5+ serial fetches
@@ -286,10 +278,6 @@ export default function HomePage() {
           setCurrentClassName(d.className ?? '');
           setAnonymousName(d.anonymousName);
           setHandRaised(d.handRaised);
-          setPaceSignals({
-            slowDown: d.paceSignals.slowDown,
-            readyToMove: d.paceSignals.readyToMove,
-          });
           setMessages(d.messages);
           prevClassNameRef.current = d.className ?? '';
           isCheckedInRef.current = true;
@@ -321,7 +309,6 @@ export default function HomePage() {
         .catch(() => setUplinkUnavailable(true));
       fetchAllChatMessages();
       fetchHandRaiseStatus();
-      fetchPaceSignals();
       fetchExamState();
     }, 10000);
     fetchExamState();
@@ -368,13 +355,6 @@ export default function HomePage() {
       fetchAllChatMessages();
     });
 
-    ws.current?.on('pace-signal-update', () => {
-      fetchPaceSignals();
-    });
-
-    ws.current?.on('pace-signals-reset', () => {
-      setPaceSignals({ slowDown: 0, readyToMove: 0 });
-    });
     ws.current?.on('exam-status-update', fetchExamState);
 
     // Lower hand immediately when instructor acknowledges it
@@ -668,9 +648,8 @@ export default function HomePage() {
                 leftSection={<TrendingDown size={18} />}
                 onClick={() => sendPaceSignal('slow_down')}
                 disabled={!currentClassName}
-                aria-label={`Slow down (${paceSignals.slowDown} so far)`}
               >
-                Slow down · {paceSignals.slowDown}
+                Slow down
               </Button>
               <Button
                 variant="light"
@@ -678,9 +657,8 @@ export default function HomePage() {
                 leftSection={<CheckCircle size={18} />}
                 onClick={() => sendPaceSignal('ready_to_move_on')}
                 disabled={!currentClassName}
-                aria-label={`Ready (${paceSignals.readyToMove} so far)`}
               >
-                Ready · {paceSignals.readyToMove}
+                Ready
               </Button>
             </Group>
           </Stack>
@@ -718,7 +696,7 @@ export default function HomePage() {
                 <Stack gap="sm">
                   <Title order={5}>Class Pace Feedback</Title>
                   <Text size="sm" c="dimmed">
-                    Let your instructor know how you're doing
+                    Let your instructor know how you&apos;re doing. Only your instructor sees these.
                   </Text>
 
                   <Group grow>
@@ -740,21 +718,6 @@ export default function HomePage() {
                     >
                       Ready
                     </Button>
-                  </Group>
-
-                  <Group justify="center" gap="xl" mt="xs">
-                    <Group gap="xs">
-                      <TrendingDown size={16} color={theme.colors.warning[5]} />
-                      <Text size="sm" fw={600}>
-                        {paceSignals.slowDown}
-                      </Text>
-                    </Group>
-                    <Group gap="xs">
-                      <CheckCircle size={16} color={theme.colors.successGreen[5]} />
-                      <Text size="sm" fw={600}>
-                        {paceSignals.readyToMove}
-                      </Text>
-                    </Group>
                   </Group>
                 </Stack>
               </Card>

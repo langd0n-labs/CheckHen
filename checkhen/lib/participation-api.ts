@@ -269,8 +269,11 @@ export function participationHandler(action: string, adminOnly = false) {
         ? res.json({ anonymousName: checkIn.anonymousName })
         : res.status(404).json({ message: 'Not checked in' });
     }
+    // How many students want a slower pace is for the instructor only.
     if (action === 'fetch-pace-signals')
-      return res.json({ message: 'Pace signals fetched', ...counts });
+      return isInstructor(user.email)
+        ? res.json({ message: 'Pace signals fetched', ...counts })
+        : res.status(403).json({ message: 'Instructor access required' });
     if (action === 'startup') {
       return res.json({
         isCheckedIn: active && !!checkIn?.isPresent,
@@ -279,7 +282,6 @@ export function participationHandler(action: string, adminOnly = false) {
         classColor: selected.color,
         anonymousName: checkIn?.anonymousName ?? null,
         handRaised: !!ownHand,
-        paceSignals: counts,
         messages: checkIn ? studentChat(state.messages.slice(-100), user.id) : [],
       });
     }
