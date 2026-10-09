@@ -1701,3 +1701,11 @@ correct through the routes, checked against the course record).
   (`/api/demo/chatter`) exists only in demo mode and requires the instructor.
 - Live check on the build host: Start, three simulated lines reached the deck panel within
   about 13 s, and none arrived in the 8 s after Stop.
+
+### Dashboard on phones
+
+- Operator report, 2026-10-09: below the exam section, the dashboard's three
+  columns (hands, discussion, present students) did not adapt on phones. Under
+  48em they now stack full width in that order, the page scrolls, the discussion
+  scrolls inside a 60vh panel, and the column resize handles are hidden. Wider
+  screens keep the resizable columns.

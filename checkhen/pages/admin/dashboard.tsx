@@ -38,6 +38,7 @@ import {
   Tooltip,
   useMantineTheme,
 } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import ClassSessionManager from '@/components/Admin/ClassSessionManager/ClassSessionManager';
 import { StudentProfileModal } from '@/components/Admin/StudentProfileModal';
@@ -178,6 +179,8 @@ export default function AdminDashboard() {
     window.location.reload();
   };
   const [paceSignals, setPaceSignals] = useState({ slowDown: 0, readyToMove: 0 });
+  // Phones stack the three panels and scroll the page; wider screens use columns.
+  const narrow = useMediaQuery('(max-width: 48em)') ?? false;
   const [leftWidth, setLeftWidth] = useState(280);
   const [rightWidth, setRightWidth] = useState(280);
   const [profileEmail, setProfileEmail] = useState<string | null>(null);
@@ -557,7 +560,14 @@ export default function AdminDashboard() {
     attendance.length > 0 && paceSignals.slowDown / attendance.length > 0.3;
 
   return (
-    <Box style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <Box
+      style={{
+        height: narrow ? undefined : '100vh',
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
       {/* Header */}
       <Paper p="md" shadow="sm" withBorder style={{ borderRadius: 0 }}>
         <Group justify="space-between">
@@ -741,8 +751,8 @@ export default function AdminDashboard() {
                     <Text size="sm">Allowed: {exam.exam.domains.join(', ')}</Text>
                     {exam.network.monitor?.healthy === false && (
                       <Alert color="red" title="Connection checks have stopped">
-                        The access point is not checking student connections, so automatic
-                        fails are not being recorded. Check the access point laptop.
+                        The access point is not checking student connections, so automatic fails are
+                        not being recorded. Check the access point laptop.
                       </Alert>
                     )}
                     <Group gap="xs">
@@ -909,11 +919,14 @@ export default function AdminDashboard() {
         </Box>
       ) : (
         /* 3 Column Layout - active class */
-        <Flex style={{ flex: 1, overflow: 'hidden' }}>
+        <Flex
+          style={{ flex: 1, overflow: narrow ? 'visible' : 'hidden' }}
+          direction={narrow ? 'column' : 'row'}
+        >
           {/* Left Column - Hand Raises */}
           <Box
             style={{
-              width: leftWidth,
+              width: narrow ? '100%' : leftWidth,
               flexShrink: 0,
               display: 'flex',
               flexDirection: 'column',
@@ -927,7 +940,7 @@ export default function AdminDashboard() {
               </Group>
             </Paper>
 
-            <ScrollArea style={{ flex: 1 }} p="md">
+            <ScrollArea style={narrow ? {} : { flex: 1 }} p="md">
               <Stack gap="sm">
                 {handRaises.length === 0 ? (
                   <Text size="sm" c="dimmed" ta="center" mt="xl">
@@ -1001,6 +1014,7 @@ export default function AdminDashboard() {
           <Box
             onMouseDown={onLeftDragStart}
             style={{
+              ...(narrow ? { display: 'none' } : {}),
               width: 5,
               flexShrink: 0,
               cursor: 'col-resize',
@@ -1048,7 +1062,7 @@ export default function AdminDashboard() {
               </Text>
             </Paper>
 
-            <ScrollArea style={{ flex: 1 }} p="md">
+            <ScrollArea style={narrow ? { height: '60vh' } : { flex: 1 }} p="md">
               <Stack gap="sm">
                 {messages.length === 0 ? (
                   <Text size="sm" c="dimmed" ta="center" mt="xl">
@@ -1134,6 +1148,7 @@ export default function AdminDashboard() {
           <Box
             onMouseDown={onRightDragStart}
             style={{
+              ...(narrow ? { display: 'none' } : {}),
               width: 5,
               flexShrink: 0,
               cursor: 'col-resize',
@@ -1152,7 +1167,7 @@ export default function AdminDashboard() {
           {/* Right Column - Attendance List */}
           <Box
             style={{
-              width: rightWidth,
+              width: narrow ? '100%' : rightWidth,
               flexShrink: 0,
               display: 'flex',
               flexDirection: 'column',
@@ -1183,7 +1198,7 @@ export default function AdminDashboard() {
               </Group>
             </Paper>
 
-            <ScrollArea style={{ flex: 1 }} p="md">
+            <ScrollArea style={narrow ? {} : { flex: 1 }} p="md">
               <Stack gap="xs">
                 {attendance.length === 0 ? (
                   <Text size="sm" c="dimmed" ta="center" mt="xl">
