@@ -9,6 +9,7 @@ import rosterRoute from '@/pages/api/admin/roster';
 import uploadRoute from '@/pages/api/student/upload-profile-picture';
 import profileRoute from '@/pages/api/admin/get-student-profile';
 import isAdminRoute from '@/pages/api/auth/is-admin';
+import eventsRoute from '@/pages/api/admin/events';
 
 jest.mock('@/lib/prisma', () => ({
   prisma: {
@@ -45,7 +46,7 @@ afterEach(() => {
 
 const gate = async (method = 'POST', ip?: string, bucket?: 'write' | 'reset') => {
   const { req, res } = request(method, ip);
-  const allowed = await demoGate(req as any, res as any, bucket);
+  const allowed = await demoGate(req as any, res as any, { bucket });
   return { allowed, status: res._getStatusCode() };
 };
 
@@ -130,4 +131,49 @@ it('treats the demo instructor as an instructor on every admin route', async () 
   const admin = request('GET', '203.0.113.9');
   await isAdminRoute(admin.req as any, admin.res as any);
   expect(admin.res._getJSONData()).toEqual({ isAdmin: true });
+});
+
+it('refuses raw events from demo visitors', async () => {
+  const { req, res } = request('POST', '203.0.113.9', {
+    kind: 'CHAT_MESSAGE',
+    payload: { message: 'x'.repeat(100000), anonymousName: 'Swift Panda' },
+  });
+  req.query = { courseId: 'course', classId: 'class' };
+  (prisma as any).class = { findFirst: jest.fn().mockResolvedValue({ id: 'class' }) };
+  await eventsRoute(req as any, res as any);
+  expect(res._getStatusCode()).toBe(403);
+});
+
+it('refuses a roster address longer than an email can be', async () => {
+  const { req, res } = request('POST', '203.0.113.9', {
+    courseId: 'course',
+    email: `${'x'.repeat(260)}@demo.checkhen.invalid`,
+  });
+  await rosterRoute(req as any, res as any);
+  expect(res._getStatusCode()).toBe(400);
+  expect(prisma.user.upsert).not.toHaveBeenCalled();
+});
+
+it('lets a reset through at the size cap, within the reset limit', async () => {
+  process.env.DEMO_MAX_DATABASE_MB = '5';
+  const write = request();
+  expect(await requireIdentity(write.req as any, write.res as any, true)).toBeNull();
+  expect(write.res._getStatusCode()).toBe(507);
+  for (let i = 0; i < 3; i += 1) {
+    const reset = request();
+    expect(
+      await requireIdentity(reset.req as any, reset.res as any, true, {
+        bucket: 'reset',
+        pastSizeCap: true,
+      })
+    ).not.toBeNull();
+  }
+  const fourth = request();
+  expect(
+    await requireIdentity(fourth.req as any, fourth.res as any, true, {
+      bucket: 'reset',
+      pastSizeCap: true,
+    })
+  ).toBeNull();
+  expect(fourth.res._getStatusCode()).toBe(429);
 });

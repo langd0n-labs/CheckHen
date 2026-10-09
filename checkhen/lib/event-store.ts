@@ -55,8 +55,21 @@ export async function isEffective(
   return effectiveEvents(events.map(asEvent), scope).some((event) => event.id === id);
 }
 
+// Every stored payload is small. The largest legitimate one is an exam start with 50
+// allowlisted domains.
+const MAX_PAYLOAD_BYTES = 16384;
+const MAX_TEXT: Record<string, number> = { message: 1000, anonymousName: 64, reason: 500 };
+
 export function validatePayload(kind: EventKind, payload: Record<string, unknown>) {
   if (!kinds.includes(kind)) throw new Error('Unknown event kind');
+  if (Buffer.byteLength(JSON.stringify(payload)) > MAX_PAYLOAD_BYTES) {
+    throw new Error('Event payload is too large');
+  }
+  for (const [key, max] of Object.entries(MAX_TEXT)) {
+    if (typeof payload[key] === 'string' && (payload[key] as string).length > max) {
+      throw new Error(`${key} must be ${max} characters or fewer`);
+    }
+  }
   const requiredString = (key: string) => {
     if (typeof payload[key] !== 'string' || !(payload[key] as string).trim()) {
       throw new Error('Missing ' + key);

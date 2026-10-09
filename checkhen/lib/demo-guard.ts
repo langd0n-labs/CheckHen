@@ -72,10 +72,12 @@ async function databaseFull(): Promise<boolean> {
  * Checks every demo request before a route runs. Outside demo mode it allows
  * everything. Returns false after it has sent the refusal.
  */
+export type GateOptions = { bucket?: Bucket; pastSizeCap?: boolean };
+
 export async function demoGate(
   req: NextApiRequest,
   res: NextApiResponse,
-  bucket: Bucket = 'write'
+  { bucket = 'write', pastSizeCap = false }: GateOptions = {}
 ): Promise<boolean> {
   if (!isDemo()) {
     return true;
@@ -93,7 +95,8 @@ export async function demoGate(
     res.status(429).json({ message: 'The demo is busy. Wait a minute, then try again.' });
     return false;
   }
-  if (await databaseFull()) {
+  // A reset adds one small course and has its own tight limit, so it runs at the cap.
+  if (!pastSizeCap && (await databaseFull())) {
     res.status(507).json({ message: 'The demo has reached its storage limit and takes no new changes.' });
     return false;
   }

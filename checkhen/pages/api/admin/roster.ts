@@ -16,7 +16,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const { email, active = true } = req.body;
   // A public demo holds only fictional addresses, never a real student's.
   const domain = isDemo() ? DEMO_DOMAIN : process.env.NEXT_PUBLIC_EMAIL_DOMAIN || 'bu.edu';
-  if (typeof email !== 'string' || !email.endsWith('@' + domain) || typeof active !== 'boolean') {
+  if (typeof email !== 'string' || email.length > 254 || !email.endsWith('@' + domain) ||
+      typeof active !== 'boolean') {
     return res.status(400).json({ message: 'Invalid roster entry' });
   }
   const user = await prisma.user.upsert({ where: { email }, create: { email }, update: {} });

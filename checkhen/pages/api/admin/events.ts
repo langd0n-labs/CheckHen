@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { isDemo } from '@/lib/demo';
 import { appendEvent, readEvents, readState } from '@/lib/event-store';
 import type { EventKind } from '@/lib/events';
 import { prisma } from '@/lib/prisma';
@@ -14,6 +15,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       state: await readState(prisma, context.scope),
     });
   }
+  // Every demo visitor is the instructor; the screens never use this raw endpoint.
+  if (isDemo()) return res.status(403).json({ message: 'The demo does not accept raw events' });
   const { kind, payload, supersedesId, userId } = req.body;
   if (
     typeof kind !== 'string' ||

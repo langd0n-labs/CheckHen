@@ -1455,3 +1455,20 @@ Verified: Python 71 tests; Jest 37 suites, 336 tests.
   admission and sign-in domains, exam start, allowed addresses, connection
   checks, stop, signed requests, limits, commands, and troubleshooting. The Pi,
   iptables, the dnsmasq container, and the Google address ranges are gone.
+
+## Review of 989d088 to 8fee9f6 (demo security)
+
+Report: AICP review `review-989d088-8fee9f6-demo-security.md` (kept outside the repository).
+The tunnel stays closed until AICP confirms.
+
+### A: no oversized writes, and reset works at the cap
+
+- Demo mode refuses `POST /api/admin/events`. No screen uses it, and it accepted
+  any event with a payload up to 1 MB.
+- Every event payload, in every mode, is at most 16 KB (the largest legitimate one
+  is an exam start with 50 domains). Chat messages are at most 1000 characters,
+  anonymous names 64, and excuse reasons 500.
+- Roster addresses are at most 254 characters.
+- A reset runs at the size cap: it adds one small course and keeps its own limit
+  of 3 an hour per client. The event log is append-only, so nothing frees space; a
+  demo database that reaches the cap is recreated (see the runbook).
