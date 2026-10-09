@@ -1,7 +1,6 @@
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import { isDemo } from '@/lib/demo';
-import { demoGate } from '@/lib/demo-guard';
 import { prisma } from '@/lib/prisma';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
@@ -16,10 +15,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (isDemo()) {
     return res.status(403).json({ message: 'Photo uploads are off in the demo' });
   }
-  if (!(await demoGate(req, res))) {
-    return;
-  }
-
   const session = await getServerSession(req, res, authOptions);
   if (!session?.user?.email) {
     return res.status(401).json({ message: 'Unauthorized' });

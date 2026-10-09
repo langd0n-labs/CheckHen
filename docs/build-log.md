@@ -1800,3 +1800,13 @@ per IP, Block for 10 minutes.
   m4 by the first `/demo` visit in the pre-open list; m6 (two concurrent schedule
   creations can pass 50 outside demo mode) is left as is; m5 (private details in the
   unpushed history) waits on the operator's choice before any push.
+
+## Final pre-public review (PR #3)
+
+Report: AICP review of the PR #3 range (kept outside the repository).
+
+- P2, rest: the profile update ran the demo gate before the sign-in check, so a
+  request without a session spent a counter. It now checks the session first. The
+  photo upload no longer calls the gate: demo mode refuses it before, and outside demo
+  mode the gate does nothing. Every other write reaches the gate through
+  `requireIdentity`, which checks the session first.

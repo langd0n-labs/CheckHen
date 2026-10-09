@@ -22,13 +22,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ message: 'Method Not Allowed' });
   }
 
-  if (!(await demoGate(req, res))) {
-    return;
-  }
-
   const session = await getServerSession(req, res, authOptions);
   if (!session?.user?.email) {
     return res.status(401).json({ message: 'Unauthorized' });
+  }
+  // After sign-in: an anonymous request is refused without using any demo counter.
+  if (!(await demoGate(req, res))) {
+    return;
   }
 
   const { foodAllergies, displayName, namePronunciation, pronouns, bio } = req.body as {

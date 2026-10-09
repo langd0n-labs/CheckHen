@@ -12,6 +12,7 @@ import newClassRoute from '@/pages/api/admin/start-new-class';
 import isAdminRoute from '@/pages/api/auth/is-admin';
 import coursesRoute from '@/pages/api/courses';
 import uploadRoute from '@/pages/api/student/upload-profile-picture';
+import updateProfileRoute from '@/pages/api/student/update-profile';
 
 jest.mock('@/lib/prisma', () => ({
   prisma: {
@@ -322,4 +323,12 @@ describe('the limiter cannot be turned into a lockout', () => {
     });
     expect(clientKey(request('POST', '2001:db8:7:99::1').req as any, 3)).toBe('2001:db8:7::/48');
   });
+});
+
+it('uses no counter for a profile update that is not signed in', async () => {
+  (getServerSession as jest.Mock).mockResolvedValue(null);
+  const { req, res } = request('POST', '203.0.113.9', { displayName: 'x' });
+  await updateProfileRoute(req as any, res as any);
+  expect(res._getStatusCode()).toBe(401);
+  expect(demoLimitKeys()).toBe(0);
 });
