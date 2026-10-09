@@ -1512,3 +1512,6 @@ The tunnel stays closed until AICP confirms.
   only check-ins; the course record is unchanged.
 - m7: first-visit seeding runs in a transaction that takes a Postgres advisory
   lock, so two first visits at once seed one course.
+- m8: the hosted proxy sets `X-Forwarded-Proto` from `HOSTED_FORWARDED_PROTO`
+  (default `https`) instead of copying the client's header. Checked in the rebuilt
+  build-host proxy: the rendered config sets `https`.

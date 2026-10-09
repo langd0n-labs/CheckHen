@@ -133,6 +133,8 @@ services:
     environment:
       HOSTED_BIND_ADDRESS: ${HOSTED_BIND_ADDRESS:-127.0.0.1}
       HOSTED_PORT: ${HOSTED_PORT:-8080}
+      # The scheme visitors use: https behind the tunnel.
+      HOSTED_FORWARDED_PROTO: ${HOSTED_FORWARDED_PROTO:-https}
       APP_PORT: ${APP_PORT:-3000}
       SOCKET_PORT: ${SOCKET_PORT:-6060}
     depends_on:
