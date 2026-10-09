@@ -1542,3 +1542,6 @@ The tunnel stays closed until AICP confirms.
   adds no evidence, records no new fail for that student, and gets no probe.
 - m10: a checkout notice removes one pending entry per send, so the same checkout
   queued again during the send stays pending.
+- m11: the instructor help says the allowlist works by address, so a site on a
+  shared content network can let a determined student reach other sites there.
+  `docs/network-filtering.md` lists the same limit.

@@ -199,6 +199,12 @@ export default function InstructorHelp() {
                   A student who opened an allowed site before the start may need to reload it once.
                 </List.Item>
                 <List.Item>
+                  The allowlist works by network address. A site served from a shared content
+                  network (Cloudflare, Fastly, CloudFront) shares addresses with other sites, so
+                  a determined student may reach some of those too. Prefer allowed sites that
+                  are hosted on their own.
+                </List.Item>
+                <List.Item>
                   CheckHen watches each student&apos;s exam device: the device they checked in with
                   first. Both its open class page and its Wi-Fi connection count; another device
                   does not. A student whose exam device CheckHen has not heard from for longer than
