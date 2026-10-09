@@ -1736,3 +1736,14 @@ repository). The tunnel stays closed until AICP confirms.
 - A reset stops the simulated chat and ends every open session of the course it sets
   aside.
 - Each start is still a write through the request limits.
+
+### P2: the limiter cannot be turned into a lockout
+
+- The shared counters live apart from the per-client table, so nothing can evict them.
+- The per-client table still holds at most 10,000 counters; when it is full it drops
+  expired ones, then the least recently used, and never refuses a new client.
+- Resets count per IPv6 /48 (writes still per /64).
+- The demo gate runs after the sign-in check, so a request without a session gets 401
+  without creating a counter.
+- Test: 10,000 reset attempts from distinct /48s fill the table; a minute later a new
+  visitor can write. Refusing new clients instead fails that test.

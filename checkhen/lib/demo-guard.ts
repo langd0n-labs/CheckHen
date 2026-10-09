@@ -31,10 +31,14 @@ const SIZE_CHECK_MS = 30_000;
 // Counters for at most this many clients; under an address flood, new clients wait.
 const MAX_KEYS = 10_000;
 
-const windows = new Map<string, { start: number; count: number; windowMs: number }>();
+type Counter = { start: number; count: number; windowMs: number };
+// Per-client counters, bounded: when full, the oldest is evicted, never a new client
+// refused. The shared counters live apart, so no client can push them out.
+const windows = new Map<string, Counter>();
+const shared = new Map<Bucket, Counter>();
 let sizeCheck: { at: number; bytes: number } | null = null;
 
-/** Tests only: how many counters are held. */
+/** Tests only: how many per-client counters are held. */
 export function demoLimitKeys(): number {
   return windows.size;
 }
@@ -42,29 +46,31 @@ export function demoLimitKeys(): number {
 /** Tests only: forget every counter and the cached database size. */
 export function resetDemoLimits() {
   windows.clear();
+  shared.clear();
   sizeCheck = null;
   databaseCheck = null;
 }
 
-/** The first four groups of an IPv6 address: one client usually holds a whole /64. */
-function ipv6Prefix64(address: string): string {
+/** The first `groups` groups of an IPv6 address, as a prefix. */
+function ipv6Prefix(address: string, groups: number): string {
   const [head, tail = ''] = address.split('::');
   const left = head ? head.split(':') : [];
   const right = tail ? tail.split(':') : [];
-  const groups = address.includes('::')
+  const all = address.includes('::')
     ? [...left, ...Array(8 - left.length - right.length).fill('0'), ...right]
     : left;
-  return `${groups
-    .slice(0, 4)
+  return `${all
+    .slice(0, groups)
     .map((group) => parseInt(group || '0', 16).toString(16))
-    .join(':')}::/64`;
+    .join(':')}::/${groups * 16}`;
 }
 
 /**
  * Cloudflare sets cf-connecting-ip; a direct loopback request has only its socket.
- * The origin binds 127.0.0.1, so only the tunnel and local requests reach it.
+ * The origin binds 127.0.0.1, so only the tunnel and local requests reach it. One
+ * client usually holds an IPv6 /64; for resets, a whole /48 counts as one client.
  */
-export function clientKey(req: NextApiRequest): string {
+export function clientKey(req: NextApiRequest, prefixGroups = 4): string {
   const header = (name: string) => {
     const value = req.headers[name];
     return (Array.isArray(value) ? value[0] : value)?.split(',')[0].trim();
@@ -74,38 +80,41 @@ export function clientKey(req: NextApiRequest): string {
     header('x-forwarded-for') ||
     req.socket?.remoteAddress ||
     'unknown';
-  return isIPv6(address) && !address.includes('.') ? ipv6Prefix64(address) : address;
+  return isIPv6(address) && !address.includes('.') ? ipv6Prefix(address, prefixGroups) : address;
 }
 
-function take(key: string, max: number, windowMs: number, now: number): boolean {
-  const current = windows.get(key);
-  if (!current || now - current.start >= windowMs) {
-    if (!current && windows.size >= MAX_KEYS) {
-      return false;
-    }
-    windows.set(key, { start: now, count: 1, windowMs });
-    return true;
+function count(counter: Counter | undefined, max: number, windowMs: number, now: number) {
+  if (!counter || now - counter.start >= windowMs) {
+    return { counter: { start: now, count: 1, windowMs }, ok: true };
   }
-  current.count += 1;
-  return current.count <= max;
+  counter.count += 1;
+  return { counter, ok: counter.count <= max };
 }
 
 function allowed(req: NextApiRequest, bucket: Bucket): boolean {
   const { perClient, overall, windowMs } = LIMITS[bucket];
   const now = Date.now();
+  const key = `${bucket}:${clientKey(req, bucket === 'reset' ? 3 : 4)}`;
+  const own = count(windows.get(key), perClient, windowMs, now);
+  // Re-insert, so the map's order is oldest use first.
+  windows.delete(key);
   if (windows.size >= MAX_KEYS) {
-    // Each counter expires on its own window: a write must not clear the hourly
-    // reset counters.
-    windows.forEach((value, key) => {
-      if (now - value.start >= value.windowMs) windows.delete(key);
+    windows.forEach((value, candidate) => {
+      if (now - value.start >= value.windowMs) windows.delete(candidate);
     });
+    while (windows.size >= MAX_KEYS) {
+      windows.delete(windows.keys().next().value!);
+    }
   }
+  windows.set(key, own.counter);
   // A client over its own limit is refused before it reaches the shared limit, so one
   // client cannot use up everyone's share.
-  if (!take(`${bucket}:client:${clientKey(req)}`, perClient, windowMs, now)) {
+  if (!own.ok) {
     return false;
   }
-  return take(`${bucket}:all`, overall, windowMs, now);
+  const all = count(shared.get(bucket), overall, windowMs, now);
+  shared.set(bucket, all.counter);
+  return all.ok;
 }
 
 export async function databaseFull(): Promise<boolean> {

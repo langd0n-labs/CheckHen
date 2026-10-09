@@ -289,3 +289,37 @@ it('starts no new classes in demo mode', async () => {
   await newClassRoute(req as any, res as any);
   expect(res._getStatusCode()).toBe(403);
 });
+
+describe('the limiter cannot be turned into a lockout', () => {
+  afterEach(() => jest.useRealTimers());
+
+  it('uses no counter for a request that is not signed in', async () => {
+    (getServerSession as jest.Mock).mockResolvedValue(null);
+    const { req, res } = request();
+    expect(await requireIdentity(req as any, res as any, true, { bucket: 'reset' })).toBeNull();
+    expect(res._getStatusCode()).toBe(401);
+    expect(demoLimitKeys()).toBe(0);
+  });
+
+  it('keeps writes open after a flood of reset attempts fills the counter table', async () => {
+    jest.useFakeTimers({ now: Date.parse('2026-10-09T12:00:00Z') });
+    for (let i = 0; i < 10_000; i += 1) {
+      await gate('POST', `2001:db8:${i.toString(16)}::1`, 'reset');
+    }
+    // A minute later the shared write limit renews and a new visitor can write.
+    jest.setSystemTime(Date.parse('2026-10-09T12:01:01Z'));
+    expect(await gate('POST', '198.51.100.20')).toEqual({ allowed: true, status: 200 });
+    expect(demoLimitKeys()).toBeLessThanOrEqual(10_000);
+  });
+
+  it('counts resets per IPv6 /48', async () => {
+    for (let i = 0; i < 3; i += 1) {
+      await gate('POST', `2001:db8:7:${i}::1`, 'reset');
+    }
+    expect(await gate('POST', '2001:db8:7:99::1', 'reset')).toEqual({
+      allowed: false,
+      status: 429,
+    });
+    expect(clientKey(request('POST', '2001:db8:7:99::1').req as any, 3)).toBe('2001:db8:7::/48');
+  });
+});

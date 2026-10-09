@@ -9,9 +9,10 @@ export { isInstructor };
 
 export async function requireIdentity(req: NextApiRequest, res: NextApiResponse, adminOnly = false,
   gate: GateOptions = {}) {
-  if (!await demoGate(req, res, gate)) return null;
   const session = await getServerSession(req, res, authOptions);
   if (!session?.user?.email) { res.status(401).json({ message: 'Unauthorized' }); return null; }
+  // After sign-in: an anonymous request is refused without using any demo counter.
+  if (!await demoGate(req, res, gate)) return null;
   const admin = isInstructor(session.user.email);
   if (adminOnly && !admin) { res.status(403).json({ message: 'Instructor access required' }); return null; }
   const user = await prisma.user.findUnique({ where: { email: session.user.email } });
