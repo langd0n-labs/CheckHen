@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { isIPv6 } from 'node:net';
 import { demoDatabaseProblem, isDemo } from './demo';
 import { prisma } from './prisma';
 
@@ -24,13 +25,35 @@ export function resetDemoLimits() {
   sizeCheck = null;
 }
 
-/** Cloudflare sets cf-connecting-ip; a direct loopback request has only its socket. */
-function clientKey(req: NextApiRequest): string {
+/** The first four groups of an IPv6 address: one client usually holds a whole /64. */
+function ipv6Prefix64(address: string): string {
+  const [head, tail = ''] = address.split('::');
+  const left = head ? head.split(':') : [];
+  const right = tail ? tail.split(':') : [];
+  const groups = address.includes('::')
+    ? [...left, ...Array(8 - left.length - right.length).fill('0'), ...right]
+    : left;
+  return `${groups
+    .slice(0, 4)
+    .map((group) => parseInt(group || '0', 16).toString(16))
+    .join(':')}::/64`;
+}
+
+/**
+ * Cloudflare sets cf-connecting-ip; a direct loopback request has only its socket.
+ * The origin binds 127.0.0.1, so only the tunnel and local requests reach it.
+ */
+export function clientKey(req: NextApiRequest): string {
   const header = (name: string) => {
     const value = req.headers[name];
     return (Array.isArray(value) ? value[0] : value)?.split(',')[0].trim();
   };
-  return header('cf-connecting-ip') || header('x-forwarded-for') || req.socket?.remoteAddress || 'unknown';
+  const address =
+    header('cf-connecting-ip') ||
+    header('x-forwarded-for') ||
+    req.socket?.remoteAddress ||
+    'unknown';
+  return isIPv6(address) && !address.includes('.') ? ipv6Prefix64(address) : address;
 }
 
 function take(key: string, max: number, windowMs: number, now: number): boolean {
@@ -51,10 +74,12 @@ function allowed(req: NextApiRequest, bucket: Bucket): boolean {
       if (now - value.start >= windowMs) windows.delete(key);
     });
   }
-  // Count both, so a client over its own limit still uses up the shared one.
-  const client = take(`${bucket}:client:${clientKey(req)}`, perClient, windowMs, now);
-  const all = take(`${bucket}:all`, overall, windowMs, now);
-  return client && all;
+  // A client over its own limit is refused before it reaches the shared limit, so one
+  // client cannot use up everyone's share.
+  if (!take(`${bucket}:client:${clientKey(req)}`, perClient, windowMs, now)) {
+    return false;
+  }
+  return take(`${bucket}:all`, overall, windowMs, now);
 }
 
 async function databaseFull(): Promise<boolean> {
@@ -97,7 +122,9 @@ export async function demoGate(
   }
   // A reset adds one small course and has its own tight limit, so it runs at the cap.
   if (!pastSizeCap && (await databaseFull())) {
-    res.status(507).json({ message: 'The demo has reached its storage limit and takes no new changes.' });
+    res
+      .status(507)
+      .json({ message: 'The demo has reached its storage limit and takes no new changes.' });
     return false;
   }
   return true;

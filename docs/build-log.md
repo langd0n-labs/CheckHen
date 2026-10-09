@@ -1481,3 +1481,11 @@ The tunnel stays closed until AICP confirms.
 - Demo mode refuses new class schedules (templates). Every course, in any mode, has
   at most 50.
 - The socket server has no test harness; the cron check is covered by reading.
+
+### C: one client cannot use up the shared limit
+
+- A request over the client's own limit is refused before it counts against the
+  shared limit, so one client can no longer block everyone's writes for a minute or
+  resets for an hour.
+- IPv6 clients are keyed by their /64, so rotating addresses within one network
+  share one limit.

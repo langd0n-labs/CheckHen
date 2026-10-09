@@ -1,7 +1,7 @@
 import { createMocks } from 'node-mocks-http';
 import { getServerSession } from 'next-auth';
 import { DEMO_INSTRUCTOR } from '@/lib/demo';
-import { demoGate, resetDemoLimits } from '@/lib/demo-guard';
+import { clientKey, demoGate, resetDemoLimits } from '@/lib/demo-guard';
 import { prisma } from '@/lib/prisma';
 import { requireIdentity } from '@/lib/request-scope';
 import coursesRoute from '@/pages/api/courses';
@@ -215,4 +215,32 @@ describe('class schedules', () => {
     expect(await post()).toBe(400);
     delete process.env.ADMIN_EMAILS;
   });
+});
+
+it('does not let one client use up the shared limit', async () => {
+  for (let i = 0; i < 700; i += 1) {
+    await gate('POST', '203.0.113.5');
+  }
+  // 640 of those were over the client's own limit and never reached the shared one.
+  expect((await gate('POST', '198.51.100.7')).allowed).toBe(true);
+  for (let i = 0; i < 3; i += 1) {
+    await gate('POST', '203.0.113.5', 'reset');
+  }
+  for (let i = 0; i < 20; i += 1) {
+    await gate('POST', '203.0.113.5', 'reset');
+  }
+  expect((await gate('POST', '198.51.100.7', 'reset')).allowed).toBe(true);
+});
+
+it('keys an IPv6 client by its /64', async () => {
+  const key = (ip: string) => clientKey(request('POST', ip).req as any);
+  expect(key('2001:db8:1:2:aaaa::1')).toBe('2001:db8:1:2::/64');
+  expect(key('2001:db8:1:2:bbbb:cccc:dddd:eeee')).toBe('2001:db8:1:2::/64');
+  expect(key('2001:db8::1')).toBe('2001:db8:0:0::/64');
+  expect(key('2001:db8:1:3::1')).not.toBe(key('2001:db8:1:2::1'));
+  expect(key('203.0.113.5')).toBe('203.0.113.5');
+  for (let i = 0; i < 60; i += 1) {
+    await gate('POST', `2001:db8:1:2::${i.toString(16)}`);
+  }
+  expect(await gate('POST', '2001:db8:1:2::ffff')).toEqual({ allowed: false, status: 429 });
 });
