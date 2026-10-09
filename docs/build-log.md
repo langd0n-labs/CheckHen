@@ -1589,3 +1589,28 @@ Verified: Jest 38 suites, 351 tests; PostgreSQL 42; Python 79.
   always went to the old `https://checkhen.ngrok.io`. The plain-HTTP LAN demo
   hit it on every request. HTTPS is enforced by the proxies (the classroom proxy
   redirects port 80; the tunnel is HTTPS), so the app no longer redirects.
+
+### LAN demo
+
+URL: http://<lan-address>:8190/demo (home network only; no tunnel, no public
+hostname). A separate clone on that host, branch
+`build/m0-m2`, compose project `checkhen-demo`. Settings in its ignored
+`.env.hosted` (0600): demo mode, its own generated `POSTGRES_PASSWORD` and
+`AUTH_SECRET`, `NEXTAUTH_URL=http://<lan-address>:8190`, proxy on `0.0.0.0:8190`
+with `HOSTED_FORWARDED_PROTO=http`, app and socket on 127.0.0.1 (3190, 6190).
+The host's firewall must allow TCP 8190.
+
+- Start: `podman-compose -p checkhen-demo --env-file .env.hosted --profile hosted up -d --build`
+  in the checkout. Add `--force-recreate` after a rebuild.
+- Stop: `podman-compose -p checkhen-demo --env-file .env.hosted --profile hosted down`.
+- Reset the demo data: the instructor's Reset demo button, or a fresh database with
+  `podman-compose -p checkhen-demo --env-file .env.hosted --profile hosted down -v`,
+  then start.
+- Update the code: pull the branch in the checkout, then start with
+  `--force-recreate`.
+- On the LAN, any client can set `cf-connecting-ip`, so the per-client rate limits
+  are advisory here; the shared limits and the size cap still hold.
+
+Checked on 2026-10-09 from the build host over the LAN: `/api/mode` reports hosted demo,
+`/api/demo` lists 11 personas and a live session, and the instructor, caller
+(375x667), and student pass end to end in headless Chromium with no page errors.
