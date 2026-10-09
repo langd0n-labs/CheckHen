@@ -1528,3 +1528,5 @@ The tunnel stays closed until AICP confirms.
 - m5: when a student reconnects before their fail is reported, the fail moves to
   `pendingFails` and detection re-arms, so a second drop while callbacks fail is a
   second fail. The worker reports each pending fail by its ID.
+- m6: both help pages say the limit counts from the last time CheckHen heard the
+  device, which can be a few seconds before it left.

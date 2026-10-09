@@ -202,8 +202,9 @@ export default function InstructorHelp() {
                 <List.Item>
                   CheckHen watches each student&apos;s exam device: the device they checked in with
                   first. Both its open class page and its Wi-Fi connection count; another device
-                  does not. A student whose exam device is disconnected for longer than the limit
-                  gets an automatic fail, shown on the dashboard. Tell students to take the exam on
+                  does not. A student whose exam device CheckHen has not heard from for longer than
+                  the limit gets an automatic fail, shown on the dashboard. The time counts from the
+                  last time CheckHen heard the device, which can be a few seconds before it left. Tell students to take the exam on
                   the device they checked in with first.
                 </List.Item>
                 <List.Item>
