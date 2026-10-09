@@ -1581,3 +1581,11 @@ Verified: Python 79 tests; Jest 38 suites, 348 tests.
   change here; m9 accepted as is by the reviewer.
 
 Verified: Jest 38 suites, 351 tests; PostgreSQL 42; Python 79.
+
+### Removed the legacy HTTPS redirect
+
+- `next.config.mjs` redirected any request with `X-Forwarded-Proto: http` to
+  `NEXTAUTH_URL`, but that variable is not set at image build time, so the redirect
+  always went to the old `https://checkhen.ngrok.io`. The plain-HTTP LAN demo
+  hit it on every request. HTTPS is enforced by the proxies (the classroom proxy
+  redirects port 80; the tunnel is HTTPS), so the app no longer redirects.

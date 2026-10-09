@@ -4,9 +4,6 @@ const withBundleAnalyzer = bundleAnalyzer({
   enabled: process.env.ANALYZE === 'true',
 });
 
-const isProd = process.env.NODE_ENV === 'production';
-const productionUrl = process.env.NEXTAUTH_URL || 'https://checkhen.ngrok.io';
-
 export default withBundleAnalyzer({
   reactStrictMode: false,
   eslint: {
@@ -34,15 +31,6 @@ export default withBundleAnalyzer({
       },
     ];
   },
-  async redirects() {
-    if (!isProd) return [];
-    return [
-      {
-        source: '/:path*',
-        has: [{ type: 'header', key: 'x-forwarded-proto', value: 'http' }],
-        destination: `${productionUrl}/:path*`,
-        permanent: true,
-      },
-    ];
-  },
+  // HTTPS is enforced by the proxy in front of the app (the classroom proxy and the
+  // tunnel); the app does not redirect on its own.
 });
