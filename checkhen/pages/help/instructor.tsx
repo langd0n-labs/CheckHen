@@ -200,9 +200,9 @@ export default function InstructorHelp() {
                 </List.Item>
                 <List.Item>
                   The allowlist works by network address. A site served from a shared content
-                  network (Cloudflare, Fastly, CloudFront) shares addresses with other sites, so
-                  a determined student may reach some of those too. Prefer allowed sites that
-                  are hosted on their own.
+                  network (Cloudflare, Fastly, CloudFront) shares addresses with other sites, so a
+                  determined student may reach some of those too. Prefer allowed sites that are
+                  hosted on their own.
                 </List.Item>
                 <List.Item>
                   CheckHen watches each student&apos;s exam device: the device they checked in with
