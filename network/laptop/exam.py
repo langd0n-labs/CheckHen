@@ -35,6 +35,20 @@ PROBE_EVERY_SECONDS = 2
 # The shortest disconnect limit: heartbeats are 5 s apart.
 MIN_THRESHOLD_SECONDS = 10
 _probed: dict[str, float] = {}
+BOOT_ID = Path("/proc/sys/kernel/random/boot_id")
+
+
+def clock() -> float:
+    """Exam evidence uses the monotonic clock, so a wall-clock step moves no deadline."""
+    return time.monotonic()
+
+
+def boot_id() -> str:
+    """The monotonic clock restarts at boot; exam.json records the boot it belongs to."""
+    try:
+        return BOOT_ID.read_text().strip()
+    except OSError:
+        return ""
 # Station evidence shows a gap only when the polls around it were this close: after a
 # longer stall, a station's latest activity says nothing about the time in between.
 STATION_POLL_GAP_SECONDS = 2.0
@@ -187,8 +201,8 @@ def start(scope: dict, exam_id: str, domains: list[str], clients: list[dict],
     if len({client["userId"] for client in clients}) != len(clients):
         raise ValueError("Duplicate exam client")
     classroom = json.loads(CLASS_STATE.read_text())
-    clock = time.time() if now is None else now
-    state = {**scope, "examId": exam_id, "domains": domains, "thresholdSeconds": threshold_seconds,
+    started = clock() if now is None else now
+    state = {**scope, "examId": exam_id, "bootId": boot_id(), "domains": domains, "thresholdSeconds": threshold_seconds,
              "uplink": classroom["uplink"], "dnsmasqPid": classroom["processes"]["dnsmasq"],
              # Seeding puts each allowlisted name's addresses in the exam sets as soon as
              # the gate starts, for clients that resolved them before the exam. It also
@@ -198,8 +212,8 @@ def start(scope: dict, exam_id: str, domains: list[str], clients: list[dict],
              "seedDomains": domains + [name for name in preauth or []
                                        if covered(name, domains) and name not in domains],
              "seededAt": 0,
-             "clients": {client["userId"]: {"mac": client["mac"].lower(), "lastHeartbeat": clock,
-                        "lastStation": clock, "failedAt": None, "failId": None,
+             "clients": {client["userId"]: {"mac": client["mac"].lower(), "lastHeartbeat": started,
+                        "lastStation": started, "failedAt": None, "failId": None,
                         "reported": False} for client in clients}}
     try:
         write_dns(domains, state["dnsmasqPid"])
@@ -239,16 +253,18 @@ def seed_due(state: dict, now: float) -> list[str]:
 
 def heartbeat(scope: dict, user_id: str, mac: str, now: float | None = None) -> None:
     # In memory: a heartbeat must not cost a file write on the request path.
-    clock = time.time() if now is None else now
+    at = clock() if now is None else now
     key = (scope["courseId"], scope["classId"], user_id, mac.lower())
-    first = HEARTBEATS[key][0] if key in HEARTBEATS else clock
-    HEARTBEATS[key] = (first, clock)
+    first = HEARTBEATS[key][0] if key in HEARTBEATS else at
+    HEARTBEATS[key] = (first, at)
 
 
-def client_status(client: dict, threshold: int, now: float) -> dict:
+def client_status(client: dict, threshold: int, now: float, wall: float | None = None) -> dict:
     last_seen = max(client["lastHeartbeat"], client["lastStation"])
     connected = now - last_seen <= min(CONNECTED_SECONDS, threshold)
-    return {"connected": connected, "disconnectedAt": None if connected else last_seen,
+    # The dashboard shows wall-clock times; evidence is on the monotonic clock.
+    seen = last_seen if wall is None else wall - (now - last_seen)
+    return {"connected": connected, "disconnectedAt": None if connected else seen,
             "failed": bool(client.get("reported") or client.get("pendingFails")) or
             client.get("failedAt") is not None}
 
@@ -336,9 +352,9 @@ def probe(addresses: list[str]) -> None:
             continue
 
 
-def status(state: dict, now: float) -> list[dict]:
+def status(state: dict, now: float, wall: float | None = None) -> list[dict]:
     """Read-only view of the evidence the monitor last folded, for /exam-status."""
-    return [{"userId": user_id, **client_status(client, state["thresholdSeconds"], now)}
+    return [{"userId": user_id, **client_status(client, state["thresholdSeconds"], now, wall)}
             for user_id, client in state["clients"].items()]
 
 
@@ -387,7 +403,13 @@ def monitor(stations: dict[str, float] | None, now: float | None = None) -> list
         HEARTBEATS.clear()
         _probed.clear()
         return []
-    clock = time.time() if now is None else now
-    connection_status(state, stations, clock)
+    at = clock() if now is None else now
+    if state.get("bootId") != boot_id():
+        # After a reboot, saved evidence times are from another clock: start over from
+        # now, as at exam start, rather than fail everyone or no one.
+        for client in state["clients"].values():
+            client.update(lastHeartbeat=at, lastStation=at)
+        state.update(bootId=boot_id(), stationObservedAt=None, seededAt=0)
+    connection_status(state, stations, at)
     save(state)
     return unreported(state)

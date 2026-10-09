@@ -371,8 +371,8 @@ class Handler(BaseHTTPRequestHandler):
                     if state and any(state[key] != scope[key] for key in scope):
                         raise PermissionError("Wrong exam session")
                     # Read-only: only the detection thread folds evidence, from its own polls.
-                    statuses = exam.status(state, time.time()) if state else []
-                    monitor = {"healthy": time.time() - Handler.monitor_at <= MONITOR_STALE_SECONDS,
+                    statuses = exam.status(state, exam.clock(), time.time()) if state else []
+                    monitor = {"healthy": time.monotonic() - Handler.monitor_at <= MONITOR_STALE_SECONDS,
                                "error": Handler.monitor_error}
                     body = json.dumps({"active": bool(state), "clients": statuses,
                                        "monitor": monitor}).encode()
@@ -467,7 +467,7 @@ def detect_pass(interface: str | None) -> None:
         active = exam.read()
     # In AP test mode there is no Wi-Fi interface; heartbeats are the only evidence.
     stations = ({} if interface is None else station_activity(interface)) if active else {}
-    observed_at = time.time()
+    observed_at = exam.clock()
     with LOCK:
         try:
             prune_bindings(interface)
@@ -485,7 +485,7 @@ def detect_pass(interface: str | None) -> None:
 
 def worker_pass(checkout_url: str, dns_server: str) -> None:
     """Network work for the monitor: checkouts, fail callbacks, and allowlist seeding."""
-    now = time.time()
+    now = exam.clock()
     with LOCK:
         bindings = read_bindings()
         state = exam.read()
@@ -511,7 +511,7 @@ def detect_loop(interface: str | None) -> None:
         started = time.monotonic()
         try:
             detect_pass(interface)
-            Handler.monitor_at = time.time()
+            Handler.monitor_at = time.monotonic()
             Handler.monitor_error = None
         except Exception as error:  # Keep monitoring; the next pass retries.
             Handler.monitor_error = type(error).__name__

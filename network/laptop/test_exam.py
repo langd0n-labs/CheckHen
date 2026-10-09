@@ -131,7 +131,7 @@ class ExamTests(unittest.TestCase):
         os_mock.kill.assert_called_once()
 
     def state(self, threshold=30):
-        return {"courseId": "course", "classId": "class", "examId": "exam",
+        return {"courseId": "course", "classId": "class", "examId": "exam", "bootId": exam.boot_id(),
                 "thresholdSeconds": threshold, "domains": ["exam.example.edu"], "refreshedAt": 1e9,
                 "clients": {"student": {"mac": "02:00:00:00:00:20", "lastHeartbeat": 100,
                                         "lastStation": 100, "failedAt": None, "failId": None,
@@ -337,6 +337,22 @@ class ExamTests(unittest.TestCase):
         self.assertFalse(status["connected"])
         self.assertTrue(exam.connection_status(state, {}, 131)[0]["failed"])
         self.assertEqual(exam.HEARTBEATS, {})
+
+    def test_evidence_after_a_reboot_starts_over_instead_of_failing_everyone(self):
+        state = self.state()
+        state["bootId"] = "an-earlier-boot"
+        exam.save(state)
+        # The monotonic clock restarted: saved times are far in the "future" or past.
+        self.assertEqual(exam.monitor({}, 5), [])
+        saved = exam.read()
+        self.assertEqual(saved["bootId"], exam.boot_id())
+        self.assertEqual(saved["clients"]["student"]["lastHeartbeat"], 5)
+        self.assertTrue(exam.monitor({}, 36))
+
+    def test_status_reports_wall_clock_disconnect_times(self):
+        state = self.state()
+        status = exam.status(state, 140, wall=1_700_000_040)[0]
+        self.assertEqual(status["disconnectedAt"], 1_700_000_000)
 
     def test_ordinary_class_never_touches_the_exam_gate(self):
         # With no exam running, the monitor and a heartbeat return before any nft,

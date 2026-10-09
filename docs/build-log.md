@@ -1530,3 +1530,8 @@ The tunnel stays closed until AICP confirms.
   second fail. The worker reports each pending fail by its ID.
 - m6: both help pages say the limit counts from the last time CheckHen heard the
   device, which can be a few seconds before it left.
+- m7: exam evidence, heartbeats, probes, seeding, and detection health use the
+  monotonic clock, so a wall-clock step moves no deadline. `exam.json` records the
+  boot ID; after a reboot (the state directory is on disk), evidence starts over
+  from the first pass instead of failing everyone. `/exam-status` converts
+  disconnect times to wall-clock time for the dashboard.

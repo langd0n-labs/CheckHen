@@ -224,7 +224,7 @@ class AgentTests(unittest.TestCase):
         thread.start()
         with patch.object(exam, "read", return_value=state), \
              patch.object(exam, "connection_status") as fold, patch.object(exam, "save") as save, \
-             patch.object(agent.Handler, "monitor_at", time.time() - 60), \
+             patch.object(agent.Handler, "monitor_at", time.monotonic() - 60), \
              patch.object(agent.Handler, "monitor_error", "OSError"):
             request = urllib.request.Request(f"http://127.0.0.1:{server.server_port}/exam-status",
                                              payload, {"X-CheckHen-Signature": signature})
