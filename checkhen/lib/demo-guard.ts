@@ -14,6 +14,18 @@ const LIMITS = {
 type Bucket = keyof typeof LIMITS;
 
 const DEFAULT_MAX_DATABASE_MB = 512;
+// A flood of reads or sign-ins must not become a flood of count queries.
+const DATABASE_CHECK_MS = 5_000;
+let databaseCheck: { at: number; problem: string | null } | null = null;
+
+/** The demo-only database check, cached for a few seconds. */
+export async function demoDatabaseRefusal(): Promise<string | null> {
+  const now = Date.now();
+  if (!databaseCheck || now - databaseCheck.at >= DATABASE_CHECK_MS) {
+    databaseCheck = { at: now, problem: await demoDatabaseProblem(prisma) };
+  }
+  return databaseCheck.problem;
+}
 const SIZE_CHECK_MS = 30_000;
 
 // Counters for at most this many clients; under an address flood, new clients wait.
@@ -31,6 +43,7 @@ export function demoLimitKeys(): number {
 export function resetDemoLimits() {
   windows.clear();
   sizeCheck = null;
+  databaseCheck = null;
 }
 
 /** The first four groups of an IPv6 address: one client usually holds a whole /64. */
@@ -120,7 +133,7 @@ export async function demoGate(
   if (!isDemo()) {
     return true;
   }
-  const problem = await demoDatabaseProblem(prisma);
+  const problem = await demoDatabaseRefusal();
   if (problem) {
     res.status(503).json({ message: problem });
     return false;

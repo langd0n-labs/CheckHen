@@ -1559,3 +1559,6 @@ Verified: Python 79 tests; Jest 38 suites, 348 tests.
   expired ones and refuses new clients until space frees. Each counter now expires
   on its own window: before, a prune during a write cleared the hourly reset
   counters too.
+- m3: the demo-only database check is cached for 5 s, for gated requests and persona
+  sign-in alike, so a flood of reads or sign-ins runs at most two count queries
+  every 5 s.

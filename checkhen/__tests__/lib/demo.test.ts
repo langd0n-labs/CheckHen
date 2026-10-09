@@ -9,6 +9,7 @@ import {
   demoDatabaseProblem,
   isDemo,
 } from '@/lib/demo';
+import { resetDemoLimits } from '@/lib/demo-guard';
 import { prisma } from '@/lib/prisma';
 import { isInstructor, requireIdentity } from '@/lib/request-scope';
 
@@ -19,6 +20,7 @@ jest.mock('next-auth', () => ({ getServerSession: jest.fn() }));
 jest.mock('../../pages/api/auth/[...nextauth]', () => ({ authOptions: {} }));
 
 beforeEach(() => {
+  resetDemoLimits();
   (prisma.user.count as jest.Mock).mockResolvedValue(0);
   (prisma.course.count as jest.Mock).mockResolvedValue(0);
   (prisma.user.findUnique as jest.Mock).mockResolvedValue({ id: 'hoot', email: DEMO_INSTRUCTOR });

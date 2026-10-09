@@ -270,3 +270,11 @@ describe('counter memory', () => {
     expect(await gate('POST', '203.0.113.5', 'reset')).toEqual({ allowed: false, status: 429 });
   });
 });
+
+it('checks the database for demo-only data at most every five seconds', async () => {
+  for (let i = 0; i < 20; i += 1) {
+    await gate('GET');
+  }
+  expect(prisma.user.count).toHaveBeenCalledTimes(1);
+  expect(prisma.course.count).toHaveBeenCalledTimes(1);
+});
