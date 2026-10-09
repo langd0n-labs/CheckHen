@@ -35,8 +35,8 @@ class ExamTests(unittest.TestCase):
         self.assertEqual(run.call_args.args, (["nft", "-f", "-"],))
         self.assertIn("flush set ip checkhen exam4", script)
         self.assertIn("flush set ip6 checkhen6 exam6", script)
-        self.assertIn("@authorized4 ip daddr @exam4", script)
-        self.assertIn("@authorized6 ip6 daddr @exam6", script)
+        self.assertIn("@authorized4 ip daddr @exam4 ip daddr != @private4", script)
+        self.assertIn("@authorized6 ip6 daddr @exam6 ip6 daddr != @private6", script)
         self.assertEqual(script.count("counter drop"), 2)
         with patch.object(exam.subprocess, "run") as run:
             exam.apply_policy(False, "eth0")

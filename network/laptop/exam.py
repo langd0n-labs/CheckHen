@@ -64,10 +64,12 @@ def apply_policy(active: bool, uplink: str) -> None:
     commands = ["flush set ip checkhen exam4", "flush set ip6 checkhen6 exam6",
                 "flush chain ip checkhen exam_gate", "flush chain ip6 checkhen6 exam_gate"]
     if active:
+        # The gate runs before the private-range drop, so it excludes those ranges
+        # itself: an allowlisted name that resolves to a LAN address stays blocked.
         commands.extend([
-            f'add rule ip checkhen exam_gate ip saddr . ether saddr @authorized4 ip daddr @exam4 oifname "{uplink}" accept',
+            f'add rule ip checkhen exam_gate ip saddr . ether saddr @authorized4 ip daddr @exam4 ip daddr != @private4 oifname "{uplink}" accept',
             'add rule ip checkhen exam_gate counter drop',
-            f'add rule ip6 checkhen6 exam_gate ether saddr @authorized6 ip6 daddr @exam6 oifname "{uplink}" accept',
+            f'add rule ip6 checkhen6 exam_gate ether saddr @authorized6 ip6 daddr @exam6 ip6 daddr != @private6 oifname "{uplink}" accept',
             'add rule ip6 checkhen6 exam_gate counter drop',
         ])
     subprocess.run(["nft", "-f", "-"], input="\n".join(commands) + "\n", text=True,

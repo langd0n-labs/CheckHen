@@ -1515,3 +1515,11 @@ The tunnel stays closed until AICP confirms.
 - m8: the hosted proxy sets `X-Forwarded-Proto` from `HOSTED_FORWARDED_PROTO`
   (default `https`) instead of copying the client's header. Checked in the rebuilt
   build-host proxy: the rendered config sets `https`.
+
+### Exam review minors (from 550aaa7-622f656)
+
+- m2: done in the M1 fix (binding upkeep cannot skip detection, a fail without an ID
+  gets one, `/exam-status` reports detection health and the dashboard shows it).
+- m3: the exam gate's accept rules exclude `private4` and `private6`, so an
+  allowlisted name that resolves to a LAN or campus-private address stays blocked
+  during an exam. The rules load in nftables (checked in a scratch namespace).
