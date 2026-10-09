@@ -2,10 +2,10 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import {
   avatar,
   currentDemoCourse,
+  demoCourseOrSeed,
   DEMO_INSTRUCTOR_PERSONA,
   DEMO_STUDENTS,
   isDemo,
-  seedDemo,
 } from '@/lib/demo';
 import { demoGate } from '@/lib/demo-guard';
 import { prisma } from '@/lib/prisma';
@@ -21,12 +21,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!(await demoGate(req, res))) {
     return;
   }
-  let course = await currentDemoCourse(prisma);
-  if (!course) {
-    // First visit to a fresh demo deployment: seed it.
-    await seedDemo(prisma);
-    course = await currentDemoCourse(prisma);
-  }
+  // A fresh demo deployment is seeded on its first visit.
+  const course = (await currentDemoCourse(prisma)) ?? (await demoCourseOrSeed(prisma));
   const live = await prisma.class.findFirst({
     where: { courseId: course!.id },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],

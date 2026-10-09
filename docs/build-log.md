@@ -1510,3 +1510,5 @@ The tunnel stays closed until AICP confirms.
 - m6: roll call shows "Absent" for students it marked absent and "Not marked" for
   students not yet asked. Absence is the default, so the event log still records
   only check-ins; the course record is unchanged.
+- m7: first-visit seeding runs in a transaction that takes a Postgres advisory
+  lock, so two first visits at once seed one course.

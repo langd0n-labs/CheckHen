@@ -1108,8 +1108,18 @@ integration('route → store → attendance fold', () => {
   });
 
   it('seeds a demo course that every view can read, and resets to a new one', async () => {
-    const { seedDemo, currentDemoCourse, demoDatabaseProblem, DEMO_DATABASE_REFUSED } =
-      jest.requireActual('@/lib/demo');
+    const {
+      seedDemo,
+      currentDemoCourse,
+      demoCourseOrSeed,
+      demoDatabaseProblem,
+      DEMO_DATABASE_REFUSED,
+    } = jest.requireActual('@/lib/demo');
+    // Two first visits at once seed one course.
+    const before = await prisma.course.count({ where: { demo: true } });
+    const [one, two] = await Promise.all([demoCourseOrSeed(prisma), demoCourseOrSeed(prisma)]);
+    expect(one.id).toBe(two.id);
+    expect(await prisma.course.count({ where: { demo: true } })).toBe(before + 1);
     // A course created by name alone is never the demo; only the seed marks one.
     const named = await prisma.course.create({ data: { name: 'Demo: Farm Science 101' } });
     const first = await seedDemo(prisma, new Date('2026-10-06T18:00:00Z'));

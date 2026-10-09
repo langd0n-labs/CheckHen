@@ -126,8 +126,12 @@ export function avatar(persona: Persona): string {
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
+type Db = PrismaClient | Prisma.TransactionClient;
+// Any fixed key: it only serializes first-visit seeding across app requests.
+const SEED_LOCK = 0x636865636b;
+
 /** The demo course in force: the newest seeded one. A reset makes a new one from the seed. */
-export async function currentDemoCourse(db: PrismaClient) {
+export async function currentDemoCourse(db: Db) {
   return db.course.findFirst({
     where: { demo: true },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -239,7 +243,7 @@ function pastMeeting(index: number): Seeded[] {
  * Create a fresh demo course from the seed. The event log is append-only, so a
  * reset never deletes: it makes a new course, and the newest one is the demo.
  */
-export async function seedDemo(db: PrismaClient, now = new Date()) {
+export async function seedDemo(db: Db, now = new Date()) {
   const personas = [DEMO_INSTRUCTOR_PERSONA, ...DEMO_STUDENTS];
   const users = new Map<string, string>();
   for (const persona of personas) {
@@ -335,4 +339,23 @@ export async function seedDemo(db: PrismaClient, now = new Date()) {
     },
   ]);
   return { courseId: course.id, liveClassId: live.id };
+}
+
+/**
+ * The demo course, seeding it on a fresh deployment. Two first visits at once wait
+ * on one lock, so only one of them seeds.
+ */
+export async function demoCourseOrSeed(db: PrismaClient) {
+  return db.$transaction(
+    async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${SEED_LOCK})`;
+      const existing = await currentDemoCourse(tx);
+      if (existing) {
+        return existing;
+      }
+      await seedDemo(tx);
+      return currentDemoCourse(tx);
+    },
+    { timeout: 60000 }
+  );
 }
