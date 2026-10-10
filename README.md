@@ -435,3 +435,4 @@ Connect to the Raspberry Pi's WiFi network and navigate to `http://<pi-wlan0-ip>
 CheckHen is licensed under the GNU Affero General Public License, version 3 or later
 (`LICENSE`). Anyone who runs a modified version as a service must offer its source to
 the people who use it.
+Contributors are listed in `CONTRIBUTORS.md`.
