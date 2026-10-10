@@ -12,6 +12,8 @@ datasource db {
 }
 
 model ClassTemplate {
+  courseId String
+  course Course @relation(fields: [courseId], references: [id])
   id         String   @id @default(uuid())
   name       String
   color      String   // hex, e.g. "#0066ff"
@@ -24,6 +26,11 @@ model ClassTemplate {
 }
 
 model Class {
+  courseId String
+  course Course @relation(fields: [courseId], references: [id])
+  events ParticipationEvent[]
+
+  @@unique([id, courseId])
   id           String         @id @default(uuid())
   checkIns     CheckIn[]
   handRaises   HandRaise[]
@@ -72,17 +79,23 @@ model HandRaise {
 }
 
 model User {
-  id             String        @id @default(uuid())
-  email          String        @unique
-  isAdmin        Boolean       @default(false)
-  profilePicture String?       // URL from Google OAuth
-  foodAllergies  String?       // Free-text, e.g. "peanuts, dairy"
-  checkIns       CheckIn[]
-  handRaises     HandRaise[]
-  chatMessages   ChatMessage[]
-  paceSignals    PaceSignal[]
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime?     @updatedAt
+  rosterEntries RosterEntry[]
+  participationEvents ParticipationEvent[]
+  id                String        @id @default(uuid())
+  email             String        @unique
+  isAdmin           Boolean       @default(false)
+  profilePicture    String?       // URL from Google OAuth
+  foodAllergies     String?       // Free-text, e.g. "peanuts, dairy"
+  displayName       String?       // Preferred display name
+  namePronunciation String?       // e.g. "ale-EE-sha"
+  pronouns          String?       // "she/her", "he/him", "they/them", or custom
+  bio               String?       // Up to 280 chars — fun facts / what they look forward to
+  checkIns          CheckIn[]
+  handRaises        HandRaise[]
+  chatMessages      ChatMessage[]
+  paceSignals       PaceSignal[]
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime?     @updatedAt
 }
 
 model ChatMessage {
@@ -109,4 +122,43 @@ model PaceSignal {
   createdAt  DateTime  @default(now())
 
   @@index([classId, signalType])
+}
+model Course {
+  id String @id @default(uuid())
+  name String
+  // Cold-call and grade settings; missing keys use the defaults in lib/cold-call.ts.
+  config Json @default("{}")
+  // Set only by the demo seed (lib/demo.ts); demo mode shows only marked courses.
+  demo Boolean @default(false)
+  createdAt DateTime @default(now())
+  classes Class[]
+  templates ClassTemplate[]
+  roster RosterEntry[]
+}
+
+model RosterEntry {
+  courseId String
+  userId String
+  active Boolean @default(true)
+  course Course @relation(fields: [courseId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+  @@id([courseId, userId])
+}
+
+model ParticipationEvent {
+  id String @id @default(uuid())
+  courseId String
+  classId String
+  userId String?
+  actorId String
+  kind String
+  payload Json
+  createdAt DateTime @default(now())
+  supersedesId String?
+  class Class @relation(fields: [classId, courseId], references: [id, courseId])
+  user User? @relation(fields: [userId], references: [id])
+  supersedes ParticipationEvent? @relation("Supersession", fields: [supersedesId, courseId, classId], references: [id, courseId, classId])
+  supersededBy ParticipationEvent[] @relation("Supersession")
+  @@unique([id, courseId, classId])
+  @@index([courseId, classId, createdAt, id])
 }

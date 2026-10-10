@@ -1,6 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '../auth/[...nextauth]';
+import { requireIdentity } from '@/lib/request-scope';
 import { prisma } from '@/lib/prisma';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -8,14 +7,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ message: 'Method Not Allowed' });
   }
 
-  const session = await getServerSession(req, res, authOptions);
-  if (!session?.user?.email) return res.status(401).json({ message: 'Unauthorized' });
-
-  const adminEmails = process.env.ADMIN_EMAILS?.split(',')
-    .map((e) => `${e.trim()}@${process.env.NEXT_PUBLIC_EMAIL_DOMAIN}`) || [];
-  if (!adminEmails.includes(session.user.email)) {
-    return res.status(403).json({ message: 'Forbidden: Admin only' });
-  }
+  if (!(await requireIdentity(req, res, true))) return;
 
   const { email } = req.query;
   if (!email || typeof email !== 'string') {

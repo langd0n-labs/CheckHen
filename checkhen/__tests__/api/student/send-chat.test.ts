@@ -1,156 +1,74 @@
-jest.mock('next-auth', () => {
-  const mockGetServerSession = jest.fn();
-  return {
-    __esModule: true,
-    default: () => jest.fn(),
-    getServerSession: mockGetServerSession,
-  };
-});
-
-jest.mock('@/pages/api/auth/[...nextauth]', () => ({
-  authOptions: {},
-}));
-
-jest.mock('@/lib/prisma', () => ({
-  prisma: {
-    user: { upsert: jest.fn() },
-    class: { findFirst: jest.fn() },
-    chatMessage: { create: jest.fn() },
-  },
-}));
-
 import { createMocks } from 'node-mocks-http';
-import handler from '@/pages/api/student/send-chat';
-import * as nextAuth from 'next-auth';
+import { appendEvent, readState } from '@/lib/event-store';
 import { prisma } from '@/lib/prisma';
+import { requireScope } from '@/lib/request-scope';
+import handler from '@/pages/api/student/send-chat';
 
-const activeClassWithCheckIn = (userId = 'user-1') => ({
-  id: 'class-1',
-  createdAt: new Date(),
-  duration: 9999,
-  checkIns: [{ userId, anonymousName: 'Brave Panda' }],
+jest.mock('@/lib/request-scope', () => ({ requireScope: jest.fn() }));
+jest.mock('@/lib/event-store', () => ({ appendEvent: jest.fn(), readState: jest.fn() }));
+jest.mock('@/lib/prisma', () => ({ prisma: {} }));
+const user = { id: 'student', email: 'student@bu.edu' };
+const selected = { id: 'session-a', courseId: 'course-a', createdAt: new Date(), duration: 60 };
+const scope = { courseId: 'course-a', classId: 'session-a' };
+const checkedIn = () => ({
+  attendance: [{ userId: user.id, anonymousName: 'Swift Panda', isPresent: true }],
+  hands: [],
+  pace: [],
+  messages: [],
+  endedAt: null as Date | null,
 });
-
-const expiredClassWithCheckIn = (userId = 'user-1') => ({
-  id: 'class-old',
-  createdAt: new Date(0),
-  duration: 1,
-  checkIns: [{ userId, anonymousName: 'Brave Panda' }],
+const invoke = async (
+  body: Record<string, unknown>,
+  state = checkedIn(),
+  method: 'GET' | 'POST' = 'POST'
+) => {
+  (readState as jest.Mock).mockResolvedValue(state);
+  const { req, res } = createMocks({ method, body, query: scope });
+  await handler(req as any, res as any);
+  return res;
+};
+beforeEach(() => {
+  jest.clearAllMocks();
+  (requireScope as jest.Mock).mockResolvedValue({ scope, user, selected, admin: false });
+  (appendEvent as jest.Mock).mockResolvedValue({ id: 'event-1', createdAt: new Date() });
 });
-
-const mockSession = (email = 'student@bu.edu') =>
-  (nextAuth.getServerSession as jest.Mock).mockResolvedValue({ user: { email } });
-
-const mockNoSession = () =>
-  (nextAuth.getServerSession as jest.Mock).mockResolvedValue(null);
-
-afterEach(() => jest.clearAllMocks());
-
 describe('POST /api/student/send-chat', () => {
-  it('returns 405 for non-POST requests', async () => {
-    mockNoSession();
-    const { req, res } = createMocks({ method: 'GET' });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(405);
+  it('rejects wrong methods', async () =>
+    expect((await invoke({}, checkedIn(), 'GET'))._getStatusCode()).toBe(405));
+  it('returns 401 without a session', async () => {
+    (requireScope as jest.Mock).mockImplementation(async (_req, res) => { res.status(401).json({ message: 'Unauthorized' }); return null; });
+    expect((await invoke({ message: 'hello' }))._getStatusCode()).toBe(401);
   });
-
-  it('returns 401 if no session', async () => {
-    mockNoSession();
-    const { req, res } = createMocks({ method: 'POST', body: { message: 'hello' } });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(401);
+  it('rejects a student without an active check-in', async () => {
+    expect((await invoke({ message: 'hello' }, { ...checkedIn(), attendance: [] }))._getStatusCode()).toBe(400);
+    expect(appendEvent).not.toHaveBeenCalled();
   });
-
-  it('returns 400 if message is missing', async () => {
-    mockSession();
-    const { req, res } = createMocks({ method: 'POST', body: {} });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(400);
+  it.each([{}, { message: '' }, { message: '   ' }, { message: 'x'.repeat(1001) }])(
+    'rejects invalid messages',
+    async (body) => {
+      expect((await invoke(body))._getStatusCode()).toBe(400);
+      expect(appendEvent).not.toHaveBeenCalled();
+    }
+  );
+  it('rejects an ended session without recording a chat event', async () => {
+    expect(
+      (await invoke({ message: 'hello' }, { ...checkedIn(), endedAt: new Date() }))._getStatusCode()
+    ).toBe(400);
+    expect(appendEvent).not.toHaveBeenCalled();
   });
-
-  it('returns 400 if message is empty string', async () => {
-    mockSession();
-    const { req, res } = createMocks({ method: 'POST', body: { message: '' } });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(400);
-  });
-
-  it('returns 400 if message is whitespace only', async () => {
-    mockSession();
-    const { req, res } = createMocks({ method: 'POST', body: { message: '   ' } });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(400);
-  });
-
-  it('returns 400 if message exceeds 1000 characters', async () => {
-    mockSession();
-    const { req, res } = createMocks({ method: 'POST', body: { message: 'x'.repeat(1001) } });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(400);
-  });
-
-  it('accepts a message of exactly 1000 characters', async () => {
-    mockSession();
-    (prisma.user.upsert as jest.Mock).mockResolvedValue({ id: 'user-1' });
-    (prisma.class.findFirst as jest.Mock).mockResolvedValue(activeClassWithCheckIn());
-    (prisma.chatMessage.create as jest.Mock).mockResolvedValue({ id: 'msg-1', message: 'x'.repeat(1000) });
-    const { req, res } = createMocks({ method: 'POST', body: { message: 'x'.repeat(1000) } });
-    await handler(req as any, res as any);
+  it('writes a chat event and accepts 1000 characters', async () => {
+    const message = 'x'.repeat(1000);
+    const res = await invoke({ message });
     expect(res._getStatusCode()).toBe(200);
-  });
-
-  it('returns 500 if no class found', async () => {
-    mockSession();
-    (prisma.user.upsert as jest.Mock).mockResolvedValue({ id: 'user-1' });
-    (prisma.class.findFirst as jest.Mock).mockResolvedValue(null);
-    const { req, res } = createMocks({ method: 'POST', body: { message: 'hello' } });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(500);
-  });
-
-  it('returns 500 if class has ended', async () => {
-    mockSession();
-    (prisma.user.upsert as jest.Mock).mockResolvedValue({ id: 'user-1' });
-    (prisma.class.findFirst as jest.Mock).mockResolvedValue(expiredClassWithCheckIn());
-    const { req, res } = createMocks({ method: 'POST', body: { message: 'hello' } });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(500);
-  });
-
-  it('returns 500 if user has no check-in in the class', async () => {
-    mockSession();
-    (prisma.user.upsert as jest.Mock).mockResolvedValue({ id: 'user-1' });
-    (prisma.class.findFirst as jest.Mock).mockResolvedValue({
-      id: 'class-1',
-      createdAt: new Date(),
-      duration: 9999,
-      checkIns: [], // no check-ins
-    });
-    const { req, res } = createMocks({ method: 'POST', body: { message: 'hello' } });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(500);
-  });
-
-  it('creates chat message and returns 200 with message body', async () => {
-    mockSession();
-    (prisma.user.upsert as jest.Mock).mockResolvedValue({ id: 'user-1' });
-    (prisma.class.findFirst as jest.Mock).mockResolvedValue(activeClassWithCheckIn());
-    const createdMsg = { id: 'msg-1', message: 'hello', anonymousName: 'Brave Panda' };
-    (prisma.chatMessage.create as jest.Mock).mockResolvedValue(createdMsg);
-    const { req, res } = createMocks({ method: 'POST', body: { message: 'hello' } });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(200);
-    expect(prisma.chatMessage.create).toHaveBeenCalledWith(
+    expect(appendEvent).toHaveBeenCalledWith(
+      prisma,
       expect.objectContaining({
-        data: expect.objectContaining({
-          message: 'hello',
-          anonymousName: 'Brave Panda',
-          user: { connect: { id: 'user-1' } },
-          class: { connect: { id: 'class-1' } },
-        }),
+        ...scope,
+        kind: 'CHAT_MESSAGE',
+        payload: { message, anonymousName: 'Swift Panda' },
       })
     );
-    const body = JSON.parse(res._getData());
-    expect(JSON.parse(body.message)).toMatchObject({ id: 'msg-1' });
+    expect(JSON.parse(res._getJSONData().message)).toMatchObject({ message, anonymousName: 'Swift Panda' });
+    expect(JSON.parse(res._getJSONData().message)).not.toHaveProperty('userId');
   });
 });

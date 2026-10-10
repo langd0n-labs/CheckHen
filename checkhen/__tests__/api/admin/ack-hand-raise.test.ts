@@ -1,115 +1,78 @@
-jest.mock('next-auth', () => {
-  const mockGetServerSession = jest.fn();
-  return {
-    __esModule: true,
-    default: () => jest.fn(),
-    getServerSession: mockGetServerSession,
-  };
-});
-
-jest.mock('@/pages/api/auth/[...nextauth]', () => ({
-  authOptions: {},
-}));
-
-jest.mock('@/lib/prisma', () => ({
-  prisma: {
-    handRaise: {
-      findFirst: jest.fn(),
-      update: jest.fn(),
-    },
-  },
-}));
-
 import { createMocks } from 'node-mocks-http';
-import handler from '@/pages/api/admin/ack-hand-raise';
-import * as nextAuth from 'next-auth';
+import { appendEvent, readState } from '@/lib/event-store';
 import { prisma } from '@/lib/prisma';
+import { requireScope } from '@/lib/request-scope';
+import handler from '@/pages/api/admin/ack-hand-raise';
 
-const originalEnv = process.env;
-
+jest.mock('@/lib/request-scope', () => ({ requireScope: jest.fn() }));
+jest.mock('@/lib/event-store', () => ({ appendEvent: jest.fn(), readState: jest.fn() }));
+jest.mock('@/lib/prisma', () => ({ prisma: { user: { findUnique: jest.fn() } } }));
+const admin = { id: 'admin', email: 'prof@bu.edu' };
+const selected = { id: 'session-a', courseId: 'course-a', createdAt: new Date(), duration: 60 };
+const scope = { courseId: 'course-a', classId: 'session-a' };
+const state = {
+  attendance: [],
+  hands: [{ id: 'hand-1', userId: 'student', isAcknowledged: false }],
+  pace: [],
+  messages: [],
+  endedAt: null,
+};
+const invoke = async (method: 'GET' | 'POST' = 'POST', currentState = state) => {
+  (readState as jest.Mock).mockResolvedValue(currentState);
+  const { req, res } = createMocks({ method, body: { email: 'student@bu.edu' }, query: scope });
+  await handler(req as any, res as any);
+  return res;
+};
 beforeEach(() => {
-  process.env = {
-    ...originalEnv,
-    ADMIN_EMAILS: 'prof',
-    NEXT_PUBLIC_EMAIL_DOMAIN: 'bu.edu',
-  };
-});
-
-afterEach(() => {
-  process.env = originalEnv;
   jest.clearAllMocks();
+  (requireScope as jest.Mock).mockResolvedValue({ scope, user: admin, selected, admin: true });
+  (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+    id: 'student',
+    email: 'student@bu.edu',
+  });
+  (appendEvent as jest.Mock).mockResolvedValue({ id: 'event-1', createdAt: new Date() });
 });
-
-const mockAdminSession = () =>
-  (nextAuth.getServerSession as jest.Mock).mockResolvedValue({ user: { email: 'prof@bu.edu' } });
-
-const mockStudentSession = () =>
-  (nextAuth.getServerSession as jest.Mock).mockResolvedValue({ user: { email: 'student@bu.edu' } });
-
-const mockNoSession = () =>
-  (nextAuth.getServerSession as jest.Mock).mockResolvedValue(null);
-
 describe('POST /api/admin/ack-hand-raise', () => {
-  it('returns 405 for non-POST requests', async () => {
-    mockNoSession();
-    const { req, res } = createMocks({ method: 'GET' });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(405);
+  it('rejects wrong methods', async () => expect((await invoke('GET'))._getStatusCode()).toBe(405));
+  it('returns 401 without a session', async () => {
+    (requireScope as jest.Mock).mockImplementation(async (_req, res) => { res.status(401).json({ message: 'Unauthorized' }); return null; });
+    expect((await invoke())._getStatusCode()).toBe(401);
   });
-
-  it('returns 401 if no session', async () => {
-    mockNoSession();
-    const { req, res } = createMocks({ method: 'POST', body: { email: 'student@bu.edu' } });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(401);
-  });
-
-  it('returns 403 if session user is not admin', async () => {
-    mockStudentSession();
-    const { req, res } = createMocks({ method: 'POST', body: { email: 'student@bu.edu' } });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(403);
-  });
-
-  it('returns 404 if no unacknowledged hand raise found', async () => {
-    mockAdminSession();
-    (prisma.handRaise.findFirst as jest.Mock).mockResolvedValue(null);
-    const { req, res } = createMocks({ method: 'POST', body: { email: 'student@bu.edu' } });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(404);
-  });
-
-  it('acknowledges hand raise and returns 200', async () => {
-    mockAdminSession();
-    (prisma.handRaise.findFirst as jest.Mock).mockResolvedValue({ id: 'hr-1', user: { email: 'student@bu.edu' } });
-    (prisma.handRaise.update as jest.Mock).mockResolvedValue({});
-    const { req, res } = createMocks({ method: 'POST', body: { email: 'student@bu.edu' } });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(200);
-    expect(prisma.handRaise.update).toHaveBeenCalledWith({
-      where: { id: 'hr-1' },
-      data: { isAcknowledged: true },
+  it('propagates a 403 from scope authorization', async () => {
+    (requireScope as jest.Mock).mockImplementation(async (_req, res) => {
+      res.status(403).json({ message: 'Instructor access required' });
+      return null;
     });
+    const res = await invoke();
+    expect(res._getStatusCode()).toBe(403);
+    expect(requireScope).toHaveBeenCalledWith(expect.anything(), expect.anything(), true);
   });
-
-  it('queries hand raise by the email from request body', async () => {
-    mockAdminSession();
-    (prisma.handRaise.findFirst as jest.Mock).mockResolvedValue({ id: 'hr-1' });
-    (prisma.handRaise.update as jest.Mock).mockResolvedValue({});
-    const { req, res } = createMocks({ method: 'POST', body: { email: 'target@bu.edu' } });
-    await handler(req as any, res as any);
-    const callArgs = (prisma.handRaise.findFirst as jest.Mock).mock.calls[0][0];
-    expect(callArgs.where.user.email).toBe('target@bu.edu');
-    expect(callArgs.where.isAcknowledged).toBe(false);
+  it('acknowledges the selected hand through an event', async () => {
+    expect((await invoke())._getStatusCode()).toBe(200);
+    expect(appendEvent).toHaveBeenCalledWith(
+      prisma,
+      expect.objectContaining({
+        ...scope,
+        userId: 'student',
+        kind: 'HAND_ACKNOWLEDGED',
+        payload: { handRaiseId: 'hand-1' },
+      })
+    );
   });
-
-  // BUG: no validation that 'email' is present in request body — undefined is passed to Prisma
-  it('(bug exposure) proceeds without 400 when no email in request body', async () => {
-    mockAdminSession();
-    (prisma.handRaise.findFirst as jest.Mock).mockResolvedValue(null);
-    const { req, res } = createMocks({ method: 'POST', body: {} });
+  it('returns 404 when email is missing', async () => {
+    const { req, res } = createMocks({ method: 'POST', body: {}, query: scope });
+    (readState as jest.Mock).mockResolvedValue(state);
+    (prisma.user.findUnique as jest.Mock).mockResolvedValue(null);
     await handler(req as any, res as any);
-    // Returns 404 (not 400) because Prisma gets undefined email and finds nothing — missing input validation
     expect(res._getStatusCode()).toBe(404);
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { email: '' } });
+  });
+  it('looks up the requested student email', async () => {
+    await invoke();
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { email: 'student@bu.edu' } });
+  });
+  it('returns 404 when no unacknowledged hand exists', async () => {
+    expect((await invoke('POST', { ...state, hands: [] }))._getStatusCode()).toBe(404);
+    expect(appendEvent).not.toHaveBeenCalled();
   });
 });

@@ -1,94 +1,185 @@
 services:
-  490-test:
-    #do this 
-    # image: ghcr.io/a1icja/checkhen:main
-    # OR
+  app:
+    # Bounds on what one service can take from the host (tightened for a public demo).
+    mem_limit: ${APP_MEM_LIMIT:-2g}
+    cpus: ${APP_CPUS:-2}
+    pids_limit: ${APP_PIDS_LIMIT:-512}
     build:
-      context: ./checkhen/
-      dockerfile: Dockerfile
-    container_name: 490-test
+      context: ./checkhen
+      args:
+        NEXT_PUBLIC_EMAIL_DOMAIN: ${NEXT_PUBLIC_EMAIL_DOMAIN:-bu.edu}
+        NEXT_PUBLIC_SOCKET_URL: ${NEXT_PUBLIC_SOCKET_URL-http://localhost:6060}
     ports:
-      - "3000:3000"
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-3000}:3000"
     environment:
-      - NODE_ENV=development
-      - PORT=3000
-      - DATABASE_URL=postgres://ds490:ds490-secure-password@db:5432/postgres
-      - NEXT_PUBLIC_EMAIL_DOMAIN=bu.edu
-      - AUTH_SECRET=${AUTH_SECRET}
-      - AUTH_GOOGLE_ID=${AUTH_GOOGLE_ID}
-      - AUTH_GOOGLE_SECRET=${AUTH_GOOGLE_SECRET}
-      - NEXTAUTH_URL=${NEXTAUTH_URL}
-      - NEXT_PUBLIC_SOCKET_URL=http://localhost:6060
-      - ADMIN_EMAILS=${ADMIN_EMAILS}
-      - ALLOWED_TEST_EMAILS=${ALLOWED_TEST_EMAILS}
-    develop:
-      watch:
-        - action: rebuild
-          path: ./checkhen/
+      NODE_ENV: production
+      DATABASE_URL: postgresql://checkhen:${POSTGRES_PASSWORD:?Run the setup command}@db:5432/checkhen
+      NEXT_PUBLIC_EMAIL_DOMAIN: ${NEXT_PUBLIC_EMAIL_DOMAIN:-bu.edu}
+      AUTH_SECRET: ${AUTH_SECRET:?Run the setup command}
+      AUTH_GOOGLE_ID: ${AUTH_GOOGLE_ID:-}
+      AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET:-}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      SLIDEV_ORIGIN: ${SLIDEV_ORIGIN:-}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      CHECKHEN_MODE: ${CHECKHEN_MODE:-classroom}
+      CHECKHEN_DEMO: ${CHECKHEN_DEMO:-0}
+      DEMO_MAX_DATABASE_MB: ${DEMO_MAX_DATABASE_MB:-512}
+      PORTAL_AGENT_URL: ${PORTAL_AGENT_URL:-}
+      PORTAL_CONTROL_SECRET: ${PORTAL_CONTROL_SECRET:-}
+      AP_SUBNET: ${AP_SUBNET:-172.16.77.0/24}
+      AP_IPV6_PREFIX: ${AP_IPV6_PREFIX:-fd9b:2f69:8c44::/64}
     depends_on:
-      - db
-      - socket
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/ping').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
   db:
-    image: postgres:13
-    container_name: 490-db
-    ports:
-      - "5432:5432"
+    # Bounds on what one service can take from the host (tightened for a public demo).
+    mem_limit: ${DB_MEM_LIMIT:-1g}
+    cpus: ${DB_CPUS:-1}
+    pids_limit: ${DB_PIDS_LIMIT:-256}
+    image: docker.io/library/postgres:13
     volumes:
       - pgdata:/var/lib/postgresql/data
     environment:
-      POSTGRES_USER: ds490
-      POSTGRES_PASSWORD: ds490-secure-password
-      POSTGRES_DB: postgres
+      POSTGRES_USER: checkhen
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run the setup command}
+      POSTGRES_DB: checkhen
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U checkhen -d checkhen"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
   socket:
-    # image: ghcr.io/a1icja/socket-server:main
+    # Bounds on what one service can take from the host (tightened for a public demo).
+    mem_limit: ${SOCKET_MEM_LIMIT:-512m}
+    cpus: ${SOCKET_CPUS:-1}
+    pids_limit: ${SOCKET_PIDS_LIMIT:-256}
     build:
-      context: ./socket-server/
-      dockerfile: Dockerfile
-    container_name: 490-socket
+      context: ./socket-server
     ports:
-      - "6060:6060"
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${SOCKET_PORT:-6060}:6060"
     environment:
-      - PORT=6060
-      - DATABASE_URL=postgres://ds490:ds490-secure-password@db:5432/postgres
-    develop:
-      watch:
-        - action: rebuild
-          path: ./socket-server/
+      PORT: 6060
+      AUTH_SECRET: ${AUTH_SECRET:?Run the setup command}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      SLIDEV_ORIGIN: ${SLIDEV_ORIGIN:-}
+      APP_INTERNAL_URL: http://app:3000/api/internal/expire-sessions
+      CHECKHEN_MODE: ${CHECKHEN_MODE:-classroom}
+      CHECKHEN_DEMO: ${CHECKHEN_DEMO:-0}
+      MAX_SOCKETS: ${MAX_SOCKETS:-1000}
+      PORTAL_AGENT_URL: ${PORTAL_AGENT_URL:-}
+      PORTAL_CONTROL_SECRET: ${PORTAL_CONTROL_SECRET:-}
+      DATABASE_URL: postgresql://checkhen:${POSTGRES_PASSWORD:?Run the setup command}@db:5432/checkhen
     depends_on:
-      - db
-  dns:
-    # Lightweight dnsmasq container for closed-internet exam filtering.
-    # Only started during exams via pi-setup/start-exam.sh — not needed for dev.
-    # 4km3/dnsmasq has confirmed ARM/ARM64 builds, suitable for Raspberry Pi 3B+.
-    image: 4km3/dnsmasq:2.90-r2
-    container_name: 490-dns
-    network_mode: host          # must bind to port 53 on wlan0 (Pi AP interface)
-    cap_add:
-      - NET_BIND_SERVICE        # allows binding to port 53 without root
-    cap_drop:
-      - ALL                     # drop everything else — no CAP_NET_ADMIN needed
+      app:
+        condition: service_healthy
+  laptop-network:
+    profiles: [laptop]
+    image: localhost/checkhen-laptop-network:latest
+    build:
+      context: .
+      dockerfile: network/laptop/Containerfile
+    privileged: true
+    network_mode: host
+    environment:
+      DBUS_SYSTEM_BUS_ADDRESS: unix:path=/run/dbus/system_bus_socket
+      AP_INTERFACE: ${AP_INTERFACE:-}
+      UPLINK_INTERFACE: ${UPLINK_INTERFACE:-}
+      AP_SUBNET: ${AP_SUBNET:-172.16.77.0/24}
+      AP_ADDRESS: ${AP_ADDRESS:-172.16.77.1}
+      AP_IPV6_PREFIX: ${AP_IPV6_PREFIX:-fd9b:2f69:8c44::/64}
+      AP_IPV6_ADDRESS: ${AP_IPV6_ADDRESS:-fd9b:2f69:8c44::1}
+      AP_HOSTNAME: ${AP_HOSTNAME:-checkhen.rfkill.dev}
+      AP_SSID: ${AP_SSID:-CheckHen}
+      AP_PASSPHRASE: ${AP_PASSPHRASE:-}
+      AP_COUNTRY_CODE: ${AP_COUNTRY_CODE:-US}
+      AP_HW_MODE: ${AP_HW_MODE:-g}
+      AP_CHANNEL: ${AP_CHANNEL:-6}
+      PREAUTH_DOMAINS: ${PREAUTH_DOMAINS:-}
+      PREAUTH_DISCOVERY: ${PREAUTH_DISCOVERY:-0}
+      PORTAL_CONTROL_SECRET: ${PORTAL_CONTROL_SECRET:-}
+      APP_BIND_ADDRESS: ${APP_BIND_ADDRESS:-127.0.0.1}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
     volumes:
-      - ./dns/dnsmasq.conf:/etc/dnsmasq.conf:ro
-      - ./dns/allowlist.conf:/etc/dnsmasq.d/allowlist.conf:ro
-    restart: unless-stopped
-    profiles:
-      - exam                    # only starts with: docker compose --profile exam up -d dns
-  # grafana:
-  #   image: grafana/grafana-oss:latest
-  #   container_name: 490-grafana
-  #   volumes:
-  #     - grafana-data:/var/lib/grafana
-  #     - ./grafana/provisioning/dashboards/:/etc/grafana/provisioning/dashboards/
-  #     - ./grafana/provisioning/datasources/:/etc/grafana/provisioning/datasources/
-  #     - ./grafana/dashboards:/var/lib/grafana/dashboards
-  #   ports:
-  #     - "3001:3000"
-  #   environment:
-  #     - GF_SECURITY_ADMIN_PASSWORD=<FILL_ME_IN>
-  #     - GF_SECURITY_ADMIN_USER=<FILL_ME_IN>
-  #     - GF_USERS_ALLOW_SIGN_UP=<FILL_ME_IN>
-  #   depends_on:
-  #     - db
+      - ./.build-cache/laptop-state:/run/checkhen:z
+      - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket
+      - /sys:/sys:ro
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import os,pathlib,socket; assert pathlib.Path('/run/checkhen/state.json').is_file(); s=socket.create_connection((os.environ['AP_ADDRESS'],7878),2); s.close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    stop_grace_period: 30s
+  proxy:
+    profiles: [laptop]
+    build:
+      context: .
+      dockerfile: network/proxy/Containerfile
+    network_mode: host
+    restart: on-failure
+    environment:
+      AP_ADDRESS: ${AP_ADDRESS:-172.16.77.1}
+      AP_IPV6_ADDRESS: ${AP_IPV6_ADDRESS:-fd9b:2f69:8c44::1}
+      AP_HOSTNAME: ${AP_HOSTNAME:-checkhen.rfkill.dev}
+    volumes:
+      - ./.build-cache/letsencrypt/config:/certs:ro,z
+    depends_on:
+      laptop-network:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+      socket:
+        condition: service_started
+  hosted-proxy:
+    # Bounds on what one service can take from the host (tightened for a public demo).
+    mem_limit: ${PROXY_MEM_LIMIT:-256m}
+    cpus: ${PROXY_CPUS:-1}
+    pids_limit: ${PROXY_PIDS_LIMIT:-128}
+    # Hosted mode: one loopback origin for app and socket, for the tunnel to publish.
+    profiles: [hosted]
+    build:
+      # The repository root, narrowed by network/hosted/Containerfile.dockerignore to the
+      # proxy template and the demo deck sources; the .env files stay out.
+      context: .
+      dockerfile: network/hosted/Containerfile
+    network_mode: host
+    restart: on-failure
+    environment:
+      HOSTED_BIND_ADDRESS: ${HOSTED_BIND_ADDRESS:-127.0.0.1}
+      HOSTED_PORT: ${HOSTED_PORT:-8080}
+      # The scheme visitors use: https behind the tunnel.
+      HOSTED_FORWARDED_PROTO: ${HOSTED_FORWARDED_PROTO:-https}
+      APP_PORT: ${APP_PORT:-3000}
+      SOCKET_PORT: ${SOCKET_PORT:-6060}
+    depends_on:
+      app:
+        condition: service_healthy
+      socket:
+        condition: service_started
+  tunnel:
+    # Publishes the hosted proxy through a Cloudflare Tunnel. The token is the podman
+    # secret checkhen_demo_tunnel_token, read as a file, so it stays out of the
+    # container environment, `podman inspect`, and `podman-compose config`.
+    # docs/build-log.md, "Hosted demo runbook", says how to create the secret.
+    profiles: [tunnel]
+    # Pinned by digest (the multi-arch list for 2026.10.0), so the tag cannot move.
+    image: docker.io/cloudflare/cloudflared:2026.10.0@sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07
+    # Host networking: without an explicit address, metrics bind to every interface.
+    command: >-
+      tunnel --no-autoupdate --metrics 127.0.0.1:20241
+      run --token-file /run/secrets/checkhen_demo_tunnel_token
+    network_mode: host
+    restart: on-failure
+    secrets: [checkhen_demo_tunnel_token]
+    depends_on:
+      hosted-proxy:
+        condition: service_started
 volumes:
   pgdata:
-  grafana-data:
+secrets:
+  checkhen_demo_tunnel_token:
+    external: true

@@ -1,35 +1,40 @@
 import { useEffect, useRef, useState } from 'react';
-import { useSession, signIn, signOut } from 'next-auth/react';
+import Link from 'next/link';
 import { useRouter } from 'next/router';
+import {
+  AlertTriangle,
+  CheckCircle,
+  GraduationCap,
+  Hand,
+  HelpCircle,
+  LogOut,
+  Send,
+  TrendingDown,
+  User,
+} from 'lucide-react';
+import { signIn, signOut, useSession } from 'next-auth/react';
 import { Socket } from 'socket.io-client';
 import {
+  ActionIcon,
   Alert,
+  Badge,
+  Box,
   Button,
   Card,
+  Flex,
+  Group,
   Paper,
   ScrollArea,
   Stack,
   Text,
-  Title,
-  Box,
-  Group,
-  Badge,
-  Flex,
   TextInput,
+  Title,
   Tooltip,
   useMantineTheme,
 } from '@mantine/core';
-import {
-  Hand,
-  TrendingDown,
-  CheckCircle,
-  Send,
-  GraduationCap,
-  LogOut,
-  AlertTriangle,
-  User,
-} from 'lucide-react';
+import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
+import { scopedFetch as fetch, selectedScope } from '@/lib/scoped-fetch';
 import { getSocket } from '@/lib/socket';
 
 type UserInfo = {
@@ -42,7 +47,7 @@ type ChatMessage = {
   message: string;
   anonymousName: string | null;
   createdAt: string;
-  userId: string;
+  isOwn: boolean;
 };
 
 export default function HomePage() {
@@ -50,6 +55,8 @@ export default function HomePage() {
   const isAdmin = (session?.user as any)?.isAdmin === true;
   const router = useRouter();
   const theme = useMantineTheme();
+  // Phones get one column: compact controls above the chat.
+  const isPhone = useMediaQuery('(max-width: 48em)') ?? false;
   const ws = useRef<Socket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -60,14 +67,20 @@ export default function HomePage() {
   const [currentClassName, setCurrentClassName] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isCheckedIn, setIsCheckedIn] = useState(false);
+  const [uplinkUnavailable, setUplinkUnavailable] = useState(false);
+  const [examState, setExamState] = useState<{
+    domains: string[];
+    failed: boolean;
+    excused: boolean;
+  } | null>(null);
   const [checkInResolved, setCheckInResolved] = useState(false);
   const [anonymousName, setAnonymousName] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState('');
-  const [paceSignals, setPaceSignals] = useState({ slowDown: 0, readyToMove: 0 });
   const [sendingMessage, setSendingMessage] = useState(false);
   const [classEnded, setClassEnded] = useState(false);
   const prevClassNameRef = useRef('');
   const isCheckedInRef = useRef(false);
+  const examActiveRef = useRef(false);
 
   // Keep ref in sync with isCheckedIn state for use in closures
   useEffect(() => {
@@ -99,6 +112,8 @@ export default function HomePage() {
   // Check if user is checked in to the current class
   const checkIfCheckedIn = async () => {
     const response = await fetch('/api/student/fetch-check-in');
+    if (response.ok)
+      setUplinkUnavailable(!(await fetch('/api/student/re-bind', { method: 'POST' })).ok);
     setIsCheckedIn(response.ok);
     setCheckInResolved(true);
     return response.ok;
@@ -207,16 +222,16 @@ export default function HomePage() {
     });
   };
 
-  // Fetch pace signals
-  const fetchPaceSignals = async () => {
-    const response = await fetch('/api/student/fetch-pace-signals');
-    if (response.ok) {
-      const data = await response.json();
-      setPaceSignals({
-        slowDown: data.slowDown || 0,
-        readyToMove: data.readyToMove || 0,
-      });
-    }
+  const fetchExamState = async () => {
+    const response = await fetch('/api/student/exam-status');
+    if (!response.ok) return;
+    const result = await response.json();
+    examActiveRef.current = !!result.exam;
+    setExamState(
+      result.exam
+        ? { domains: result.exam.domains, failed: !!result.fail, excused: !!result.fail?.excused }
+        : null
+    );
   };
 
   // Send pace signal
@@ -236,7 +251,12 @@ export default function HomePage() {
       classId: currentClassId,
       signalType,
     });
-    fetchPaceSignals();
+    // Students never see the room's totals; confirm only that this one was sent.
+    notifications.show({
+      message: 'Sent to your instructor',
+      color: 'successGreen',
+      autoClose: 2000,
+    });
   };
 
   // Initial setup: one startup request instead of 5+ serial fetches
@@ -249,13 +269,15 @@ export default function HomePage() {
       .then((r) => r.json())
       .then((d) => {
         if (d.isCheckedIn) {
+          fetch('/api/student/re-bind', { method: 'POST' })
+            .then((response) => setUplinkUnavailable(!response.ok))
+            .catch(() => setUplinkUnavailable(true));
           setIsCheckedIn(true);
           setCurrentClassId(d.classId);
           const date = d.classId ? new Date() : null; // class name comes from startup
           setCurrentClassName(d.className ?? '');
           setAnonymousName(d.anonymousName);
           setHandRaised(d.handRaised);
-          setPaceSignals({ slowDown: d.paceSignals.slowDown, readyToMove: d.paceSignals.readyToMove });
           setMessages(d.messages);
           prevClassNameRef.current = d.className ?? '';
           isCheckedInRef.current = true;
@@ -282,10 +304,14 @@ export default function HomePage() {
     if (!isCheckedIn) return;
 
     const _dataInterval = setInterval(() => {
+      fetch('/api/student/re-bind', { method: 'POST' })
+        .then((response) => setUplinkUnavailable(!response.ok))
+        .catch(() => setUplinkUnavailable(true));
       fetchAllChatMessages();
       fetchHandRaiseStatus();
-      fetchPaceSignals();
+      fetchExamState();
     }, 10000);
+    fetchExamState();
 
     return () => clearInterval(_dataInterval);
   }, [isCheckedIn]);
@@ -295,7 +321,11 @@ export default function HomePage() {
     if (!isCheckedIn) return;
 
     const handleUnload = () => {
-      navigator.sendBeacon('/api/student/check-out');
+      const scope = selectedScope();
+      if (scope.courseId && scope.classId) {
+        const query = new URLSearchParams({ courseId: scope.courseId, classId: scope.classId });
+        navigator.sendBeacon('/api/student/check-out?' + query);
+      }
     };
 
     window.addEventListener('beforeunload', handleUnload);
@@ -307,9 +337,14 @@ export default function HomePage() {
     if (!user || !currentClassId) return;
 
     const classId = currentClassId;
-    const email = user.emailAddresses[0]?.emailAddress || '';
-
-    ws.current = getSocket(classId, email);
+    ws.current = getSocket(classId);
+    const heartbeat = () => {
+      // Heartbeats are exam evidence only; outside an exam they would just load the agent.
+      if (isCheckedInRef.current && examActiveRef.current) ws.current?.emit('exam-heartbeat');
+    };
+    ws.current?.on('connect', heartbeat);
+    heartbeat();
+    const heartbeatTimer = window.setInterval(heartbeat, 5000);
 
     // Listen for updates
     ws.current?.on('check-raised-hands', () => {
@@ -320,13 +355,7 @@ export default function HomePage() {
       fetchAllChatMessages();
     });
 
-    ws.current?.on('pace-signal-update', () => {
-      fetchPaceSignals();
-    });
-
-    ws.current?.on('pace-signals-reset', () => {
-      setPaceSignals({ slowDown: 0, readyToMove: 0 });
-    });
+    ws.current?.on('exam-status-update', fetchExamState);
 
     // Lower hand immediately when instructor acknowledges it
     ws.current?.on('check-raised-hands', () => {
@@ -334,10 +363,13 @@ export default function HomePage() {
     });
 
     return () => {
+      window.clearInterval(heartbeatTimer);
+      ws.current?.off('connect', heartbeat);
       ws.current?.off('check-raised-hands');
       ws.current?.off('fetch-messages');
       ws.current?.off('pace-signal-update');
       ws.current?.off('pace-signals-reset');
+      ws.current?.off('exam-status-update', fetchExamState);
     };
   }, [user, currentClassId]);
 
@@ -419,10 +451,18 @@ export default function HomePage() {
   }
 
   // Redirect to /join if authenticated, check-in resolved, not checked in, and not in preview mode
-  if (checkInResolved && !isCheckedIn && status === 'authenticated' && router.isReady && router.query.preview !== 'true') {
+  if (
+    checkInResolved &&
+    !isCheckedIn &&
+    status === 'authenticated' &&
+    router.isReady &&
+    router.query.preview !== 'true'
+  ) {
     router.push('/join');
     return (
-      <Box style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <Box
+        style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      >
         <Text>Loading...</Text>
       </Box>
     );
@@ -432,15 +472,16 @@ export default function HomePage() {
   return (
     <Box style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
-      <Paper p="md" shadow="sm" withBorder style={{ borderRadius: 0 }}>
-        <Group justify="space-between">
-          <Group>
+      <Paper p={isPhone ? 'xs' : 'md'} shadow="sm" withBorder style={{ borderRadius: 0 }}>
+        <Group justify="space-between" wrap="nowrap">
+          <Group wrap="nowrap" gap={isPhone ? 'xs' : 'md'} style={{ minWidth: 0 }}>
             <Tooltip label="Leave class" withArrow>
               <Box
                 onClick={handleLeaveClass}
                 style={{
                   width: 40,
                   height: 40,
+                  flexShrink: 0,
                   borderRadius: '50%',
                   backgroundColor: theme.colors.buBlue[5],
                   display: 'flex',
@@ -452,37 +493,91 @@ export default function HomePage() {
                 <GraduationCap size={20} color="white" />
               </Box>
             </Tooltip>
-            <div>
-              <Title order={3}>CheckHen</Title>
-              <Text size="sm" c="dimmed">
+            <div style={{ minWidth: 0 }}>
+              {/* On phones the logo stands for the name, leaving room for the icons. */}
+              {!isPhone && <Title order={3}>CheckHen</Title>}
+              <Text size="sm" c="dimmed" truncate>
                 {currentClassName}
               </Text>
             </div>
           </Group>
-          <Group gap="sm">
+          <Group gap={isPhone ? 4 : 'sm'} wrap="nowrap">
             {anonymousName && (
-              <Badge size="lg" variant="light" color="buBlue">
+              // The student's anonymous name never truncates; the class name does instead.
+              <Badge
+                size={isPhone ? 'md' : 'lg'}
+                variant="light"
+                color="buBlue"
+                tt="none"
+                style={{ flexShrink: 0, overflow: 'visible' }}
+                styles={{ label: { overflow: 'visible' } }}
+              >
                 {anonymousName}
               </Badge>
             )}
-            <Button
-              variant="subtle"
-              color="gray"
-              size="sm"
-              leftSection={<User size={16} />}
-              onClick={() => router.push('/profile')}
-            >
-              Profile
-            </Button>
-            <Button
-              variant="subtle"
-              color="gray"
-              size="sm"
-              leftSection={<LogOut size={16} />}
-              onClick={handleSignOut}
-            >
-              Sign Out
-            </Button>
+            {isPhone ? (
+              <>
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  size={44}
+                  aria-label="How CheckHen works"
+                  component={Link}
+                  href="/help/student"
+                >
+                  <HelpCircle size={20} />
+                </ActionIcon>
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  size={44}
+                  aria-label="Profile"
+                  onClick={() => router.push('/profile')}
+                >
+                  <User size={20} />
+                </ActionIcon>
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  size={44}
+                  aria-label="Sign out"
+                  onClick={handleSignOut}
+                >
+                  <LogOut size={20} />
+                </ActionIcon>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="subtle"
+                  color="gray"
+                  size="sm"
+                  leftSection={<HelpCircle size={16} />}
+                  component={Link}
+                  href="/help/student"
+                >
+                  Help
+                </Button>
+                <Button
+                  variant="subtle"
+                  color="gray"
+                  size="sm"
+                  leftSection={<User size={16} />}
+                  onClick={() => router.push('/profile')}
+                >
+                  Profile
+                </Button>
+                <Button
+                  variant="subtle"
+                  color="gray"
+                  size="sm"
+                  leftSection={<LogOut size={16} />}
+                  onClick={handleSignOut}
+                >
+                  Sign Out
+                </Button>
+              </>
+            )}
           </Group>
         </Group>
       </Paper>
@@ -501,83 +596,134 @@ export default function HomePage() {
         </Alert>
       )}
 
-      {/* Main Content - Split screen */}
-      <Flex style={{ flex: 1, overflow: 'hidden' }}>
-        {/* Left Column - Controls (40%) */}
-        <Box
-          style={{
-            width: '40%',
-            borderRight: `1px solid ${theme.colors.gray[3]}`,
-            display: 'flex',
-            flexDirection: 'column',
-            padding: theme.spacing.md,
-          }}
+      {uplinkUnavailable && (
+        <Alert
+          icon={<AlertTriangle size={18} />}
+          title="No uplink"
+          color="red"
+          style={{ borderRadius: 0 }}
         >
-          <Stack gap="md">
-            {/* Hand Raise */}
-            <Card padding="md">
-              <Stack gap="sm">
-                <Title order={5}>Request to Speak</Title>
-                <Button
-                  size="lg"
-                  fullWidth
-                  color={handRaised ? 'warning' : 'buBlue'}
-                  leftSection={<Hand size={20} />}
-                  onClick={toggleHandRaise}
-                  disabled={!currentClassName}
-                >
-                  {handRaised ? 'Lower Hand' : 'Raise Hand'}
-                </Button>
-              </Stack>
-            </Card>
+          This device has no internet access through the class network. Check in again or ask your
+          instructor for help.
+        </Alert>
+      )}
 
-            {/* Pace Signals */}
-            <Card padding="md">
-              <Stack gap="sm">
-                <Title order={5}>Class Pace Feedback</Title>
-                <Text size="sm" c="dimmed">
-                  Let your instructor know how you're doing
-                </Text>
+      {examState && (
+        <Alert
+          icon={<AlertTriangle size={18} />}
+          title="Exam mode"
+          color={examState.failed && !examState.excused ? 'red' : 'blue'}
+          style={{ borderRadius: 0 }}
+        >
+          {examState.failed
+            ? examState.excused
+              ? 'Your connection fail was excused.'
+              : 'A connection fail was recorded. Raise your hand for the instructor.'
+            : `Only these domains are available: ${examState.domains.join(', ')}.`}
+        </Alert>
+      )}
 
-                <Group grow>
-                  <Button
-                    variant="light"
-                    color="warning"
-                    leftSection={<TrendingDown size={18} />}
-                    onClick={() => sendPaceSignal('slow_down')}
-                    disabled={!currentClassName}
-                  >
-                    Slow Down
-                  </Button>
-                  <Button
-                    variant="light"
-                    color="successGreen"
-                    leftSection={<CheckCircle size={18} />}
-                    onClick={() => sendPaceSignal('ready_to_move_on')}
-                    disabled={!currentClassName}
-                  >
-                    Ready
-                  </Button>
-                </Group>
-
-                <Group justify="center" gap="xl" mt="xs">
-                  <Group gap="xs">
-                    <TrendingDown size={16} color={theme.colors.warning[5]} />
-                    <Text size="sm" fw={600}>
-                      {paceSignals.slowDown}
-                    </Text>
-                  </Group>
-                  <Group gap="xs">
-                    <CheckCircle size={16} color={theme.colors.successGreen[5]} />
-                    <Text size="sm" fw={600}>
-                      {paceSignals.readyToMove}
-                    </Text>
-                  </Group>
-                </Group>
-              </Stack>
-            </Card>
+      {/* Main Content - Split screen */}
+      <Flex
+        direction={isPhone ? 'column' : 'row'}
+        style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}
+      >
+        {isPhone ? (
+          // Phones: hand and pace as two compact rows, so the chat keeps most of the screen.
+          <Stack gap="xs" p="xs" style={{ borderBottom: `1px solid ${theme.colors.gray[3]}` }}>
+            <Button
+              size="md"
+              fullWidth
+              color={handRaised ? 'warning' : 'buBlue'}
+              leftSection={<Hand size={20} />}
+              onClick={toggleHandRaise}
+              disabled={!currentClassName}
+            >
+              {handRaised ? 'Lower Hand' : 'Raise Hand'}
+            </Button>
+            <Group grow gap="xs">
+              <Button
+                variant="light"
+                color="warning"
+                leftSection={<TrendingDown size={18} />}
+                onClick={() => sendPaceSignal('slow_down')}
+                disabled={!currentClassName}
+              >
+                Slow down
+              </Button>
+              <Button
+                variant="light"
+                color="successGreen"
+                leftSection={<CheckCircle size={18} />}
+                onClick={() => sendPaceSignal('ready_to_move_on')}
+                disabled={!currentClassName}
+              >
+                Ready
+              </Button>
+            </Group>
           </Stack>
-        </Box>
+        ) : (
+          /* Left Column - Controls (40%) */
+          <Box
+            style={{
+              width: '40%',
+              borderRight: `1px solid ${theme.colors.gray[3]}`,
+              display: 'flex',
+              flexDirection: 'column',
+              padding: theme.spacing.md,
+            }}
+          >
+            <Stack gap="md">
+              {/* Hand Raise */}
+              <Card padding="md">
+                <Stack gap="sm">
+                  <Title order={5}>Request to Speak</Title>
+                  <Button
+                    size="lg"
+                    fullWidth
+                    color={handRaised ? 'warning' : 'buBlue'}
+                    leftSection={<Hand size={20} />}
+                    onClick={toggleHandRaise}
+                    disabled={!currentClassName}
+                  >
+                    {handRaised ? 'Lower Hand' : 'Raise Hand'}
+                  </Button>
+                </Stack>
+              </Card>
+
+              {/* Pace Signals */}
+              <Card padding="md">
+                <Stack gap="sm">
+                  <Title order={5}>Class Pace Feedback</Title>
+                  <Text size="sm" c="dimmed">
+                    Let your instructor know how you&apos;re doing. Only your instructor sees these.
+                  </Text>
+
+                  <Group grow>
+                    <Button
+                      variant="light"
+                      color="warning"
+                      leftSection={<TrendingDown size={18} />}
+                      onClick={() => sendPaceSignal('slow_down')}
+                      disabled={!currentClassName}
+                    >
+                      Slow Down
+                    </Button>
+                    <Button
+                      variant="light"
+                      color="successGreen"
+                      leftSection={<CheckCircle size={18} />}
+                      onClick={() => sendPaceSignal('ready_to_move_on')}
+                      disabled={!currentClassName}
+                    >
+                      Ready
+                    </Button>
+                  </Group>
+                </Stack>
+              </Card>
+            </Stack>
+          </Box>
+        )}
 
         {/* Right Column - Chat (60%) */}
         <Box
@@ -585,10 +731,11 @@ export default function HomePage() {
             flex: 1,
             display: 'flex',
             flexDirection: 'column',
+            minHeight: 0,
           }}
         >
-          <Paper p="md" shadow="xs" withBorder style={{ borderRadius: 0 }}>
-            <Title order={4}>Class Discussion</Title>
+          <Paper p={isPhone ? 'xs' : 'md'} shadow="xs" withBorder style={{ borderRadius: 0 }}>
+            <Title order={isPhone ? 5 : 4}>Class Discussion</Title>
             <Text size="sm" c="dimmed">
               Messages are shown with anonymous names
             </Text>
@@ -603,7 +750,7 @@ export default function HomePage() {
                 </Text>
               ) : (
                 messages.map((msg) => {
-                  const isOwnMessage = msg.userId === user?.id;
+                  const isOwnMessage = msg.isOwn;
                   return (
                     <Paper
                       key={msg.id}

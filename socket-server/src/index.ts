@@ -1,92 +1,78 @@
 import { Server, Socket } from "socket.io";
 import { PrismaClient } from "@prisma/client";
 import cron from "node-cron";
+import { createHmac, timingSafeEqual } from "node:crypto";
 
 const prisma = new PrismaClient(); // Initialize Prisma client for database operations
 
-const io = new Server(6060, {
+const io = new Server(Number(process.env.PORT || 6060), {
   cors: {
-    origin: "*", // Allow all origins for CORS
+    origin: [process.env.NEXTAUTH_URL || "http://localhost:3000", process.env.SLIDEV_ORIGIN].filter(Boolean) as string[],
   },
+  // A connection that has not joined with a valid ticket is dropped after 5 s.
+  connectTimeout: 5000,
 });
 
-// Function to handle a new socket connection
-const handleSocketConnection = async (socket: Socket) => {
-  console.log("a user connected");
-
-  console.log(socket.handshake.query); // Log query parameters from the connection
-
-  // Validate required query parameters
-  if (
-    !socket.handshake.query.classId ||
-    !socket.handshake.query.email
-  ) {
-    socket.disconnect();
-    return;
-  }
-
-  // Extract query parameters, handling cases where they might be arrays
-  const classId = Array.isArray(socket.handshake.query.classId)
-    ? socket.handshake.query.classId[0]
-    : socket.handshake.query.classId;
-
-  const email = Array.isArray(socket.handshake.query.email)
-    ? socket.handshake.query.email[0]
-    : socket.handshake.query.email;
-
-  console.log(classId, email); // Log extracted parameters
-
-  // Upsert user in the database (create if not exists, otherwise update)
-  await prisma.user.upsert({
-    where: {
-      email: email,
-    },
-    update: {}, // No updates for existing users
-    create: {
-      email: email,
-    },
-  });
-
-  // Check-in user
-  let dbCheckIn = await prisma.checkIn.findFirst({
-    where: {
-      user: {
-        email: email,
-      },
-      class: {
-        id: classId,
-      },
-    },
-  });
-
-  if (!dbCheckIn) {
-    dbCheckIn = await prisma.checkIn.create({
-      data: {
-        user: {
-          connect: {
-            email: email,
-          },
-        },
-        class: {
-          connect: {
-            id: classId,
-          },
-        },
-        socketId: socket.id,
-      },
+// Only the authenticated application can mint a short-lived socket ticket.
+const roomKey = (courseId: string, classId: string) => courseId + ':' + classId;
+// A ceiling on open sockets that passed the ticket check, so connections without a
+// valid ticket cannot fill it and stop live updates for everyone.
+const MAX_SOCKETS = Number(process.env.MAX_SOCKETS || 1000);
+let ticketed = 0;
+io.use(async (socket, next) => {
+  if (ticketed >= MAX_SOCKETS) return next(new Error('Too many connections'));
+  try {
+    const ticket = socket.handshake.auth.ticket;
+    const [payload, signature] = typeof ticket === 'string' ? ticket.split('.') : [];
+    const secret = process.env.AUTH_SECRET;
+    if (!payload || !signature || !secret) throw new Error('Missing socket ticket');
+    const expected = createHmac('sha256', secret).update(payload).digest('base64url');
+    const a = Buffer.from(signature);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length || !timingSafeEqual(a, b)) throw new Error('Invalid ticket');
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (typeof data.expires !== 'number' || data.expires < Date.now() ||
+        typeof data.courseId !== 'string' || typeof data.classId !== 'string' ||
+        (data.projection !== true &&
+          (typeof data.userId !== 'string' || typeof data.admin !== 'boolean'))) throw new Error('Expired ticket');
+    const selected = await prisma.class.findFirst({
+      where: { id: data.classId, courseId: data.courseId },
     });
-  }
-
-  if (!dbCheckIn) {
-    socket.disconnect();
-    return;
-  }
-
-  socket.join(classId);
-};
+    if (!selected) throw new Error('Unknown class session');
+    if (data.projection !== true) {
+      const user = await prisma.user.findUnique({ where: { id: data.userId } });
+      if (!user) throw new Error('Unknown user');
+      if (!data.admin) {
+        const roster = await prisma.rosterEntry.findUnique({
+          where: { courseId_userId: { courseId: data.courseId, userId: data.userId } },
+        });
+        if (!roster?.active) throw new Error('Inactive roster entry');
+      }
+    }
+    socket.data.courseId = data.courseId;
+    socket.data.classId = data.classId;
+    socket.data.userId = data.userId;
+    socket.data.admin = data.admin === true || data.projection === true;
+    next();
+  } catch { next(new Error('Socket authentication failed')); }
+});
 
 // Auto-start scheduled classes every minute
 cron.schedule("* * * * *", async () => {
+  const secret = process.env.AUTH_SECRET;
+  if (secret) {
+    const body = JSON.stringify({ timestamp: Date.now() });
+    const signature = createHmac('sha256', secret).update(body).digest('hex');
+    try {
+      await fetch(process.env.APP_INTERNAL_URL || 'http://app:3000/api/internal/expire-sessions', {
+        method: 'POST', body, headers: { 'Content-Type': 'application/json',
+          'X-CheckHen-Signature': signature }, signal: AbortSignal.timeout(10000),
+      });
+    } catch (error) { console.error('Session expiry request failed', error); }
+  }
+  // A demo has no schedule: its sessions come from the seed, and visitors must not be
+  // able to make the server create sessions on its own.
+  if (process.env.CHECKHEN_DEMO === "1" && process.env.CHECKHEN_MODE === "hosted") return;
   const now = new Date();
   const dayOfWeek = now.getDay();
   const hhmm = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
@@ -110,6 +96,7 @@ cron.schedule("* * * * *", async () => {
           duration: t.duration,
           color: t.color,
           templateId: t.id,
+          courseId: t.courseId,
         },
       });
       console.log(`[cron] Auto-started class "${t.name}" from template ${t.id}`);
@@ -117,44 +104,75 @@ cron.schedule("* * * * *", async () => {
   }
 });
 
-// Listen for new socket connections
-io.on("connection", async (socket) => {
-  await handleSocketConnection(socket);
-
-  // socket.on("user-hand-update", (data) => {
-  //   io.sockets.emit("user-hand-update", data);
-  // });
-
-  // socket.on("user-hand-acked", async (data) => {
-  //   await handleUserHandAck(socket, data);
-  // });
-
-  socket.on("disconnect", () => {
-    console.log("user disconnected");
-  });
-
-  socket.onAny((event, ...args) => {
-    const roomId = args[0]?.classId as string | undefined;
-    if (!roomId) return;
-
-    if (event === "user-hand-update") {
-      io.to(roomId).emit("user-hand-update", args[0]);
-    }
-
-    if (event === "user-hand-acked") {
-      io.to(roomId).emit("check-raised-hands", args[0]);
-    }
-
-    if (event === "chat-message-sent") {
-      io.to(roomId).emit("fetch-messages", args[0]);
-    }
-
-    if (event === "pace-signal-sent") {
-      io.to(roomId).emit("pace-signal-update", args[0]);
-    }
-
-    if (event === "pace-signals-reset") {
-      io.to(roomId).emit("pace-signals-reset", args[0]);
-    }
-  });
+// Join only after scope and roster validation. Client messages cannot request broadcasts.
+io.on("connection", socket => {
+  ticketed += 1;
+  socket.on("disconnect", () => { ticketed -= 1; });
+  const room = roomKey(socket.data.courseId, socket.data.classId);
+  socket.join(room);
+  if (!socket.data.admin && socket.data.userId) {
+    socket.on("exam-heartbeat", async () => {
+      const url = process.env.PORTAL_AGENT_URL;
+      const secret = process.env.PORTAL_CONTROL_SECRET;
+      if (!url || !secret) return;
+      // The classroom proxy sets X-Real-IP; the agent credits the heartbeat to the
+      // device bound to that address, so only the exam device's page counts.
+      const header = socket.handshake.headers["x-real-ip"];
+      const ip = Array.isArray(header) ? header[0] : header;
+      if (!ip) return;
+      // One forwarded heartbeat per device per interval, however many sockets it opens.
+      const key = `${room}:${socket.data.userId}:${ip}`;
+      const now = Date.now();
+      if (now - (lastHeartbeat.get(key) ?? 0) < HEARTBEAT_INTERVAL_MS) return;
+      lastHeartbeat.set(key, now);
+      const body = JSON.stringify({ courseId: socket.data.courseId,
+        classId: socket.data.classId, userId: socket.data.userId, ip, action: "exam-heartbeat",
+        timestamp: now });
+      const signature = createHmac("sha256", secret).update(body).digest("hex");
+      try {
+        await fetch(`${url.replace(/\/$/, "")}/exam-heartbeat`, { method: "POST", body,
+          headers: { "Content-Type": "application/json", "X-CheckHen-Signature": signature },
+          signal: AbortSignal.timeout(3000) });
+      } catch { /* The AP station monitor remains independent of the socket. */ }
+    });
+  }
 });
+
+const HEARTBEAT_INTERVAL_MS = 4000;
+const lastHeartbeat = new Map<string, number>();
+setInterval(() => {
+  const cutoff = Date.now() - HEARTBEAT_INTERVAL_MS;
+  for (const [key, sent] of lastHeartbeat) if (sent < cutoff) lastHeartbeat.delete(key);
+}, 60000);
+
+const notifications: Record<string, string> = {
+  HAND_RAISED: "user-hand-update", HAND_LOWERED: "user-hand-update",
+  HAND_ACKNOWLEDGED: "check-raised-hands", HAND_RATED: "check-raised-hands",
+  CHAT_MESSAGE: "fetch-messages", CHAT_HIDDEN: "fetch-messages", PACE_SIGNAL: "pace-signal-update",
+  PACE_RESET: "pace-signals-reset",
+  EXAM_STARTED: "exam-status-update", EXAM_ENDED: "exam-status-update",
+  EXAM_FAILED: "exam-status-update", EXAM_EXCUSED: "exam-status-update",
+};
+let cursor = new Date();
+let cursorId = "";
+let polling = false;
+setInterval(async () => {
+  if (polling) return;
+  polling = true;
+  try {
+    const events = await prisma.participationEvent.findMany({
+      where: { OR: [{ createdAt: { gt: cursor } }, { createdAt: cursor, id: { gt: cursorId } }] },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: 500,
+    });
+    for (const event of events) {
+      cursor = event.createdAt;
+      cursorId = event.id;
+      const notification = notifications[event.kind];
+      if (notification) io.to(roomKey(event.courseId, event.classId)).emit(notification, { classId: event.classId });
+    }
+  } catch (error) {
+    console.error("Socket event polling failed", error);
+  } finally {
+    polling = false;
+  }
+}, 200);

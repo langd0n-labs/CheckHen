@@ -1,7 +1,11 @@
+import Link from 'next/link';
+import { scopedFetch as fetch } from '@/lib/scoped-fetch';
+import { useDemoMode } from '@/lib/use-mode';
 import { useEffect, useRef, useState } from 'react';
 import { useSession, signIn } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import {
+  Anchor,
   Avatar,
   Box,
   Button,
@@ -16,6 +20,7 @@ import {
   Tooltip,
   useMantineTheme,
 } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { GraduationCap, ArrowLeft, Save, Camera } from 'lucide-react';
 
@@ -23,6 +28,7 @@ const PRONOUN_OPTIONS = ['she/her', 'he/him', 'they/them', 'Other'];
 const BIO_LIMIT = 280;
 
 export default function ProfilePage() {
+  const narrow = useMediaQuery('(max-width: 26em)') ?? false;
   const { data: session, status } = useSession();
   const router = useRouter();
   const theme = useMantineTheme();
@@ -36,6 +42,8 @@ export default function ProfilePage() {
   const [bio, setBio] = useState('');
   const [saving, setSaving] = useState(false);
   const [uploadingPicture, setUploadingPicture] = useState(false);
+  // Demo personas are shared by every visitor, so their photos stay fixed.
+  const demo = useDemoMode();
   const [backHref, setBackHref] = useState('/');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -170,7 +178,12 @@ export default function ProfilePage() {
       <Card shadow="lg" padding="xl" radius="md" style={{ maxWidth: 520, width: '100%' }}>
         <Stack gap="lg">
           <Group justify="space-between">
-            <Title order={3}>My Profile</Title>
+            <div>
+              <Title order={3}>My Profile</Title>
+              <Anchor component={Link} href="/help/student#profile" size="sm">
+                Who sees your profile
+              </Anchor>
+            </div>
             <Button
               variant="subtle"
               size="sm"
@@ -183,13 +196,13 @@ export default function ProfilePage() {
 
           {/* Avatar */}
           <Group gap="md">
-            <Tooltip label="Change photo" position="bottom">
+            <Tooltip label={demo ? 'Photos are fixed in the demo' : 'Change photo'} position="bottom">
               <Box
-                style={{ position: 'relative', cursor: 'pointer', display: 'inline-block' }}
-                onClick={() => fileInputRef.current?.click()}
+                style={{ position: 'relative', cursor: demo ? 'default' : 'pointer', display: 'inline-block' }}
+                onClick={() => !demo && fileInputRef.current?.click()}
               >
                 <Avatar src={profilePicture} size={80} radius="50%" opacity={uploadingPicture ? 0.5 : 1} />
-                <Box
+                {!demo && <Box
                   style={{
                     position: 'absolute',
                     bottom: 0,
@@ -204,7 +217,7 @@ export default function ProfilePage() {
                   }}
                 >
                   <Camera size={14} color="white" />
-                </Box>
+                </Box>}
               </Box>
             </Tooltip>
             <input
@@ -226,6 +239,7 @@ export default function ProfilePage() {
             description="Your preferred name to show instructors (leave blank to use your email)"
             placeholder={email.split('@')[0]}
             value={displayName}
+            maxLength={80}
             onChange={(e) => setDisplayName(e.currentTarget.value)}
           />
 
@@ -234,6 +248,7 @@ export default function ProfilePage() {
             label="How to pronounce your name"
             placeholder="e.g. AL-ex"
             value={namePronunciation}
+            maxLength={80}
             onChange={(e) => setNamePronunciation(e.currentTarget.value)}
           />
 
@@ -245,11 +260,14 @@ export default function ProfilePage() {
               onChange={setPronounsSelection}
               data={PRONOUN_OPTIONS}
               fullWidth
+              // Four choices do not fit side by side on a narrow phone.
+              orientation={narrow ? 'vertical' : 'horizontal'}
             />
             {pronounsSelection === 'Other' && (
               <TextInput
                 placeholder="Enter your pronouns"
                 value={customPronouns}
+                maxLength={40}
                 onChange={(e) => setCustomPronouns(e.currentTarget.value)}
               />
             )}
@@ -283,6 +301,7 @@ export default function ProfilePage() {
             description="Let your instructor know about any food allergies (e.g. peanuts, dairy)"
             placeholder="None"
             value={foodAllergies}
+            maxLength={200}
             onChange={(e) => setFoodAllergies(e.currentTarget.value)}
             autosize
             minRows={2}

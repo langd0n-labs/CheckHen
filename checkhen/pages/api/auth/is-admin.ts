@@ -1,5 +1,6 @@
 import { getServerSession } from 'next-auth';
 import { authOptions } from './[...nextauth]';
+import { isInstructor } from '@/lib/instructor';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 export default async function handler(
@@ -15,10 +16,5 @@ export default async function handler(
     return res.status(200).json({ isAdmin: false });
   }
 
-  const adminEmails =
-    process.env.ADMIN_EMAILS?.split(',').map(
-      (e) => `${e.trim()}@${process.env.NEXT_PUBLIC_EMAIL_DOMAIN}`
-    ) || [];
-
-  return res.status(200).json({ isAdmin: adminEmails.includes(session.user.email) });
+  return res.status(200).json({ isAdmin: isInstructor(session.user.email) });
 }

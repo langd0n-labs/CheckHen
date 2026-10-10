@@ -1,3 +1,4 @@
+import { scopedFetch as fetch } from '@/lib/scoped-fetch';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { useSession } from 'next-auth/react';
@@ -20,6 +21,7 @@ import { AggregatedView } from '@/components/Admin/Analytics/AggregatedView';
 import { StudentDetailView } from '@/components/Admin/Analytics/StudentDetailView';
 
 type StudentSummary = {
+  displayName: string | null;
   email: string;
   anonymousName: string | null;
   checkInTime: string;
@@ -43,6 +45,7 @@ type PaceTimelineBucket = {
 };
 
 type LeaveEvent = {
+  displayName: string | null;
   anonymousName: string | null;
   checkInTime: string;
   checkOutTime: string | null;

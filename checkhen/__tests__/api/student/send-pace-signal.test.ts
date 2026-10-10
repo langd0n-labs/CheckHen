@@ -1,142 +1,66 @@
-jest.mock('next-auth', () => {
-  const mockGetServerSession = jest.fn();
-  return {
-    __esModule: true,
-    default: () => jest.fn(),
-    getServerSession: mockGetServerSession,
-  };
-});
-
-jest.mock('@/pages/api/auth/[...nextauth]', () => ({
-  authOptions: {},
-}));
-
-jest.mock('@/lib/prisma', () => ({
-  prisma: {
-    user: { findUnique: jest.fn() },
-    checkIn: { findFirst: jest.fn() },
-    paceSignal: {
-      deleteMany: jest.fn(),
-      create: jest.fn(),
-    },
-  },
-}));
-
 import { createMocks } from 'node-mocks-http';
-import handler from '@/pages/api/student/send-pace-signal';
-import * as nextAuth from 'next-auth';
+import { appendEvent, readState } from '@/lib/event-store';
 import { prisma } from '@/lib/prisma';
+import { requireScope } from '@/lib/request-scope';
+import handler from '@/pages/api/student/send-pace-signal';
 
-const mockUser = { id: 'user-1', email: 'student@bu.edu' };
-const mockActiveCheckIn = () => ({
-  userId: 'user-1',
-  isPresent: true,
-  class: { id: 'class-1' },
+jest.mock('@/lib/request-scope', () => ({ requireScope: jest.fn() }));
+jest.mock('@/lib/event-store', () => ({ appendEvent: jest.fn(), readState: jest.fn() }));
+jest.mock('@/lib/prisma', () => ({ prisma: {} }));
+const user = { id: 'student', email: 'student@bu.edu' };
+const selected = { id: 'session-a', courseId: 'course-a', createdAt: new Date(), duration: 60 };
+const scope = { courseId: 'course-a', classId: 'session-a' };
+const state = {
+  attendance: [{ userId: user.id, isPresent: true }],
+  hands: [],
+  pace: [],
+  messages: [],
+  endedAt: null,
+};
+const invoke = async (body: Record<string, unknown>, method: 'GET' | 'POST' = 'POST', currentState = state) => {
+  (readState as jest.Mock).mockResolvedValue(currentState);
+  const { req, res } = createMocks({ method, body, query: scope });
+  await handler(req as any, res as any);
+  return res;
+};
+beforeEach(() => {
+  jest.clearAllMocks();
+  (requireScope as jest.Mock).mockResolvedValue({ scope, user, selected, admin: false });
+  (appendEvent as jest.Mock).mockResolvedValue({ id: 'event-1', createdAt: new Date() });
 });
-
-const mockSession = (email = 'student@bu.edu') =>
-  (nextAuth.getServerSession as jest.Mock).mockResolvedValue({ user: { email } });
-
-const mockNoSession = () =>
-  (nextAuth.getServerSession as jest.Mock).mockResolvedValue(null);
-
-afterEach(() => jest.clearAllMocks());
-
 describe('POST /api/student/send-pace-signal', () => {
-  it('returns 405 for non-POST requests', async () => {
-    mockNoSession();
-    const { req, res } = createMocks({ method: 'GET' });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(405);
+  it('rejects wrong methods', async () =>
+    expect((await invoke({}, 'GET'))._getStatusCode()).toBe(405));
+  it('returns 401 without a session', async () => {
+    (requireScope as jest.Mock).mockImplementation(async (_req, res) => { res.status(401).json({ message: 'Unauthorized' }); return null; });
+    expect((await invoke({ signalType: 'slow_down' }))._getStatusCode()).toBe(401);
   });
-
-  it('returns 401 if no session', async () => {
-    mockNoSession();
-    const { req, res } = createMocks({ method: 'POST', body: { signalType: 'slow_down' } });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(401);
+  it('rejects a student without an active check-in', async () => {
+    expect((await invoke({ signalType: 'slow_down' }, 'POST', { ...state, attendance: [] }))._getStatusCode()).toBe(400);
+    expect(appendEvent).not.toHaveBeenCalled();
   });
-
-  it('returns 400 if signalType is missing', async () => {
-    mockSession();
-    const { req, res } = createMocks({ method: 'POST', body: {} });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(400);
-  });
-
-  it('returns 400 if signalType is invalid', async () => {
-    mockSession();
-    const { req, res } = createMocks({ method: 'POST', body: { signalType: 'speed_up' } });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(400);
-  });
-
-  it('returns 404 if user not found in database', async () => {
-    mockSession();
-    (prisma.user.findUnique as jest.Mock).mockResolvedValue(null);
-    const { req, res } = createMocks({ method: 'POST', body: { signalType: 'slow_down' } });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(404);
-  });
-
-  it('returns 400 if user has no active check-in', async () => {
-    mockSession();
-    (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
-    (prisma.checkIn.findFirst as jest.Mock).mockResolvedValue(null);
-    const { req, res } = createMocks({ method: 'POST', body: { signalType: 'slow_down' } });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(400);
-  });
-
-  it('records slow_down signal and returns 200', async () => {
-    mockSession();
-    (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
-    (prisma.checkIn.findFirst as jest.Mock).mockResolvedValue(mockActiveCheckIn());
-    (prisma.paceSignal.deleteMany as jest.Mock).mockResolvedValue({});
-    (prisma.paceSignal.create as jest.Mock).mockResolvedValue({});
-    const { req, res } = createMocks({ method: 'POST', body: { signalType: 'slow_down' } });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(200);
-    const body = JSON.parse(res._getData());
-    expect(body.signalType).toBe('slow_down');
-  });
-
-  it('records ready_to_move_on signal and returns 200', async () => {
-    mockSession();
-    (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
-    (prisma.checkIn.findFirst as jest.Mock).mockResolvedValue(mockActiveCheckIn());
-    (prisma.paceSignal.deleteMany as jest.Mock).mockResolvedValue({});
-    (prisma.paceSignal.create as jest.Mock).mockResolvedValue({});
-    const { req, res } = createMocks({ method: 'POST', body: { signalType: 'ready_to_move_on' } });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(200);
-    const body = JSON.parse(res._getData());
-    expect(body.signalType).toBe('ready_to_move_on');
-  });
-
-  it('deletes existing signal before creating new one', async () => {
-    mockSession();
-    (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
-    (prisma.checkIn.findFirst as jest.Mock).mockResolvedValue(mockActiveCheckIn());
-    (prisma.paceSignal.deleteMany as jest.Mock).mockResolvedValue({});
-    (prisma.paceSignal.create as jest.Mock).mockResolvedValue({});
-    const { req, res } = createMocks({ method: 'POST', body: { signalType: 'slow_down' } });
-    await handler(req as any, res as any);
-    expect(prisma.paceSignal.deleteMany).toHaveBeenCalledWith({
-      where: { userId: 'user-1', classId: 'class-1' },
-    });
-    expect(prisma.paceSignal.create).toHaveBeenCalledWith(
+  it.each([{}, { signalType: '' }, { signalType: 'speed_up' }])(
+    'rejects missing or invalid signal types',
+    async (body) => {
+      expect((await invoke(body))._getStatusCode()).toBe(400);
+      expect(appendEvent).not.toHaveBeenCalled();
+    }
+  );
+  it('records a pace event without deleting prior signals', async () => {
+    expect((await invoke({ signalType: 'slow_down' }))._getStatusCode()).toBe(200);
+    expect(appendEvent).toHaveBeenCalledWith(
+      prisma,
       expect.objectContaining({
-        data: expect.objectContaining({
-          userId: 'user-1',
-          classId: 'class-1',
-          signalType: 'slow_down',
-        }),
+        ...scope,
+        kind: 'PACE_SIGNAL',
+        payload: { signalType: 'slow_down' },
       })
     );
-    // deleteMany invocation order must precede create
-    const deleteManyOrder = (prisma.paceSignal.deleteMany as jest.Mock).mock.invocationCallOrder[0];
-    const createOrder = (prisma.paceSignal.create as jest.Mock).mock.invocationCallOrder[0];
-    expect(deleteManyOrder).toBeLessThan(createOrder);
+  });
+  it('records a ready-to-move-on signal', async () => {
+    expect((await invoke({ signalType: 'ready_to_move_on' }))._getStatusCode()).toBe(200);
+    expect(appendEvent).toHaveBeenCalledWith(prisma, expect.objectContaining({
+      kind: 'PACE_SIGNAL', payload: { signalType: 'ready_to_move_on' },
+    }));
   });
 });

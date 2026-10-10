@@ -1,23 +1,29 @@
+import Link from 'next/link';
+import { selectScope } from '@/lib/scoped-fetch';
+import { scopedFetch as fetch } from '@/lib/scoped-fetch';
 import { useEffect, useState } from 'react';
 import { useSession, signIn } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import {
+  Anchor,
+  Badge,
   Box,
   Button,
   Card,
+  Group,
+  Loader,
   Stack,
   Text,
   Title,
-  Badge,
-  Group,
   useMantineTheme,
-  Loader,
 } from '@mantine/core';
 import { GraduationCap, BookOpen, Clock, Users, User } from 'lucide-react';
 import { notifications } from '@mantine/notifications';
 
 type ActiveClass = {
   id: string;
+  courseId: string;
+  active: boolean;
   name: string;
   createdAt: string;
   duration: number;
@@ -42,27 +48,32 @@ export default function JoinPage() {
 
   // Fetch active classes
   const fetchActiveClasses = async () => {
-    const response = await fetch('/api/fetch-latest-class');
-    if (!response.ok) {
+    const coursesResponse = await fetch('/api/courses');
+    if (!coursesResponse.ok) {
       setActiveClasses([]);
       return;
     }
-    const data = await response.json();
-    const cls = JSON.parse(data.message);
-    const endDate = new Date(new Date(cls.createdAt).getTime() + cls.duration * 60000);
-    if (endDate < new Date()) {
-      setActiveClasses([]);
-    } else {
-      setActiveClasses([cls]);
-    }
+    const { courses } = await coursesResponse.json();
+    const results = await Promise.all(courses.map(async (course: { id: string }) => {
+      const response = await fetch(`/api/sessions?courseId=${encodeURIComponent(course.id)}`);
+      if (!response.ok) return [];
+      const { sessions } = await response.json();
+      return sessions.filter((cls: ActiveClass) => cls.active);
+    }));
+    setActiveClasses(results.flat());
   };
 
   useEffect(() => {
     if (status === 'authenticated') {
       // Wait for both the check-in check and class fetch before showing the page
       Promise.all([
-        fetch('/api/student/fetch-check-in').then((res) => {
-          if (res.ok) router.push('/');
+        fetch('/api/student/fetch-check-in').then(async (res) => {
+          if (res.ok) {
+            if ((await fetch('/api/student/re-bind', { method: 'POST' })).ok) router.push('/');
+            else notifications.show({ title: 'No uplink',
+              message: 'This device has no internet access through the class network. Check in again or ask your instructor for help.',
+              color: 'red' });
+          }
         }),
         fetchActiveClasses(),
       ]).finally(() => setLoading(false));
@@ -73,8 +84,9 @@ export default function JoinPage() {
     }
   }, [status]);
 
-  const handleJoin = async (classId: string) => {
-    setJoiningId(classId);
+  const handleJoin = async (cls: ActiveClass) => {
+    setJoiningId(cls.id);
+    selectScope({ courseId: cls.courseId, classId: cls.id });
     const response = await fetch('/api/student/check-in', { method: 'POST' });
     if (response.ok) {
       router.push('/');
@@ -227,6 +239,9 @@ export default function JoinPage() {
             <div>
               <Title order={2} mb={4}>Active Classes</Title>
               <Text c="dimmed" size="sm">Select a session to join</Text>
+              <Anchor component={Link} href="/help/student#checking-in" size="sm">
+                How checking in and out works
+              </Anchor>
             </div>
 
             {activeClasses.map((cls) => {
@@ -280,7 +295,7 @@ export default function JoinPage() {
                     fullWidth
                     size="md"
                     loading={joiningId === cls.id}
-                    onClick={() => handleJoin(cls.id)}
+                    onClick={() => handleJoin(cls)}
                     style={cls.color ? { backgroundColor: cls.color } : undefined}
                   >
                     Join Session

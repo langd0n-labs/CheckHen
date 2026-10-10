@@ -1,152 +1,153 @@
-jest.mock('next-auth', () => {
-  const mockGetServerSession = jest.fn();
-  return {
-    __esModule: true,
-    default: () => jest.fn(),
-    getServerSession: mockGetServerSession,
-  };
-});
+import { createMocks } from 'node-mocks-http';
+import { generateUniqueAnonymousName } from '@/lib/anonymousNames';
+import { appendEvent, readState } from '@/lib/event-store';
+import { bindDevice, PortalBindingError, revokeDevice } from '@/lib/portal-binding';
+import { prisma } from '@/lib/prisma';
+import { requireScope } from '@/lib/request-scope';
+import handler from '@/pages/api/student/check-in';
 
-jest.mock('@/pages/api/auth/[...nextauth]', () => ({
-  authOptions: {},
-}));
-
-jest.mock('@/lib/prisma', () => ({
-  prisma: {
-    user: { upsert: jest.fn() },
-    class: { findFirst: jest.fn() },
-    checkIn: {
-      findFirst: jest.fn(),
-      findMany: jest.fn(),
-      create: jest.fn(),
-      update: jest.fn(),
-    },
+jest.mock('@/lib/request-scope', () => ({ requireScope: jest.fn() }));
+jest.mock('@/lib/event-store', () => ({ appendEvent: jest.fn(), readState: jest.fn() }));
+jest.mock('@/lib/anonymousNames', () => ({ generateUniqueAnonymousName: jest.fn() }));
+jest.mock('@/lib/prisma', () => ({ prisma: {} }));
+jest.mock('@/lib/portal-binding', () => ({
+  bindDevice: jest.fn(),
+  revokeDevice: jest.fn(),
+  revokeCurrentDevice: jest.fn(),
+  revokeStudentDevices: jest.fn(),
+  revokeSessionDevices: jest.fn(),
+  PortalBindingError: class PortalBindingError extends Error {
+    constructor(
+      message: string,
+      public status: number
+    ) {
+      super(message);
+    }
   },
 }));
 
-jest.mock('@/lib/anonymousNames', () => ({
-  generateUniqueAnonymousName: jest.fn().mockReturnValue('Brave Panda'),
-}));
-
-import { createMocks } from 'node-mocks-http';
-import handler from '@/pages/api/student/check-in';
-import * as nextAuth from 'next-auth';
-import { prisma } from '@/lib/prisma';
-import { generateUniqueAnonymousName } from '@/lib/anonymousNames';
-
-const activeClass = () => ({
-  id: 'class-1',
-  createdAt: new Date(),
-  duration: 9999,
+const user = { id: 'student', email: 'student@bu.edu' };
+const selected = { id: 'session-a', courseId: 'course-a', createdAt: new Date(), duration: 60 };
+const scope = { courseId: 'course-a', classId: 'session-a' };
+const empty = () => ({
+  attendance: [] as Array<{ userId: string; anonymousName: string; isPresent: boolean }>,
+  hands: [],
+  pace: [],
+  messages: [],
+  endedAt: null as Date | null,
 });
+const invoke = async (method: 'GET' | 'POST', state = empty()) => {
+  (readState as jest.Mock).mockResolvedValue(state);
+  const { req, res } = createMocks({ method, query: scope });
+  await handler(req as any, res as any);
+  return res;
+};
 
-const expiredClass = () => ({
-  id: 'class-old',
-  createdAt: new Date(0),
-  duration: 1,
+beforeEach(() => {
+  jest.clearAllMocks();
+  (requireScope as jest.Mock).mockResolvedValue({ scope, user, selected, admin: false });
+  (appendEvent as jest.Mock).mockResolvedValue({ id: 'event-1', createdAt: new Date() });
+  (generateUniqueAnonymousName as jest.Mock).mockReturnValue('Calm Otter');
+  (bindDevice as jest.Mock).mockResolvedValue(null);
+  (revokeDevice as jest.Mock).mockResolvedValue(undefined);
 });
-
-const mockSession = (email = 'student@bu.edu') =>
-  (nextAuth.getServerSession as jest.Mock).mockResolvedValue({ user: { email } });
-
-const mockNoSession = () =>
-  (nextAuth.getServerSession as jest.Mock).mockResolvedValue(null);
-
-afterEach(() => jest.clearAllMocks());
 
 describe('POST /api/student/check-in', () => {
-  it('returns 405 for non-POST requests', async () => {
-    mockNoSession();
-    const { req, res } = createMocks({ method: 'GET' });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(405);
+  it('rejects wrong methods', async () => expect((await invoke('GET'))._getStatusCode()).toBe(405));
+  it('returns 401 without a session', async () => {
+    (requireScope as jest.Mock).mockImplementation(async (_req, res) => { res.status(401).json({ message: 'Unauthorized' }); return null; });
+    expect((await invoke('POST'))._getStatusCode()).toBe(401);
+    expect(bindDevice).not.toHaveBeenCalled();
   });
-
-  it('returns 401 if no session', async () => {
-    mockNoSession();
-    const { req, res } = createMocks({ method: 'POST' });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(401);
+  it('returns 404 without a selected class', async () => {
+    (requireScope as jest.Mock).mockImplementation(async (_req, res) => { res.status(404).json({ message: 'No class' }); return null; });
+    expect((await invoke('POST'))._getStatusCode()).toBe(404);
   });
-
-  it('returns 500 if no class found', async () => {
-    mockSession();
-    (prisma.user.upsert as jest.Mock).mockResolvedValue({ id: 'user-1', email: 'student@bu.edu' });
-    (prisma.class.findFirst as jest.Mock).mockResolvedValue(null);
-    const { req, res } = createMocks({ method: 'POST' });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(500);
+  it('rejects an ended session without recording a check-in event', async () => {
+    expect((await invoke('POST', { ...empty(), endedAt: new Date() }))._getStatusCode()).toBe(400);
+    expect(appendEvent).not.toHaveBeenCalled();
   });
-
-  it('returns 400 if class has ended', async () => {
-    mockSession();
-    (prisma.user.upsert as jest.Mock).mockResolvedValue({ id: 'user-1', email: 'student@bu.edu' });
-    (prisma.class.findFirst as jest.Mock).mockResolvedValue(expiredClass());
-    const { req, res } = createMocks({ method: 'POST' });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(400);
-  });
-
-  it('returns 200 and restores presence when student previously checked out', async () => {
-    mockSession();
-    (prisma.user.upsert as jest.Mock).mockResolvedValue({ id: 'user-1', email: 'student@bu.edu' });
-    (prisma.class.findFirst as jest.Mock).mockResolvedValue(activeClass());
-    (prisma.checkIn.findFirst as jest.Mock).mockResolvedValue({ id: 'ci-1', isPresent: false });
-    (prisma.checkIn.update as jest.Mock).mockResolvedValue({});
-    const { req, res } = createMocks({ method: 'POST' });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(200);
-    expect(prisma.checkIn.update).toHaveBeenCalledWith({
-      where: { id: 'ci-1' },
-      data: { isPresent: true },
+  it('records a check-in event with a unique anonymous name', async () => {
+    const res = await invoke('POST', {
+      ...empty(),
+      attendance: [{ userId: 'other', anonymousName: 'Swift Panda', isPresent: true }],
     });
-  });
-
-  it('returns 200 immediately when already checked in and present, without calling update', async () => {
-    mockSession();
-    (prisma.user.upsert as jest.Mock).mockResolvedValue({ id: 'user-1', email: 'student@bu.edu' });
-    (prisma.class.findFirst as jest.Mock).mockResolvedValue(activeClass());
-    (prisma.checkIn.findFirst as jest.Mock).mockResolvedValue({ id: 'ci-1', isPresent: true });
-    const { req, res } = createMocks({ method: 'POST' });
-    await handler(req as any, res as any);
     expect(res._getStatusCode()).toBe(200);
-    expect(prisma.checkIn.update).not.toHaveBeenCalled();
-  });
-
-  it('creates a new check-in and returns 200', async () => {
-    mockSession();
-    (prisma.user.upsert as jest.Mock).mockResolvedValue({ id: 'user-1', email: 'student@bu.edu' });
-    (prisma.class.findFirst as jest.Mock).mockResolvedValue(activeClass());
-    (prisma.checkIn.findFirst as jest.Mock).mockResolvedValue(null);
-    (prisma.checkIn.findMany as jest.Mock).mockResolvedValue([]);
-    (prisma.checkIn.create as jest.Mock).mockResolvedValue({});
-    const { req, res } = createMocks({ method: 'POST' });
-    await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(200);
-    expect(prisma.checkIn.create).toHaveBeenCalledWith(
+    expect(generateUniqueAnonymousName).toHaveBeenCalledWith(['Swift Panda']);
+    expect(appendEvent).toHaveBeenCalledWith(
+      prisma,
       expect.objectContaining({
-        data: expect.objectContaining({
-          userId: 'user-1',
-          classId: 'class-1',
-          anonymousName: 'Brave Panda',
-        }),
+        ...scope,
+        userId: user.id,
+        kind: 'CHECK_IN',
+        payload: { anonymousName: 'Calm Otter' },
       })
     );
   });
-
-  it('passes filtered existing names (nulls excluded) to generateUniqueAnonymousName', async () => {
-    mockSession();
-    (prisma.user.upsert as jest.Mock).mockResolvedValue({ id: 'user-1', email: 'student@bu.edu' });
-    (prisma.class.findFirst as jest.Mock).mockResolvedValue(activeClass());
-    (prisma.checkIn.findFirst as jest.Mock).mockResolvedValue(null);
-    (prisma.checkIn.findMany as jest.Mock).mockResolvedValue([
-      { anonymousName: 'Brave Panda' },
-      { anonymousName: null },
-      { anonymousName: 'Clever Fox' },
-    ]);
-    (prisma.checkIn.create as jest.Mock).mockResolvedValue({});
-    const { req, res } = createMocks({ method: 'POST' });
-    await handler(req as any, res as any);
-    expect(generateUniqueAnonymousName).toHaveBeenCalledWith(['Brave Panda', 'Clever Fox']);
+  it('does not duplicate an active check-in', async () => {
+    const res = await invoke('POST', {
+      ...empty(),
+      attendance: [{ userId: user.id, anonymousName: 'Swift Panda', isPresent: true }],
+    });
+    expect(res._getStatusCode()).toBe(200);
+    expect(appendEvent).not.toHaveBeenCalled();
+  });
+  it('records the lease IP and MAC after portal authorization', async () => {
+    (bindDevice as jest.Mock).mockResolvedValue({ ip: '172.16.77.20', mac: '02:00:00:00:00:20' });
+    const res = await invoke('POST');
+    expect(res._getStatusCode()).toBe(200);
+    expect(appendEvent).toHaveBeenCalledWith(
+      prisma,
+      expect.objectContaining({
+        kind: 'CHECK_IN',
+        payload: {
+          anonymousName: 'Calm Otter',
+          deviceIp: '172.16.77.20',
+          deviceMac: '02:00:00:00:00:20',
+        },
+      })
+    );
+  });
+  it('binds a second device without changing attendance', async () => {
+    (bindDevice as jest.Mock).mockResolvedValue({ ip: '172.16.77.21', mac: '02:00:00:00:00:21' });
+    const res = await invoke('POST', {
+      ...empty(),
+      attendance: [{ userId: user.id, anonymousName: 'Swift Panda', isPresent: true }],
+    });
+    expect(res._getStatusCode()).toBe(200);
+    expect(appendEvent).toHaveBeenCalledWith(
+      prisma,
+      expect.objectContaining({
+        kind: 'DEVICE_BOUND',
+        payload: { deviceIp: '172.16.77.21', deviceMac: '02:00:00:00:00:21' },
+      })
+    );
+    expect(appendEvent).toHaveBeenCalledTimes(1);
+  });
+  it('rejects a client without an AP lease', async () => {
+    (bindDevice as jest.Mock).mockRejectedValue(new PortalBindingError('AP lease not found', 403));
+    const res = await invoke('POST');
+    expect(res._getStatusCode()).toBe(403);
+    expect(appendEvent).not.toHaveBeenCalled();
+  });
+  it('returns 403 when the agent rejects an outside-subnet client', async () => {
+    (bindDevice as jest.Mock).mockRejectedValue(new PortalBindingError('Outside AP subnet', 403));
+    expect((await invoke('POST'))._getStatusCode()).toBe(403);
+    expect(appendEvent).not.toHaveBeenCalled();
+  });
+  it('returns 503 when the portal agent is unavailable', async () => {
+    (bindDevice as jest.Mock).mockRejectedValue(new PortalBindingError('Portal agent unavailable', 503));
+    expect((await invoke('POST'))._getStatusCode()).toBe(503);
+    expect(appendEvent).not.toHaveBeenCalled();
+  });
+  it('reverses a network bind when the event append fails', async () => {
+    (bindDevice as jest.Mock).mockResolvedValue({ ip: '172.16.77.20', mac: '02:00:00:00:00:20' });
+    (appendEvent as jest.Mock).mockRejectedValue(new Error('Database unavailable'));
+    await expect(invoke('POST')).rejects.toThrow('Database unavailable');
+    expect(revokeDevice).toHaveBeenCalledWith(
+      { ip: '172.16.77.20', mac: '02:00:00:00:00:20' },
+      scope,
+      user
+    );
   });
 });

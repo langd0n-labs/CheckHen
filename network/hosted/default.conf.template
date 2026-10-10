@@ -1,0 +1,70 @@
+# Hosted mode: one local origin for the app and its socket server. A Cloudflare
+# Tunnel (or any reverse proxy) publishes this origin; nothing here listens publicly.
+
+# Behind the tunnel every request comes from cloudflared; Cloudflare names the client.
+# One IPv6 client usually holds a whole /64, so the /64 is the key: the first four
+# groups when written out, or everything before "::" when the address is shorter.
+map $http_cf_connecting_ip $checkhen_client {
+    "" $binary_remote_addr;
+    "~^(?<prefix>[0-9a-fA-F]{1,4}:[0-9a-fA-F]{1,4}:[0-9a-fA-F]{1,4}:[0-9a-fA-F]{1,4}):" $prefix;
+    "~^(?<prefix>[0-9a-fA-F:]*?)::" $prefix;
+    default $http_cf_connecting_ip;
+}
+limit_req_zone $checkhen_client zone=checkhen_api:10m rate=20r/s;
+limit_req_zone $checkhen_client zone=checkhen_socket:10m rate=5r/s;
+limit_conn_zone $checkhen_client zone=checkhen_client_conn:10m;
+limit_conn_zone $server_name zone=checkhen_all_conn:1m;
+limit_req_status 429;
+limit_conn_status 429;
+
+# Paths only: query strings carry projection tickets, which stay out of the log.
+log_format checkhen_paths '$remote_addr [$time_local] "$request_method $uri" $status '
+                          '$body_bytes_sent "$http_user_agent"';
+
+server {
+    listen ${HOSTED_BIND_ADDRESS}:${HOSTED_PORT};
+    server_name _;
+    access_log /var/log/nginx/access.log checkhen_paths;
+
+    location /socket.io/ {
+        # A few sockets per client, and a ceiling for everyone together.
+        limit_conn checkhen_client_conn 20;
+        limit_conn checkhen_all_conn 1000;
+        # Socket.IO reconnects and long-polls over HTTP; cap how fast one client opens them.
+        limit_req zone=checkhen_socket burst=20 nodelay;
+        proxy_pass http://127.0.0.1:${SOCKET_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_read_timeout 120s;
+    }
+
+    # The demo lecture deck (static Slidev build). It shows chat only with a valid
+    # projection ticket, which the dashboard adds to the link.
+    location /deck/ {
+        root /usr/share/nginx;
+        try_files $uri $uri/ /deck/index.html;
+        add_header X-Content-Type-Options nosniff always;
+        # The deck URL holds the ticket; no Referer may carry it to the font host.
+        add_header Referrer-Policy no-referrer always;
+    }
+
+    location /api/ {
+        limit_req zone=checkhen_api burst=40 nodelay;
+        proxy_pass http://127.0.0.1:${APP_PORT};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto ${HOSTED_FORWARDED_PROTO};
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:${APP_PORT};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        # Set, not copied: a client's own header must not decide the scheme.
+        proxy_set_header X-Forwarded-Proto ${HOSTED_FORWARDED_PROTO};
+    }
+}

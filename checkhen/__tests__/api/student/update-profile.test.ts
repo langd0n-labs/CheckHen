@@ -123,12 +123,26 @@ describe('POST /api/student/update-profile', () => {
     );
   });
 
-  // TODO: missing max-length validation on displayName — this should return 400 but currently returns 200
-  it('(bug exposure) accepts displayName longer than 100 characters without validation', async () => {
+  it('refuses a displayName longer than 100 characters', async () => {
     mockSession();
     (prisma.user.update as jest.Mock).mockResolvedValue({});
     const { req, res } = createMocks({ method: 'POST', body: { displayName: 'x'.repeat(500) } });
     await handler(req as any, res as any);
-    expect(res._getStatusCode()).toBe(200); // BUG: should be 400
+    expect(res._getStatusCode()).toBe(400);
+  });
+});
+
+describe('profile field limits', () => {
+  it.each([
+    ['displayName', 80],
+    ['namePronunciation', 80],
+    ['pronouns', 40],
+    ['foodAllergies', 200],
+  ])('refuses a %s longer than %i characters', async (field, max) => {
+    mockSession();
+    const { req, res } = createMocks({ method: 'POST', body: { [field]: 'x'.repeat(max + 1) } });
+    await handler(req as any, res as any);
+    expect(res._getStatusCode()).toBe(400);
+    expect(prisma.user.update).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '../auth/[...nextauth]';
+import { isDemo } from '@/lib/demo';
+import { requireIdentity } from '@/lib/request-scope';
+
+// Each template can start a session every scheduled minute, so a course has a bounded number.
+const MAX_TEMPLATES_PER_COURSE = 50;
 import { prisma } from '@/lib/prisma';
 
 type ClassTemplateRecord = {
@@ -30,26 +33,19 @@ function normalizeHex(raw: unknown): string | null {
   return null;
 }
 
-function getAdminEmails(): string[] {
-  return (
-    process.env.ADMIN_EMAILS?.split(',').map(
-      (e) => `${e.trim()}@${process.env.NEXT_PUBLIC_EMAIL_DOMAIN}`
-    ) || []
-  );
-}
-
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<ResponseData>
 ) {
-  const session = await getServerSession(req, res, authOptions);
-  if (!session?.user?.email) return res.status(401).json({ message: 'Unauthorized' });
-  if (!getAdminEmails().includes(session.user.email))
-    return res.status(403).json({ message: 'Forbidden: Admin only' });
+  if (!(await requireIdentity(req, res, true))) return;
+  const courseId = req.query.courseId ?? req.body?.courseId;
+  if (typeof courseId !== 'string' || !await prisma.course.findUnique({ where: { id: courseId } }))
+    return res.status(400).json({ message: 'Select a course' });
 
   // GET — list all templates
   if (req.method === 'GET') {
     const templates = await prisma.classTemplate.findMany({
+      where: { courseId },
       orderBy: { name: 'asc' },
     });
     return res.status(200).json(
@@ -68,6 +64,9 @@ export default async function handler(
 
   // POST — create template
   if (req.method === 'POST') {
+    if (isDemo()) return res.status(403).json({ message: 'The demo has no class schedule' });
+    if ((await prisma.classTemplate.count({ where: { courseId } })) >= MAX_TEMPLATES_PER_COURSE)
+      return res.status(400).json({ message: `A course can have at most ${MAX_TEMPLATES_PER_COURSE} schedules` });
     const { name, color, duration, daysOfWeek, startTime, tz } = req.body;
 
     if (!name || typeof name !== 'string' || name.trim().length === 0 || name.length > 200)
@@ -85,6 +84,7 @@ export default async function handler(
 
     const template = await prisma.classTemplate.create({
       data: {
+        courseId,
         name: name.trim(),
         color: normalizedColor,
         duration,
@@ -112,7 +112,9 @@ export default async function handler(
     if (!id || typeof id !== 'string')
       return res.status(400).json({ message: 'Missing id query param' });
 
-    await prisma.classTemplate.delete({ where: { id } });
+    const target = await prisma.classTemplate.findFirst({ where: { id, courseId } });
+    if (!target) return res.status(404).json({ message: 'Template not found' });
+    await prisma.classTemplate.delete({ where: { id: target.id } });
     return res.status(200).json({ message: 'Deleted' });
   }
 
