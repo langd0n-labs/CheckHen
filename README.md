@@ -80,3 +80,4 @@ Grafana is removed. The application has an analytics interface at
 CheckHen is licensed under the GNU Affero General Public License, version 3 or later
 (`LICENSE`). Anyone who runs a modified version as a service must offer its source to
 the people who use it.
+Contributors are listed in `CONTRIBUTORS.md`.
