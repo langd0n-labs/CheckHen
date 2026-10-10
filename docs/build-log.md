@@ -1307,7 +1307,7 @@ Before opening the tunnel, confirm in `.env.hosted`:
   127.0.0.1, and the session cookie is `Secure` only with https. Recreate the stack
   after the change.
 - The demo limits (`APP_MEM_LIMIT` and the rest, `MAX_SOCKETS`) are set, and the
-  Cloudflare rate-limiting rules above exist.
+  Cloudflare rate-limiting rule below exists.
 - Visit `/demo` once yourself so the seed exists before the first public visitors.
 - After the tunnel is up, sign in as a persona through the public hostname and check
   that the dashboard and a student page load there.
@@ -1791,11 +1791,12 @@ repository). The tunnel stays closed until AICP confirms.
 - Live checks on the build host still pass after the change (end to end, deck panel,
   simulated chat).
 
-Operator action before opening, in Cloudflare for `checkhen-demo.rfkill.dev`
-(Security > WAF > Rate limiting rules): one rule matching URI path starting with
-`/api/`, counting by IP, 100 requests per 10 seconds, action Block for 1 minute; and
-one matching `/api/demo/reset` and `/api/auth/callback/demo`, 10 requests per minute
-per IP, Block for 10 minutes.
+Cloudflare rate limiting for `checkhen-demo.rfkill.dev` (Security > WAF > Rate
+limiting rules), set up by the operator on 2026-10-10. The free plan allows one rule
+and a 10-second block: URI path starts with `/api/`, counted by IP, 100 requests per
+10 seconds, Block for 10 seconds. A separate rule for resets and demo sign-in is not
+possible on this plan; the app limits resets itself (3 an hour per client, 12 an hour
+overall, IPv6 by /48), which the operator and AICP accept.
 
 ### A full demo says so
 
@@ -1803,7 +1804,8 @@ per IP, Block for 10 minutes.
   is the documented recreate (`down -v`, then start). Until then, `/api/mode` reports
   `full: true` and every page shows "This demo is full: you can look around but changes
   are not saved." (review item 5 and minor m1).
-- Minors: m3 (shared reset cap) is covered by the Cloudflare rule on `/api/demo/reset`;
+- Minors: m3 (shared reset cap) rests on the app's own reset limits, since the free
+  Cloudflare plan allows no separate reset rule;
   m4 by the first `/demo` visit in the pre-open list; m6 (two concurrent schedule
   creations can pass 50 outside demo mode) is left as is; m5 (private details in the
   unpushed history) waits on the operator's choice before any push.
