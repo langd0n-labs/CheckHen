@@ -97,7 +97,7 @@ class RouteGuardTests(unittest.TestCase):
 
     def test_ignores_default_route_and_nonoverlapping_vpn(self):
         routes = [{"dst": "default", "dev": "wlan0"},
-                  {"dst": "172.16.100.2", "dev": "rfkill"}]
+                  {"dst": "172.16.200.2", "dev": "vpn0"}]
         with patch.object(classroom, "run", return_value=type("Result", (), {"stdout": json.dumps(routes)})()):
             self.assertEqual(classroom.conflicting_routes(ipaddress.IPv4Network("172.16.77.0/24")), [])
 
@@ -109,12 +109,21 @@ class RouteGuardTests(unittest.TestCase):
                              ["fd9b:2f69:8c44::/64 on wg0"])
 
     def test_reserved_ranges(self):
-        for subnet in ("10.77.0.0/24", "172.17.77.0/24", "172.31.77.0/24",
-                       "172.16.100.0/24"):
+        for subnet in ("10.77.0.0/24", "172.17.77.0/24", "172.31.77.0/24"):
             self.assertTrue(any(ipaddress.IPv4Network(subnet).overlaps(block)
                                 for block in classroom.RESERVED))
         self.assertFalse(any(ipaddress.IPv4Network("172.16.77.0/24").overlaps(block)
                              for block in classroom.RESERVED))
+
+    def test_site_reserved_subnets_come_from_settings(self):
+        settings = {"AP_RESERVED_SUBNETS": "172.16.200.0/24, 192.0.2.0/24"}
+        self.assertEqual(classroom.reserved_subnets(settings),
+                         [ipaddress.IPv4Network("172.16.200.0/24"),
+                          ipaddress.IPv4Network("192.0.2.0/24")])
+        self.assertEqual(classroom.reserved_subnets({}), [])
+        with self.assertRaises(ValueError):
+            classroom.validate({"AP_SUBNET": "172.16.200.0/24", "AP_ADDRESS": "172.16.200.1",
+                                "AP_RESERVED_SUBNETS": "172.16.200.0/24"})
 
     def test_preflight_refuses_conflicting_route(self):
         with (patch.object(sys, "argv", ["classroom.py", "check"]),

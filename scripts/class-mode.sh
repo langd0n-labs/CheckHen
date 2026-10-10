@@ -23,7 +23,7 @@ check_certificate() {
 network_run() {
   local env_file status=0
   env_file=$(mktemp /tmp/checkhen-network-env.XXXXXX)
-  awk -F= '$1 ~ /^(AP_INTERFACE|UPLINK_INTERFACE|AP_SUBNET|AP_ADDRESS|AP_IPV6_PREFIX|AP_IPV6_ADDRESS|AP_HOSTNAME|AP_SSID|AP_PASSPHRASE|AP_COUNTRY_CODE|AP_HW_MODE|AP_CHANNEL|PREAUTH_DOMAINS|PREAUTH_DISCOVERY|PORTAL_CONTROL_SECRET|APP_BIND_ADDRESS|NEXTAUTH_URL)$/ {print}' .env > "$env_file"
+  awk -F= '$1 ~ /^(AP_INTERFACE|UPLINK_INTERFACE|AP_SUBNET|AP_RESERVED_SUBNETS|AP_ADDRESS|AP_IPV6_PREFIX|AP_IPV6_ADDRESS|AP_HOSTNAME|AP_SSID|AP_PASSPHRASE|AP_COUNTRY_CODE|AP_HW_MODE|AP_CHANNEL|PREAUTH_DOMAINS|PREAUTH_DISCOVERY|PORTAL_CONTROL_SECRET|APP_BIND_ADDRESS|NEXTAUTH_URL)$/ {print}' .env > "$env_file"
   sudo podman run --rm --privileged --network host --env-file "$env_file" \
     -e DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket \
     -v "$state_dir:/run/checkhen:z" \

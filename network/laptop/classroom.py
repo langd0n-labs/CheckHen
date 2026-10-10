@@ -21,8 +21,7 @@ STATE_FILE = STATE / "state.json"
 IFACE = re.compile(r"^[a-zA-Z0-9_.-]{1,15}$")
 HOST = re.compile(r"^[a-z0-9.-]+$")
 RESERVED = [ipaddress.IPv4Network("10.0.0.0/8"),
-            ipaddress.IPv4Network("172.17.0.0/16"),
-            ipaddress.IPv4Network("172.16.100.0/24")]
+            ipaddress.IPv4Network("172.17.0.0/16")]
 RESERVED.extend(ipaddress.IPv4Network(f"172.{second}.0.0/16")
                 for second in range(18, 32))
 
@@ -30,6 +29,12 @@ RESERVED.extend(ipaddress.IPv4Network(f"172.{second}.0.0/16")
 def run(*args: str, input_text: str | None = None) -> subprocess.CompletedProcess:
     return subprocess.run(args, input=input_text, text=True, check=True,
                           capture_output=True)
+
+
+def reserved_subnets(settings: dict[str, str]) -> list[ipaddress.IPv4Network]:
+    """Site networks the AP must avoid, such as a VPN: AP_RESERVED_SUBNETS, comma-separated."""
+    return [ipaddress.IPv4Network(value.strip(), strict=True)
+            for value in settings.get("AP_RESERVED_SUBNETS", "").split(",") if value.strip()]
 
 
 def validate(settings: dict[str, str]) -> tuple[ipaddress.IPv4Network, ipaddress.IPv4Address]:
@@ -41,7 +46,7 @@ def validate(settings: dict[str, str]) -> tuple[ipaddress.IPv4Network, ipaddress
     ipv6_address = ipaddress.IPv6Address(settings.get("AP_IPV6_ADDRESS", "fd9b:2f69:8c44::1"))
     if ipv6_subnet.prefixlen != 64 or not ipv6_subnet.subnet_of(ipaddress.IPv6Network("fc00::/7")) or ipv6_address not in ipv6_subnet or ipv6_address == ipv6_subnet.network_address:
         raise ValueError("AP_IPV6_PREFIX must be a ULA /64 containing AP_IPV6_ADDRESS")
-    if any(subnet.overlaps(block) for block in RESERVED):
+    if any(subnet.overlaps(block) for block in RESERVED + reserved_subnets(settings)):
         raise ValueError("AP subnet overlaps a reserved campus, container, or VPN network")
     for name in ("AP_INTERFACE", "UPLINK_INTERFACE"):
         if not IFACE.fullmatch(settings.get(name, "")):

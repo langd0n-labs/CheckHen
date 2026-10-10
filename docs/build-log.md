@@ -1825,3 +1825,12 @@ Report: AICP review of the PR #3 range (kept outside the repository).
   60 requests from one /64 got 21 through, 60 from separate networks all passed.
 - The "demo is full" notice says changes are not saved until the operator recreates
   the demo, not that it "will be reset soon".
+
+### Site networks as a setting
+
+- `network/laptop/classroom.py` no longer names the operator's VPN subnet. Site
+  networks the AP subnet must avoid come from `AP_RESERVED_SUBNETS`
+  (comma-separated, empty by default), which `scripts/class-mode.sh` passes to the
+  network container. The campus and container ranges stay built in.
+- The classroom laptop's `.env` must set `AP_RESERVED_SUBNETS` to the VPN subnet to
+  keep the old protection.
