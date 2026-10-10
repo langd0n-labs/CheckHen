@@ -1834,3 +1834,25 @@ Report: AICP review of the PR #3 range (kept outside the repository).
   network container. The campus and container ranges stay built in.
 - The classroom laptop's `.env` must set `AP_RESERVED_SUBNETS` to the VPN subnet to
   keep the old protection.
+
+## Public demo opened
+
+Opened 2026-10-10 at https://checkhen-demo.rfkill.dev, from `main` (3cef816), with the
+operator's approval relayed by AICP.
+
+- The tunnel token went from Secrets Manager into the podman secret without being
+  printed. `.env.hosted` uses the public `NEXTAUTH_URL`; both binds are 127.0.0.1; the
+  demo has its own `AUTH_SECRET` and the container limits.
+- cloudflared registered four connections. Its ingress sends only
+  `checkhen-demo.rfkill.dev` to the hosted proxy (127.0.0.1:8180), answers 404 for
+  anything else, and has private-network routing off. Its metrics listen on 127.0.0.1.
+- Through the public hostname, in headless Chromium: persona sign-in stays on the
+  public hostname; the instructor's dashboard and course record, the call screen at
+  375x667 with roll call, a student page, the lecture deck's chat panel (a message in
+  about 0.3 s, hidden in about 0.2 s, hidden on the `chat: false` slide), and
+  simulated chat start and stop.
+- From outside: internal callbacks 403; projection chat without a valid ticket 403;
+  admin routes, reset, and course creation 401 without sign-in; path traversal 404; a
+  forged Host header 403; another hostname through the same edge 530. The deck sends
+  `Referrer-Policy: no-referrer` and `nosniff`. 130 rapid requests from one address
+  got 75 refusals (429), and access returned within 12 s.
