@@ -63,6 +63,12 @@ Branch: build/m0-m2. Scope: M0 through M5, then M7 and M8.
   pull request from it to `main` in `langd0n-labs/CheckHen`, which AICP and the
   operator merge. A pull request to upstream (`a1icja/CheckHen`) comes later, from a
   clean branch cut from `main`. Relayed by AICP.
+- 2026-10-10, operator: the shared demo write cap stays as designed. A signed-in
+  persona can still spend it and hold writes for about a minute; that is accepted for
+  a demo, with the Cloudflare rate-limit rule as the mitigation. Relayed by AICP.
+- 2026-10-10, operator: the public items already in the pushed history stay; the
+  pushed history is not rewritten or force-pushed again. New code names no site
+  network: the VPN subnet becomes the `AP_RESERVED_SUBNETS` setting. Relayed by AICP.
 - 2026-10-06, operator: the call screen (I3) is the instructor's private phone
   view and is not designed for projection; the brief projects only I5 and I6.
   A projected cold-call view, if one is ever built, shows who is called and
@@ -88,7 +94,8 @@ Branch: build/m0-m2. Scope: M0 through M5, then M7 and M8.
 - 2026-10-03: Default AP subnet is 172.16.77.0/24; AP address is 172.16.77.1.
   Make both configurable. Refuse startup when the AP subnet overlaps an existing
   host route. Do not use campus 10.x, container pools 172.17.0.0/16 through
-  172.31.0.0/16, or the operator VPN subnet 172.16.100.0/24.
+  172.31.0.0/16, or the operator's VPN subnet (a site setting,
+  `AP_RESERVED_SUBNETS`).
 - 2026-10-03: Operator approved assigning all existing sessions to one Imported
   course, preserving the original records.
 - Send decision requests to Telegram alerts as well as the build session.
