@@ -28,7 +28,7 @@ it('gives each student topic an anchor and marks exam mode as unfinished', () =>
   expect(anchors()).toEqual([
     'checking-in',
     'chat',
-    'hands-and-pace',
+    'hands-and-checks',
     'called-on',
     'profile',
     'exam-mode',

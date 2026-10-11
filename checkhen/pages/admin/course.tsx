@@ -45,7 +45,16 @@ const SETTINGS: { key: keyof ColdCallConfig; label: string; step: number }[] = [
   { key: 'volunteer_damping', label: 'Weight after volunteering this meeting', step: 0.05 },
   { key: 'called_today_damping', label: 'Weight after being called this meeting', step: 0.05 },
   { key: 'minimum_weight', label: 'Lowest weight', step: 0.01 },
+  {
+    key: 'check_threshold',
+    label: 'Share of answers that means a lecture needed another example',
+    step: 0.05,
+  },
+  { key: 'check_window', label: 'Latest lectures in the understanding trend', step: 1 },
 ];
+
+const time = (value: string | Date) =>
+  new Date(value).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 
 const date = (value: string | Date) =>
   new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -177,6 +186,20 @@ export default function CourseRecord() {
         </Group>
       </Group>
 
+      {report.checkTrend.lectures > 0 && (
+        <Alert
+          mb="md"
+          color={report.checkTrend.needingExample > 0 ? 'yellow' : 'gray'}
+          title={`${report.checkTrend.needingExample} of your last ${report.checkTrend.lectures} ${
+            report.checkTrend.lectures === 1 ? 'lecture' : 'lectures'
+          } with checks needed another example`}
+        >
+          A lecture counts when at least {Math.round(report.checkTrend.threshold * 100)}% of the
+          answers to one of its understanding checks asked for another example. The Checks tab has
+          each one.
+        </Alert>
+      )}
+
       {data.configProblem && (
         <Alert color="red" mb="md" title="Saved settings could not be used">
           {data.configProblem}. Those settings use their defaults until valid values are saved in
@@ -199,6 +222,7 @@ export default function CourseRecord() {
           >
             Absences
           </Tabs.Tab>
+          <Tabs.Tab value="checks">Checks</Tabs.Tab>
           <Tabs.Tab value="settings">Settings</Tabs.Tab>
         </Tabs.List>
 
@@ -217,6 +241,7 @@ export default function CourseRecord() {
                     <Table.Th ta="right">Opportunities</Table.Th>
                     <Table.Th ta="right">Score</Table.Th>
                     <Table.Th ta="right">Exam fails</Table.Th>
+                    <Table.Th ta="right">Checks answered</Table.Th>
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
@@ -256,6 +281,7 @@ export default function CourseRecord() {
                         {student.examFails}
                         {student.examFailsExcused ? ` (${student.examFailsExcused} excused)` : ''}
                       </Table.Td>
+                      <Table.Td ta="right">{student.checksAnswered}</Table.Td>
                     </Table.Tr>
                   ))}
                 </Table.Tbody>
@@ -286,6 +312,7 @@ export default function CourseRecord() {
                     <Table.Th ta="right">Absences</Table.Th>
                     <Table.Th ta="right">Excused</Table.Th>
                     <Table.Th ta="right">Exam fails</Table.Th>
+                    <Table.Th ta="right">Checks</Table.Th>
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
@@ -307,6 +334,14 @@ export default function CourseRecord() {
                       <Table.Td ta="right">{session.absences}</Table.Td>
                       <Table.Td ta="right">{session.excusedAbsences}</Table.Td>
                       <Table.Td ta="right">{session.examFails}</Table.Td>
+                      <Table.Td ta="right">
+                        {session.checks}
+                        {session.checksNeedingExample > 0 && (
+                          <Text size="sm" c="dimmed">
+                            {session.checksNeedingExample} needed another example
+                          </Text>
+                        )}
+                      </Table.Td>
                     </Table.Tr>
                   ))}
                 </Table.Tbody>
@@ -388,6 +423,53 @@ export default function CourseRecord() {
             </Stack>
           ) : (
             <Text>No absences recorded.</Text>
+          )}
+        </Tabs.Panel>
+
+        <Tabs.Panel value="checks">
+          <Text mb="sm" c="dimmed">
+            Each understanding check, oldest first. Shares are of the students who answered.
+          </Text>
+          {report.checks.length ? (
+            <Table.ScrollContainer minWidth={720}>
+              <Table striped>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Date</Table.Th>
+                    <Table.Th>Session</Table.Th>
+                    <Table.Th>Time</Table.Th>
+                    <Table.Th>Label</Table.Th>
+                    <Table.Th ta="right">Answered</Table.Th>
+                    <Table.Th ta="right">Got it</Table.Th>
+                    <Table.Th ta="right">Another example</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {report.checks.map((check) => (
+                    <Table.Tr key={check.checkId}>
+                      <Table.Td>{date(check.openedAt)}</Table.Td>
+                      <Table.Td>{check.sessionName}</Table.Td>
+                      <Table.Td>{time(check.openedAt)}</Table.Td>
+                      <Table.Td>{check.label ?? <Text c="dimmed">None</Text>}</Table.Td>
+                      <Table.Td ta="right">
+                        {check.answered} of {check.present}
+                      </Table.Td>
+                      <Table.Td ta="right">{check.gotIt}</Table.Td>
+                      <Table.Td ta="right">
+                        {check.anotherExample}
+                        {check.needsExample && (
+                          <Badge ml="xs" color="yellow" tt="none" size="sm">
+                            Needed another example
+                          </Badge>
+                        )}
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </Table.ScrollContainer>
+          ) : (
+            <Text>No understanding checks yet. Start one from the dashboard during class.</Text>
           )}
         </Tabs.Panel>
 

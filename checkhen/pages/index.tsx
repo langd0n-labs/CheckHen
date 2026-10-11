@@ -1,17 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import {
-  AlertTriangle,
-  CheckCircle,
-  GraduationCap,
-  Hand,
-  HelpCircle,
-  LogOut,
-  Send,
-  TrendingDown,
-  User,
-} from 'lucide-react';
+import { AlertTriangle, GraduationCap, Hand, HelpCircle, LogOut, Send, User } from 'lucide-react';
 import { signIn, signOut, useSession } from 'next-auth/react';
 import { Socket } from 'socket.io-client';
 import {
@@ -34,6 +24,7 @@ import {
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
+import { StudentCheck } from '@/components/StudentCheck';
 import { scopedFetch as fetch, selectedScope } from '@/lib/scoped-fetch';
 import { getSocket } from '@/lib/socket';
 
@@ -67,6 +58,8 @@ export default function HomePage() {
   const [currentClassName, setCurrentClassName] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isCheckedIn, setIsCheckedIn] = useState(false);
+  // Bumped when the socket says an understanding check opened or closed.
+  const [checkSignal, setCheckSignal] = useState(0);
   const [uplinkUnavailable, setUplinkUnavailable] = useState(false);
   const [examState, setExamState] = useState<{
     domains: string[];
@@ -234,31 +227,6 @@ export default function HomePage() {
     );
   };
 
-  // Send pace signal
-  const sendPaceSignal = async (signalType: 'slow_down' | 'ready_to_move_on') => {
-    const response = await fetch('/api/student/send-pace-signal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ signalType }),
-    });
-
-    if (!response.ok) {
-      notifications.show({ title: 'Error', message: 'Could not send pace signal', color: 'red' });
-      return;
-    }
-
-    ws.current?.emit('pace-signal-sent', {
-      classId: currentClassId,
-      signalType,
-    });
-    // Students never see the room's totals; confirm only that this one was sent.
-    notifications.show({
-      message: 'Sent to your instructor',
-      color: 'successGreen',
-      autoClose: 2000,
-    });
-  };
-
   // Initial setup: one startup request instead of 5+ serial fetches
   useEffect(() => {
     if (status !== 'authenticated') return;
@@ -299,7 +267,7 @@ export default function HomePage() {
     return () => clearInterval(_interval);
   }, [status]);
 
-  // Fallback poll for hand raise and pace signals when checked in (chat comes via socket)
+  // Fallback poll for hand raise and exam state when checked in (chat comes via socket)
   useEffect(() => {
     if (!isCheckedIn) return;
 
@@ -356,6 +324,8 @@ export default function HomePage() {
     });
 
     ws.current?.on('exam-status-update', fetchExamState);
+    const checkChanged = () => setCheckSignal((value) => value + 1);
+    ws.current?.on('check-update', checkChanged);
 
     // Lower hand immediately when instructor acknowledges it
     ws.current?.on('check-raised-hands', () => {
@@ -367,9 +337,8 @@ export default function HomePage() {
       ws.current?.off('connect', heartbeat);
       ws.current?.off('check-raised-hands');
       ws.current?.off('fetch-messages');
-      ws.current?.off('pace-signal-update');
-      ws.current?.off('pace-signals-reset');
       ws.current?.off('exam-status-update', fetchExamState);
+      ws.current?.off('check-update', checkChanged);
     };
   }, [user, currentClassId]);
 
@@ -629,7 +598,8 @@ export default function HomePage() {
         style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}
       >
         {isPhone ? (
-          // Phones: hand and pace as two compact rows, so the chat keeps most of the screen.
+          // Phones: the hand button, and a check only while one is open, so the chat keeps most
+          // of the screen.
           <Stack gap="xs" p="xs" style={{ borderBottom: `1px solid ${theme.colors.gray[3]}` }}>
             <Button
               size="md"
@@ -641,26 +611,7 @@ export default function HomePage() {
             >
               {handRaised ? 'Lower Hand' : 'Raise Hand'}
             </Button>
-            <Group grow gap="xs">
-              <Button
-                variant="light"
-                color="warning"
-                leftSection={<TrendingDown size={18} />}
-                onClick={() => sendPaceSignal('slow_down')}
-                disabled={!currentClassName}
-              >
-                Slow down
-              </Button>
-              <Button
-                variant="light"
-                color="successGreen"
-                leftSection={<CheckCircle size={18} />}
-                onClick={() => sendPaceSignal('ready_to_move_on')}
-                disabled={!currentClassName}
-              >
-                Got it
-              </Button>
-            </Group>
+            <StudentCheck enabled={isCheckedIn && !!currentClassName} refreshSignal={checkSignal} />
           </Stack>
         ) : (
           /* Left Column - Controls (40%) */
@@ -691,36 +642,10 @@ export default function HomePage() {
                 </Stack>
               </Card>
 
-              {/* Pace Signals */}
-              <Card padding="md">
-                <Stack gap="sm">
-                  <Title order={5}>Class Pace Feedback</Title>
-                  <Text size="sm" c="dimmed">
-                    Let your instructor know how you&apos;re doing. Only your instructor sees these.
-                  </Text>
-
-                  <Group grow>
-                    <Button
-                      variant="light"
-                      color="warning"
-                      leftSection={<TrendingDown size={18} />}
-                      onClick={() => sendPaceSignal('slow_down')}
-                      disabled={!currentClassName}
-                    >
-                      Slow Down
-                    </Button>
-                    <Button
-                      variant="light"
-                      color="successGreen"
-                      leftSection={<CheckCircle size={18} />}
-                      onClick={() => sendPaceSignal('ready_to_move_on')}
-                      disabled={!currentClassName}
-                    >
-                      Got it
-                    </Button>
-                  </Group>
-                </Stack>
-              </Card>
+              <StudentCheck
+                enabled={isCheckedIn && !!currentClassName}
+                refreshSignal={checkSignal}
+              />
             </Stack>
           </Box>
         )}
