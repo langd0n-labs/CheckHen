@@ -152,6 +152,8 @@ const notifications: Record<string, string> = {
   PACE_RESET: "pace-signals-reset",
   EXAM_STARTED: "exam-status-update", EXAM_ENDED: "exam-status-update",
   EXAM_FAILED: "exam-status-update", EXAM_EXCUSED: "exam-status-update",
+  // Answers only refresh the instructor's tally; students listen for open and close.
+  CHECK_OPENED: "check-update", CHECK_CLOSED: "check-update", CHECK_ANSWERED: "check-answer",
 };
 let cursor = new Date();
 let cursorId = "";

@@ -1,7 +1,19 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { generateUniqueAnonymousName } from './anonymousNames';
 import { instructorChat, studentChat } from './chat-view';
-import { appendEvent, readState } from './event-store';
+import {
+  answerCheck,
+  closeCheck,
+  DEFAULT_CHECK_MINUTES,
+  MAX_CHECK_MINUTES,
+  openCheck,
+  startCheck,
+  tally,
+} from './checks';
+import { courseConfig } from './cold-call';
+import { isDemo } from './demo';
+import { simulateCheckAnswers } from './demo-checks';
+import { appendEvent, ConflictError, readState } from './event-store';
 import type { EventKind } from './events';
 import { examAgent, releaseExamNetwork } from './exam-control';
 import { checkhenMode } from './mode';
@@ -31,6 +43,9 @@ const writes = new Set([
   'hide-chat',
   'unhide-chat',
   'mute-student',
+  'open-check',
+  'close-check',
+  'answer-check',
 ]);
 
 export function participationHandler(action: string, adminOnly = false) {
@@ -156,6 +171,110 @@ export function participationHandler(action: string, adminOnly = false) {
         return res.status(400).json({ message: 'Invalid signal type' });
       await append('PACE_SIGNAL', { signalType });
       return res.json({ message: 'Pace signal recorded', signalType });
+    }
+    if (action === 'open-check' || action === 'close-check' || action === 'answer-check') {
+      try {
+        if (action === 'open-check') {
+          const { label, minutes } = req.body ?? {};
+          if (label !== undefined && (typeof label !== 'string' || label.length > 100))
+            return res.status(400).json({ message: 'Use a label of 100 characters or fewer' });
+          if (
+            minutes !== null &&
+            minutes !== undefined &&
+            !(Number.isInteger(minutes) && minutes >= 1 && minutes <= MAX_CHECK_MINUTES)
+          )
+            return res.status(400).json({
+              message: `Choose a timer of 1 to ${MAX_CHECK_MINUTES} minutes, or no timer`,
+            });
+          const event = await startCheck(prisma, scope, user.id, {
+            label,
+            minutes: minutes === undefined ? DEFAULT_CHECK_MINUTES : minutes,
+          });
+          // Demo mode: the simulated students answer, so a visitor sees the tally fill.
+          if (isDemo()) simulateCheckAnswers(prisma, scope, String(event.payload.checkId));
+          return res.json({ message: 'Check opened', checkId: event.payload.checkId });
+        }
+        const checkId = req.body?.checkId;
+        if (typeof checkId !== 'string' || !checkId)
+          return res.status(400).json({ message: 'Missing check' });
+        if (action === 'close-check') {
+          await closeCheck(prisma, scope, user.id, checkId);
+          return res.json({ message: 'Check closed' });
+        }
+        const choice = req.body?.choice;
+        if (typeof choice !== 'string') return res.status(400).json({ message: 'Missing answer' });
+        await answerCheck(prisma, scope, user.id, checkId, choice);
+        return res.json({ message: 'Answer recorded', choice });
+      } catch (error) {
+        if (error instanceof ConflictError) return res.status(409).json({ message: error.message });
+        throw error;
+      }
+    }
+    if (action === 'fetch-check') {
+      const now = new Date();
+      const current = openCheck(state.checks, now);
+      if (!adminOnly) {
+        // Students see only the open check and their own answer, never the tally.
+        return res.json({
+          now,
+          check: current &&
+            active &&
+            checkIn?.isPresent && {
+              checkId: current.checkId,
+              label: current.label,
+              choices: current.choices,
+              closesAt: current.closesAt,
+              answer: current.answers.find((entry) => entry.userId === user.id)?.choice ?? null,
+            },
+        });
+      }
+      // The instructor sees the open check, or the latest one once it has closed.
+      const check = current ?? state.checks.at(-1) ?? null;
+      const course = await prisma.course.findUnique({ where: { id: scope.courseId } });
+      const threshold = courseConfig(course?.config).config.check_threshold;
+      if (!check) return res.json({ now, threshold, check: null });
+      const students = await prisma.user.findMany({
+        where: {
+          id: {
+            in: [
+              ...state.attendance.map((entry) => entry.userId),
+              ...check.answers.map((entry) => entry.userId),
+            ],
+          },
+        },
+      });
+      const studentIds = new Set(
+        students.filter((student) => !isInstructor(student.email)).map((student) => student.id)
+      );
+      const present = state.attendance.filter(
+        (entry) => entry.isPresent && studentIds.has(entry.userId)
+      ).length;
+      return res.json({
+        now,
+        threshold,
+        check: {
+          checkId: check.checkId,
+          label: check.label,
+          choices: check.choices,
+          openedAt: check.openedAt,
+          closesAt: check.closesAt,
+          closedAt: check.closedAt,
+          open: check === current,
+          present,
+          answered: check.answers.length,
+          counts: tally(check),
+          answers: check.answers.map((entry) => {
+            const student = students.find((candidate) => candidate.id === entry.userId);
+            return {
+              userId: entry.userId,
+              name: student?.displayName || student?.email.split('@')[0] || 'Student',
+              choice: entry.choice,
+            };
+          }),
+          // How many checks this session has had, for the instructor's numbering.
+          number: state.checks.indexOf(check) + 1,
+        },
+      });
     }
     if (action === 'send-chat') {
       if (state.mutedUsers?.includes(user.id))

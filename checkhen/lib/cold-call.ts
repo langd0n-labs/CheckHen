@@ -23,6 +23,10 @@ export type ColdCallConfig = {
   component_weight: number;
   /** Meetings planned for the term. Null projects from the meetings held so far. */
   term_meetings: number | null;
+  /** A lecture "needed another example" when a check reached this share of answers. */
+  check_threshold: number;
+  /** The course-record trend covers this many of the latest lectures with checks. */
+  check_window: number;
 };
 
 export const DEFAULT_CONFIG: ColdCallConfig = {
@@ -39,6 +43,8 @@ export const DEFAULT_CONFIG: ColdCallConfig = {
   A_max: 8,
   component_weight: 0.05,
   term_meetings: null,
+  check_threshold: 0.25,
+  check_window: 6,
 };
 
 /** Stored values override defaults one key at a time; invalid values fall back. */
@@ -94,6 +100,16 @@ const CONFIG_RULES: {
     keys: ['component_weight'],
     message: 'The share of the course grade must be at most 1',
     broken: (c) => c.component_weight > 1,
+  },
+  {
+    keys: ['check_threshold'],
+    message: 'The share that needs another example must be more than 0 and at most 1',
+    broken: (c) => c.check_threshold <= 0 || c.check_threshold > 1,
+  },
+  {
+    keys: ['check_window'],
+    message: 'The lectures in the trend must be a whole number of at least 1',
+    broken: (c) => !whole(c.check_window) || c.check_window < 1,
   },
   {
     keys: ['minimum_weight'],

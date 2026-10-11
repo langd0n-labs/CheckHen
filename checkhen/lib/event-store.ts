@@ -25,6 +25,9 @@ const kinds: EventKind[] = [
   'COLD_CALL',
   'COLD_CALL_DRAWN',
   'COLD_CALL_EXCUSED',
+  'CHECK_OPENED',
+  'CHECK_ANSWERED',
+  'CHECK_CLOSED',
   'UNDO',
 ];
 type AppendInput = EventScope & {
@@ -58,7 +61,14 @@ export async function isEffective(
 // Every stored payload is small. The largest legitimate one is an exam start with 50
 // allowlisted domains.
 const MAX_PAYLOAD_BYTES = 16384;
-const MAX_TEXT: Record<string, number> = { message: 1000, anonymousName: 64, reason: 500 };
+const MAX_TEXT: Record<string, number> = {
+  message: 1000,
+  anonymousName: 64,
+  reason: 500,
+  label: 100,
+  prompt: 300,
+  choice: 64,
+};
 
 export function validatePayload(kind: EventKind, payload: Record<string, unknown>) {
   if (!kinds.includes(kind)) throw new Error('Unknown event kind');
@@ -111,6 +121,38 @@ export function validatePayload(kind: EventKind, payload: Record<string, unknown
     if (payload.followUpOf !== undefined && typeof payload.followUpOf !== 'string')
       throw new Error('Invalid follow-up target');
   }
+  if (kind === 'CHECK_OPENED') {
+    requiredString('checkId');
+    if (payload.kind !== 'understanding') throw new Error('Invalid check kind');
+    if (
+      !Array.isArray(payload.choices) ||
+      payload.choices.length < 2 ||
+      payload.choices.length > 10 ||
+      payload.choices.some((choice) => typeof choice !== 'string' || !choice || choice.length > 64)
+    )
+      throw new Error('Invalid check choices');
+    if (payload.label !== undefined && typeof payload.label !== 'string')
+      throw new Error('Invalid check label');
+    if (
+      payload.closesAt !== null &&
+      (typeof payload.closesAt !== 'string' || Number.isNaN(Date.parse(payload.closesAt)))
+    )
+      throw new Error('Invalid check timer');
+    // Reserved for slide-aware checks: the deck's slide number or name.
+    if (
+      payload.slide !== undefined &&
+      !(
+        Number.isInteger(payload.slide) ||
+        (typeof payload.slide === 'string' && payload.slide.length <= 64)
+      )
+    )
+      throw new Error('Invalid check slide');
+  }
+  if (kind === 'CHECK_ANSWERED') {
+    requiredString('checkId');
+    requiredString('choice');
+  }
+  if (kind === 'CHECK_CLOSED') requiredString('checkId');
   if (kind === 'EXAM_ENDED') requiredString('examId');
   if (kind === 'EXAM_EXCUSED') {
     requiredString('examId');
