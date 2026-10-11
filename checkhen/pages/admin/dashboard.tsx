@@ -704,7 +704,7 @@ export default function AdminDashboard() {
                     <CheckCircle size={20} color={theme.colors.successGreen[5]} />
                     <div>
                       <Text size="xs" c="dimmed">
-                        Ready
+                        Got it
                       </Text>
                       <Text size="lg" fw={700}>
                         {paceSignals.readyToMove}

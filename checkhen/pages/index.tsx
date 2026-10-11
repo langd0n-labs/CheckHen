@@ -658,7 +658,7 @@ export default function HomePage() {
                 onClick={() => sendPaceSignal('ready_to_move_on')}
                 disabled={!currentClassName}
               >
-                Ready
+                Got it
               </Button>
             </Group>
           </Stack>
@@ -716,7 +716,7 @@ export default function HomePage() {
                       onClick={() => sendPaceSignal('ready_to_move_on')}
                       disabled={!currentClassName}
                     >
-                      Ready
+                      Got it
                     </Button>
                   </Group>
                 </Stack>

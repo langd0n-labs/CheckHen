@@ -45,7 +45,7 @@ export default function InstructorHelp() {
                   likely to be drawn for a cold call in the same meeting.
                 </List.Item>
                 <List.Item>
-                  Pace: how many students chose Slow down or Ready. A notice appears when more than
+                  Pace: how many students chose Slow down or Got it. A notice appears when more than
                   30% want to slow down. Reset clears the counts.
                 </List.Item>
                 <List.Item>
