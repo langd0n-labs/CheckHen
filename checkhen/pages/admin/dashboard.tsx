@@ -531,6 +531,9 @@ export default function AdminDashboard() {
       style={{
         height: narrow ? undefined : '100vh',
         minHeight: '100vh',
+        // When the session panel grows (an open check, an exam), the page scrolls
+        // instead of squeezing the three columns below it.
+        overflowY: narrow ? undefined : 'auto',
         display: 'flex',
         flexDirection: 'column',
       }}
@@ -844,7 +847,10 @@ export default function AdminDashboard() {
       ) : (
         /* 3 Column Layout - active class */
         <Flex
-          style={{ flex: 1, overflow: narrow ? 'visible' : 'hidden' }}
+          style={{
+            flex: narrow ? 1 : '1 0 480px',
+            overflow: narrow ? 'visible' : 'hidden',
+          }}
           direction={narrow ? 'column' : 'row'}
         >
           {/* Left Column - Hand Raises */}

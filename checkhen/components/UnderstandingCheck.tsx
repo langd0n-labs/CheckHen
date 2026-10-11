@@ -200,7 +200,13 @@ export function UnderstandingCheck({
           {check.answered} of {check.present} answered
         </Text>
         {results}
-        <Button variant="default" onClick={close} loading={busy} h={44}>
+        <Button
+          variant="default"
+          onClick={close}
+          loading={busy}
+          h={44}
+          style={compact ? undefined : { alignSelf: 'flex-start' }}
+        >
           Close check
         </Button>
       </Stack>
@@ -219,14 +225,14 @@ export function UnderstandingCheck({
   return (
     <Stack gap="xs">
       <Text fw={600}>Understanding check</Text>
-      <Group gap="xs" align="flex-end" wrap="wrap">
+      <Group gap="xs" align="center" wrap="wrap">
         <TextInput
           aria-label="Check label (optional)"
           placeholder="Label (optional)"
           value={label}
           maxLength={100}
           onChange={(event) => setLabel(event.currentTarget.value)}
-          style={{ flex: '1 1 140px' }}
+          style={{ flex: '0 1 240px' }}
         />
         <SegmentedControl
           aria-label="Timer"
@@ -237,10 +243,10 @@ export function UnderstandingCheck({
             { value: 'none', label: 'No timer' },
           ]}
         />
+        <Button onClick={start} loading={busy} h={36}>
+          Check understanding
+        </Button>
       </Group>
-      <Button onClick={start} loading={busy} h={44}>
-        Check understanding
-      </Button>
       {check && (
         <Stack gap={4}>
           <Text size="sm" c="dimmed">
