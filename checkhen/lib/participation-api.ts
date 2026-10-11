@@ -236,19 +236,20 @@ export function participationHandler(action: string, adminOnly = false) {
       const students = await prisma.user.findMany({
         where: {
           id: {
-            in: [
-              ...state.attendance.map((entry) => entry.userId),
-              ...check.answers.map((entry) => entry.userId),
-            ],
+            in: [...check.present, ...check.answers.map((entry) => entry.userId)],
           },
         },
       });
       const studentIds = new Set(
         students.filter((student) => !isInstructor(student.email)).map((student) => student.id)
       );
-      const present = state.attendance.filter(
-        (entry) => entry.isPresent && studentIds.has(entry.userId)
-      ).length;
+      // As in the course record: students in the room when it opened, plus any who
+      // answered after arriving. Leaving during the check does not shrink it.
+      const present = new Set(
+        [...check.present, ...check.answers.map((entry) => entry.userId)].filter((id) =>
+          studentIds.has(id)
+        )
+      ).size;
       return res.json({
         now,
         threshold,

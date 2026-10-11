@@ -52,7 +52,12 @@ export async function startCheck(
           : new Date(Date.now() + options.minutes * 60_000).toISOString(),
     },
     guard: async (tx) => {
-      if (openCheck((await lockedState(tx, scope)).checks)) {
+      const state = await lockedState(tx, scope);
+      // The route checked the session before taking the lock; End class may have won since.
+      if (state.endedAt) {
+        throw new ConflictError('This class has ended');
+      }
+      if (openCheck(state.checks)) {
         throw new ConflictError('A check is already open. Close it first.');
       }
     },

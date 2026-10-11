@@ -1,6 +1,7 @@
 /** @jest-environment node */
 import { createHmac, randomUUID } from 'node:crypto';
 import { createMocks } from 'node-mocks-http';
+import { startCheck } from '@/lib/checks';
 import { appendEvent, readEvents, readState } from '@/lib/event-store';
 import { examAgent, recordExamFail, releaseExamNetwork } from '@/lib/exam-control';
 import {
@@ -1420,6 +1421,23 @@ integration('route → store → attendance fold', () => {
       expect((await call(openCheck, 'POST', { label: 'x'.repeat(101) }))._getStatusCode()).toBe(
         400
       );
+    });
+
+    it('refuses to open a check once End class has committed', async () => {
+      // The route's session test runs before the lock; the locked guard decides.
+      await call(endClass, 'POST');
+      await expect(startCheck(prisma, scope, user.id, { minutes: null })).rejects.toThrow(
+        'This class has ended'
+      );
+      expect((await readState(prisma, scope)).checks).toEqual([]);
+    });
+
+    it('keeps the instructor count of students present when one leaves mid-check', async () => {
+      await invoke(checkIn, '172.16.77.20');
+      await call(openCheck, 'POST', { minutes: null });
+      await call(checkOut, 'POST');
+      const tally = (await call(fetchInstructorCheck, 'GET'))._getJSONData();
+      expect(tally.check).toMatchObject({ present: 1, answered: 0 });
     });
 
     it('closes an open check when the session ends', async () => {
