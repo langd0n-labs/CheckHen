@@ -34,6 +34,8 @@ type InstructorCheck = {
   number: number;
 };
 
+const MIN_ANSWERS_FOR_NOTICE = 3;
+
 /** Whole seconds left on a timer, given the server's clock offset. */
 export function secondsLeft(closesAt: string | null, offset: number): number | null {
   if (!closesAt) {
@@ -132,7 +134,8 @@ export function UnderstandingCheck({
 
   const another = check?.counts.another_example ?? 0;
   const share = check?.answered ? another / check.answered : 0;
-  const needsExample = !!check?.answered && share >= threshold;
+  // A few answers first, so the first tap alone does not read as 100%.
+  const needsExample = (check?.answered ?? 0) >= MIN_ANSWERS_FOR_NOTICE && share >= threshold;
 
   const results = check && (
     <Stack gap={6}>
@@ -197,7 +200,7 @@ export function UnderstandingCheck({
           {check.answered} of {check.present} answered
         </Text>
         {results}
-        <Button color="gray" variant="light" onClick={close} loading={busy} h={44}>
+        <Button variant="default" onClick={close} loading={busy} h={44}>
           Close check
         </Button>
       </Stack>

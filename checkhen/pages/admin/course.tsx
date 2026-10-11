@@ -189,7 +189,7 @@ export default function CourseRecord() {
       {report.checkTrend.lectures > 0 && (
         <Alert
           mb="md"
-          color={report.checkTrend.needingExample > 0 ? 'yellow' : 'gray'}
+          color={report.checkTrend.needingExample > 0 ? 'yellow' : 'buBlue'}
           title={`${report.checkTrend.needingExample} of your last ${report.checkTrend.lectures} ${
             report.checkTrend.lectures === 1 ? 'lecture' : 'lectures'
           } with checks needed another example`}
