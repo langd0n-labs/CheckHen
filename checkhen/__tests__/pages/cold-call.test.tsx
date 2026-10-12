@@ -1,0 +1,390 @@
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MantineProvider } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
+import ColdCall from '@/pages/admin/call';
+import { theme } from '../../theme';
+
+type Posted = Record<string, unknown>;
+
+function mockServer(fail: { record?: number; status?: boolean; offline?: boolean } = {}) {
+  const posted: Posted[] = [];
+  let calls: unknown[] = [];
+  global.fetch = jest.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    const body = init?.body ? (JSON.parse(String(init.body)) as Posted) : null;
+    if (!body && fail.status) {
+      return { ok: false, status: 500, json: async () => ({}) } as Response;
+    }
+    if (body?.action === 'record' && fail.offline) {
+      posted.push(body);
+      throw new TypeError('Failed to fetch');
+    }
+    if (body?.action === 'record' && fail.record) {
+      posted.push(body);
+      return {
+        ok: false,
+        status: fail.record,
+        json: async () => ({ message: 'A newer draw replaced this one' }),
+      } as Response;
+    }
+    let data: unknown = { present: 3, calls };
+    if (body) {
+      posted.push(body);
+      if (body.action === 'draw') {
+        data = {
+          seed: 42,
+          draw: 'signed-draw',
+          eligible: 3,
+          student: {
+            userId: 'student-1',
+            name: 'Alisha Moreno',
+            pronunciation: 'ale-EE-sha',
+            pronouns: 'she/her',
+            photo: null,
+          },
+        };
+      }
+      if (body.action === 'record') {
+        const id = `call-${posted.length}`;
+        calls = [
+          {
+            id,
+            userId: 'student-1',
+            name: 'Alisha Moreno',
+            outcome: body.outcome,
+            followUp: !!body.followUp,
+          },
+        ];
+        data = {
+          id,
+          followUp: body.outcome === 'answered' ? `follow-up-${posted.length}` : undefined,
+        };
+      }
+      if (body.action === 'undo') {
+        calls = [];
+        data = { ok: true };
+      }
+    }
+    expect(String(url)).toContain('classId=session-1');
+    return { ok: true, json: async () => data } as Response;
+  }) as jest.Mock;
+  return posted;
+}
+
+/** Click a button once it is enabled; outcome buttons stay disabled while a request runs. */
+async function tap(name: string) {
+  const button = await screen.findByRole('button', { name });
+  await waitFor(() => expect(button).toBeEnabled());
+  fireEvent.click(button);
+}
+
+beforeEach(() => {
+  sessionStorage.setItem(
+    'checkhen.scope',
+    JSON.stringify({ courseId: 'course-1', classId: 'session-1' })
+  );
+});
+
+it('completes Call to Answered in two taps and shows name and pronunciation', async () => {
+  const posted = mockServer();
+  render(
+    <MantineProvider theme={theme}>
+      <ColdCall />
+    </MantineProvider>
+  );
+  await tap('Call on someone');
+  expect(await screen.findByText('Alisha Moreno')).toBeInTheDocument();
+  expect(screen.getByText('ale-EE-sha')).toBeInTheDocument();
+  expect(screen.getByText('she/her')).toBeInTheDocument();
+  await tap('Answered');
+  await waitFor(() =>
+    expect(posted).toEqual([
+      { action: 'draw' },
+      { action: 'record', outcome: 'answered', draw: 'signed-draw' },
+    ])
+  );
+  // No dialog: the screen returns to the call button with the result and an undo.
+  expect(await screen.findByText('Alisha Moreno: Answered')).toBeInTheDocument();
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Call on someone' })).toBeInTheDocument();
+});
+
+it('undoes the last call immediately', async () => {
+  const posted = mockServer();
+  render(
+    <MantineProvider theme={theme}>
+      <ColdCall />
+    </MantineProvider>
+  );
+  await tap('Call on someone');
+  await tap('Pass');
+  await tap('Undo');
+  await waitFor(() => expect(posted.at(-1)).toEqual({ action: 'undo', eventId: 'call-2' }));
+  expect(await screen.findByText('No one called yet this session.')).toBeInTheDocument();
+});
+
+it('disables Undo while an undo is running, so a second tap sends nothing', async () => {
+  const posted = mockServer();
+  const served = global.fetch as jest.Mock;
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  global.fetch = jest.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.body && JSON.parse(String(init.body)).action === 'undo') {
+      await held;
+    }
+    return served(url, init);
+  }) as jest.Mock;
+  render(
+    <MantineProvider theme={theme}>
+      <ColdCall />
+    </MantineProvider>
+  );
+  await tap('Call on someone');
+  await tap('Pass');
+  const undo = await screen.findByRole('button', { name: 'Undo' });
+  await waitFor(() => expect(undo).toBeEnabled());
+  fireEvent.click(undo);
+  await waitFor(() => expect(undo).toBeDisabled());
+  fireEvent.click(undo);
+  release();
+  expect(await screen.findByText('No one called yet this session.')).toBeInTheDocument();
+  expect(posted.filter((body) => body.action === 'undo')).toHaveLength(1);
+});
+
+it('asks a follow-up of the same student without Absent or Skip, then returns to calling', async () => {
+  const posted = mockServer();
+  render(
+    <MantineProvider theme={theme}>
+      <ColdCall />
+    </MantineProvider>
+  );
+  await tap('Call on someone');
+  await tap('Answered + follow-up');
+  expect(await screen.findByText('Follow-up 1')).toBeInTheDocument();
+  expect(screen.getByText('Alisha Moreno')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Absent' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Skip (out of the room)' })).not.toBeInTheDocument();
+  await tap('Answered + follow-up');
+  expect(await screen.findByText('Follow-up 2')).toBeInTheDocument();
+  await tap('Answered');
+  await waitFor(() =>
+    expect(posted.slice(1)).toEqual([
+      { action: 'record', outcome: 'answered', draw: 'signed-draw', next: 'follow-up' },
+      { action: 'record', outcome: 'answered', followUp: 'follow-up-2', next: 'follow-up' },
+      { action: 'record', outcome: 'answered', followUp: 'follow-up-3' },
+    ])
+  );
+  expect(await screen.findByRole('button', { name: 'Call on someone' })).toBeInTheDocument();
+});
+
+it('leaves follow-ups with Done and records a skip with one tap', async () => {
+  const posted = mockServer();
+  render(
+    <MantineProvider theme={theme}>
+      <ColdCall />
+    </MantineProvider>
+  );
+  await tap('Call on someone');
+  await tap('Answered + follow-up');
+  await tap('Done with follow-ups');
+  expect(await screen.findByRole('button', { name: 'Call on someone' })).toBeInTheDocument();
+  await tap('Call on someone');
+  await tap('Skip (out of the room)');
+  await waitFor(() =>
+    expect(posted.at(-1)).toEqual({ action: 'record', outcome: 'skip', draw: 'signed-draw' })
+  );
+});
+
+it.each([409, 400])(
+  'clears the card and explains when a record is refused (%i)',
+  async (status) => {
+    const show = jest.spyOn(notifications, 'show');
+    mockServer({ record: status });
+    render(
+      <MantineProvider theme={theme}>
+        <ColdCall />
+      </MantineProvider>
+    );
+    await tap('Call on someone');
+    await tap('Answered');
+    // The stale card is gone, so the next tap draws again instead of failing again.
+    expect(await screen.findByRole('button', { name: 'Call on someone' })).toBeInTheDocument();
+    expect(screen.queryByText('Alisha Moreno')).not.toBeInTheDocument();
+    expect(show).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'A newer draw replaced this one' })
+    );
+    show.mockRestore();
+  }
+);
+
+it('says so when the call list cannot load', async () => {
+  const show = jest.spyOn(notifications, 'show');
+  mockServer({ status: true });
+  render(
+    <MantineProvider theme={theme}>
+      <ColdCall />
+    </MantineProvider>
+  );
+  await waitFor(() =>
+    expect(show).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining('Could not load') })
+    )
+  );
+  show.mockRestore();
+});
+
+it('starts a follow-up after a plain Answered, and undoes a follow-up from the run', async () => {
+  const posted = mockServer();
+  render(
+    <MantineProvider theme={theme}>
+      <ColdCall />
+    </MantineProvider>
+  );
+  await tap('Call on someone');
+  await tap('Answered');
+  // A plain Answered tapped by mistake can still lead to a follow-up.
+  await tap('Ask a follow-up');
+  expect(await screen.findByText('Follow-up 1')).toBeInTheDocument();
+  expect(screen.getByText('Recorded: Answered')).toBeInTheDocument();
+  await tap('Answered + follow-up');
+  expect(await screen.findByText('Follow-up 2')).toBeInTheDocument();
+  // The run shows what was just recorded, with an Undo.
+  await tap('Undo');
+  await waitFor(() =>
+    expect(posted.slice(1)).toEqual([
+      { action: 'record', outcome: 'answered', draw: 'signed-draw' },
+      { action: 'record', outcome: 'answered', followUp: 'follow-up-2', next: 'follow-up' },
+      { action: 'undo', eventId: 'call-3' },
+    ])
+  );
+  // The undo steps back to the previous question with the same student.
+  expect(await screen.findByText('Follow-up 1')).toBeInTheDocument();
+  expect(screen.getByText('Alisha Moreno')).toBeInTheDocument();
+});
+
+it('keeps the card after a server error and says so at the top of the screen', async () => {
+  const show = jest.spyOn(notifications, 'show');
+  mockServer({ record: 500 });
+  render(
+    <MantineProvider theme={theme}>
+      <ColdCall />
+    </MantineProvider>
+  );
+  await tap('Call on someone');
+  await tap('Answered');
+  await waitFor(() =>
+    expect(show).toHaveBeenCalledWith(expect.objectContaining({ position: 'top-center' }))
+  );
+  // A server error may pass, so the same card stays for another tap.
+  expect(screen.getByText('Alisha Moreno')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Answered' })).toBeEnabled();
+  show.mockRestore();
+});
+
+it('keeps the card and explains when the server cannot be reached', async () => {
+  const show = jest.spyOn(notifications, 'show');
+  mockServer({ offline: true });
+  render(
+    <MantineProvider theme={theme}>
+      <ColdCall />
+    </MantineProvider>
+  );
+  await tap('Call on someone');
+  await tap('Answered');
+  await waitFor(() =>
+    expect(show).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Could not reach CheckHen. Check the connection, then try again.',
+        position: 'top-center',
+      })
+    )
+  );
+  expect(screen.getByText('Alisha Moreno')).toBeInTheDocument();
+  show.mockRestore();
+});
+
+it('labels follow-up calls in the call list', async () => {
+  global.fetch = jest.fn(async () => ({
+    ok: true,
+    json: async () => ({
+      present: 3,
+      calls: [
+        { id: 'c1', userId: 's', name: 'Alisha Moreno', outcome: 'answered' },
+        { id: 'c2', userId: 's', name: 'Alisha Moreno', outcome: 'pass', followUp: true },
+      ],
+    }),
+  })) as unknown as typeof fetch;
+  render(
+    <MantineProvider theme={theme}>
+      <ColdCall />
+    </MantineProvider>
+  );
+  expect(await screen.findByText('Alisha Moreno: Pass (follow-up)')).toBeInTheDocument();
+  expect(screen.getByText('Alisha Moreno: Answered')).toBeInTheDocument();
+});
+
+it('steps back one question when an outcome is undone during a run', async () => {
+  const posted = mockServer();
+  render(
+    <MantineProvider theme={theme}>
+      <ColdCall />
+    </MantineProvider>
+  );
+  await tap('Call on someone');
+  await tap('Answered + follow-up');
+  // Wait for the run to start: the button is disabled until the record returns.
+  expect(await screen.findByText('Follow-up 1')).toBeInTheDocument();
+  await tap('Answered + follow-up');
+  expect(await screen.findByText('Follow-up 2')).toBeInTheDocument();
+  // A mistaken outcome on follow-up 1: undo it and stay with the same student.
+  await tap('Undo');
+  expect(await screen.findByText('Follow-up 1')).toBeInTheDocument();
+  expect(screen.getByText('Alisha Moreno')).toBeInTheDocument();
+  await tap('Answered');
+  await waitFor(() =>
+    expect(posted.slice(1)).toEqual([
+      { action: 'record', outcome: 'answered', draw: 'signed-draw', next: 'follow-up' },
+      { action: 'record', outcome: 'answered', followUp: 'follow-up-2', next: 'follow-up' },
+      { action: 'undo', eventId: 'call-3' },
+      // The earlier follow-up token is used again for the corrected outcome.
+      { action: 'record', outcome: 'answered', followUp: 'follow-up-2' },
+    ])
+  );
+});
+
+it('steps back into the run when the outcome that ended it is undone', async () => {
+  const posted = mockServer();
+  render(
+    <MantineProvider theme={theme}>
+      <ColdCall />
+    </MantineProvider>
+  );
+  await tap('Call on someone');
+  await tap('Answered + follow-up');
+  expect(await screen.findByText('Follow-up 1')).toBeInTheDocument();
+  // A Pass on the follow-up ends the run; its Undo returns to the same question.
+  await tap('Pass');
+  expect(await screen.findByText('Alisha Moreno: Pass (follow-up)')).toBeInTheDocument();
+  await tap('Undo');
+  expect(await screen.findByText('Follow-up 1')).toBeInTheDocument();
+  expect(screen.getByText('Alisha Moreno')).toBeInTheDocument();
+  await waitFor(() => expect(posted.at(-1)).toEqual({ action: 'undo', eventId: 'call-3' }));
+});
+
+it('notes invalid grade settings between calls', async () => {
+  global.fetch = jest.fn(async () => ({
+    ok: true,
+    json: async () => ({
+      present: 3,
+      calls: [],
+      configProblem: 'The target ratio must be more than 0',
+    }),
+  })) as unknown as typeof fetch;
+  render(
+    <MantineProvider theme={theme}>
+      <ColdCall />
+    </MantineProvider>
+  );
+  expect(await screen.findByText(/Some grade settings are invalid/)).toBeInTheDocument();
+});

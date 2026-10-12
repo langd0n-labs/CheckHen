@@ -1,0 +1,13 @@
+diff --git a/dist/lib/helpers/get-registry.js b/dist/lib/helpers/get-registry.js
+index 1d793074fc7efda458c3eded4c4519572c151bb6..51854b34064958bb1c16f650f4d3013f9a8c73ca 100644
+--- a/dist/lib/helpers/get-registry.js
++++ b/dist/lib/helpers/get-registry.js
+@@ -21,7 +21,7 @@ function getRegistry(baseDir = process.cwd()) {
+     const resolvedFlags = pkgManager === 'npm' ? '--no-workspaces' : '';
+     let registry = `https://registry.npmjs.org/`;
+     try {
+-        const output = (0, _child_process.execSync)(`${pkgManager} config get registry ${resolvedFlags}`, {
++        const output = (0, _child_process.execSync)(pkgManager === "yarn" ? `${pkgManager} config get npmRegistryServer` : `${pkgManager} config get registry ${resolvedFlags}`, {
+             env: {
+                 ...process.env,
+                 NODE_OPTIONS: (0, _utils.getFormattedNodeOptionsWithoutInspect)()

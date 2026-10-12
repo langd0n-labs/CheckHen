@@ -1,0 +1,8 @@
+# The build context is the repository root; send only what the image needs, so the
+# ignored .env files never enter it.
+*
+!network/hosted/default.conf.template
+!packages/slidev-chat
+!examples/slidev-chat
+examples/slidev-chat/node_modules
+examples/slidev-chat/dist

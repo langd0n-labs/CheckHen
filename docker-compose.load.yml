@@ -1,0 +1,46 @@
+# Disposable, isolated 150-client acceptance stack. Remove it with down -v.
+services:
+  db-test:
+    image: docker.io/library/postgres:13
+    environment:
+      POSTGRES_USER: checkhen
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run scripts/start.py once}
+      POSTGRES_DB: checkhen_test
+    volumes:
+      - load-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U checkhen -d checkhen_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  migrate-test:
+    build: ./checkhen
+    command: ["node", "node_modules/prisma/build/index.js", "migrate", "deploy"]
+    environment:
+      DATABASE_URL: postgresql://checkhen:${POSTGRES_PASSWORD:?Run scripts/start.py once}@db-test:5432/checkhen_test
+    depends_on:
+      db-test:
+        condition: service_healthy
+  socket-test:
+    build: ./socket-server
+    environment:
+      DATABASE_URL: postgresql://checkhen:${POSTGRES_PASSWORD:?Run scripts/start.py once}@db-test:5432/checkhen_test
+      AUTH_SECRET: ${AUTH_SECRET:?Run scripts/start.py once}
+    depends_on:
+      db-test:
+        condition: service_healthy
+  load-runner:
+    build: ./checkhen
+    command: ["node", "node_modules/tsx/dist/cli.mjs", "scripts/load-socket-chat.ts"]
+    environment:
+      DATABASE_URL: postgresql://checkhen:${POSTGRES_PASSWORD:?Run scripts/start.py once}@db-test:5432/checkhen_test
+      AUTH_SECRET: ${AUTH_SECRET:?Run scripts/start.py once}
+      TEST_SOCKET_URL: http://socket-test:6060
+      TEST_CLIENTS: ${TEST_CLIENTS:-150}
+    depends_on:
+      db-test:
+        condition: service_healthy
+      socket-test:
+        condition: service_started
+volumes:
+  load-pgdata:

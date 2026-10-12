@@ -1,0 +1,9 @@
+FROM registry.fedoraproject.org/fedora:44
+RUN dnf -y install python3 iproute iputils nftables dnsmasq hostapd NetworkManager firewalld iw dhcp-client curl nginx gettext-envsubst && dnf clean all
+RUN for program in python3 ip bridge ping nft dnsmasq hostapd nmcli firewall-cmd dhclient curl nginx envsubst getent sh; do \
+      command -v "$program" >/dev/null || { echo "Missing network image command: $program" >&2; exit 1; }; \
+    done
+WORKDIR /opt/checkhen
+COPY network/laptop/ /opt/checkhen/network/laptop/
+COPY network/proxy/default.conf.template /opt/checkhen/network/proxy/default.conf.template
+CMD ["python3", "/opt/checkhen/network/laptop/classroom.py", "serve"]

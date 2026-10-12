@@ -1,0 +1,22 @@
+{
+  "name": "@checkhen/slidev-chat",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "src"
+  ],
+  "exports": {
+    ".": "./src/CheckHenChat.vue",
+    "./panel": "./src/CheckHenChatPanel.vue"
+  },
+  "dependencies": {
+    "socket.io-client": "4.8.1"
+  },
+  "peerDependencies": {
+    "vue": "^3.0.0"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  }
+}

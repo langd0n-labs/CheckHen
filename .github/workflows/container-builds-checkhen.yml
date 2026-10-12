@@ -3,9 +3,6 @@ name: Container Builds - CheckHen
 on:
   workflow_dispatch:
     inputs:
-      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:
-        description: "Clerk publishable key"
-        required: true
       NEXT_PUBLIC_EMAIL_DOMAIN:
         description: "Whitelisted email domain (i.e. bu.edu)"
         required: true
@@ -77,7 +74,6 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64
           build-args: |
-            NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ github.event.inputs.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
             NEXT_PUBLIC_EMAIL_DOMAIN=${{ github.event.inputs.NEXT_PUBLIC_EMAIL_DOMAIN }}
             NEXT_PUBLIC_ADMIN_EMAILS=${{ github.event.inputs.NEXT_PUBLIC_ADMIN_EMAILS }}
       - name: Build and push Docker image - ARM64
@@ -92,6 +88,5 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/arm64
           build-args: |
-            NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ github.event.inputs.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
             NEXT_PUBLIC_EMAIL_DOMAIN=${{ github.event.inputs.NEXT_PUBLIC_EMAIL_DOMAIN }}
             NEXT_PUBLIC_ADMIN_EMAILS=${{ github.event.inputs.NEXT_PUBLIC_ADMIN_EMAILS }}

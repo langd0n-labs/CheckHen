@@ -1,0 +1,15 @@
+[Unit]
+Description=CheckHen exam WiFi access point (hostapd)
+After=network.target
+# Does not start automatically at boot — only started by start-exam.sh
+# (install.sh enables it but does not set WantedBy=multi-user.target)
+
+[Service]
+Type=forking
+PIDFile=/run/hostapd.pid
+ExecStart=/usr/sbin/hostapd -B -P /run/hostapd.pid /etc/hostapd/hostapd-exam.conf
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+
+[Install]
+# Intentionally no WantedBy — must be started explicitly via start-exam.sh

@@ -1,0 +1,4 @@
+/* Keep slide content clear of the chat panel, which takes the right 15%. */
+html:not(.checkhen-chat-hidden) .slidev-layout {
+  padding-right: calc(15% + 3.5rem);
+}
