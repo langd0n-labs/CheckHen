@@ -31,8 +31,8 @@ function formatTime(iso: string | null) {
 
 function formatPaceSignal(signal: string | null) {
   if (!signal) return '—';
-  if (signal === 'slow_down') return 'Slow Down';
-  if (signal === 'ready_to_move_on') return 'Ready';
+  if (signal === 'slow_down') return 'Slow down';
+  if (signal === 'ready_to_move_on') return 'Got it';
   return signal;
 }
 

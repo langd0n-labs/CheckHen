@@ -77,7 +77,7 @@ export default function StudentHelp() {
                 instructor sees who raised a hand and in what order.
               </Text>
               <Text>
-                Slow down and Ready tell your instructor how the pace feels. Only your instructor
+                Slow down and Got it tell your instructor how the pace feels. Only your instructor
                 sees how many students chose each one.
               </Text>
             </>
