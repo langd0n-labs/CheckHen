@@ -17,7 +17,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     where: { email: session.user.email },
     select: {
       profilePicture: true,
-      foodAllergies: true,
       displayName: true,
       namePronunciation: true,
       pronouns: true,
@@ -31,7 +30,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   return res.status(200).json({
     profilePicture: user.profilePicture ?? null,
-    foodAllergies: user.foodAllergies ?? null,
     displayName: user.displayName ?? null,
     namePronunciation: user.namePronunciation ?? null,
     pronouns: user.pronouns ?? null,

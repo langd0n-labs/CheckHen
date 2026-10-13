@@ -84,7 +84,6 @@ type AttendanceRecord = {
   user: {
     email: string;
     profilePicture: string | null;
-    foodAllergies: string | null;
     displayName: string | null;
     namePronunciation: string | null;
     pronouns: string | null;
@@ -1237,11 +1236,6 @@ export default function AdminDashboard() {
                             {record.user.namePronunciation && (
                               <Badge size="xs" color="cyan" variant="light">
                                 {record.user.namePronunciation}
-                              </Badge>
-                            )}
-                            {record.user.foodAllergies && (
-                              <Badge size="xs" color="orange" variant="light">
-                                Allergy: {record.user.foodAllergies}
                               </Badge>
                             )}
                           </Group>

@@ -113,7 +113,10 @@ export default async function handler(
   const participation = async (classIds: string[]) => {
     const states = await Promise.all(classIds.map(classId => readState(prisma, { courseId, classId })));
     const entries = states.flatMap(state => state.attendance);
-    const users = await prisma.user.findMany({ where: { id: { in: entries.map(entry => entry.userId) } } });
+    const users = await prisma.user.findMany({
+      where: { id: { in: entries.map(entry => entry.userId) } },
+      omit: { foodAllergies: true },
+    });
     const checkIns = entries.flatMap(entry => {
       const user = users.find(candidate => candidate.id === entry.userId);
       return user && !isInstructor(user.email) ? [{ ...entry, updatedAt: null, user }] : [];

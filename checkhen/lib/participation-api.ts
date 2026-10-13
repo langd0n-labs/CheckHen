@@ -305,8 +305,10 @@ export function participationHandler(action: string, adminOnly = false) {
       });
       return json(instructorChat(messages, users));
     }
+    // Food allergies are no longer shown; the column keeps only values stored before.
     const users = await prisma.user.findMany({
       where: { id: { in: [...state.attendance, ...state.hands].map((entry) => entry.userId) } },
+      omit: { foodAllergies: true },
     });
     if (action === 'fetch-check-ins') {
       return json(

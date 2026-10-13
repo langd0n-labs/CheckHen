@@ -9,7 +9,6 @@ type StudentProfile = {
   namePronunciation: string | null;
   pronouns: string | null;
   bio: string | null;
-  foodAllergies: string | null;
 };
 
 type Props = {
@@ -73,13 +72,6 @@ export function StudentProfileModal({ email, onClose }: Props) {
             <Stack gap={2}>
               <Text size="xs" fw={600} c="dimmed" tt="uppercase">About</Text>
               <Text size="sm">{profile.bio}</Text>
-            </Stack>
-          )}
-
-          {profile.foodAllergies && (
-            <Stack gap={2}>
-              <Text size="xs" fw={600} c="dimmed" tt="uppercase">Food Allergies</Text>
-              <Badge color="orange" variant="light" size="sm">{profile.foodAllergies}</Badge>
             </Stack>
           )}
         </Stack>

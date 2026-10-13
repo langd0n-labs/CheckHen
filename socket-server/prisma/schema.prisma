@@ -85,7 +85,7 @@ model User {
   email             String        @unique
   isAdmin           Boolean       @default(false)
   profilePicture    String?       // URL from Google OAuth
-  foodAllergies     String?       // Free-text, e.g. "peanuts, dairy"
+  foodAllergies     String?       // No longer collected or shown; keeps values stored before
   displayName       String?       // Preferred display name
   namePronunciation String?       // e.g. "ale-EE-sha"
   pronouns          String?       // "she/her", "he/him", "they/them", or custom

@@ -103,7 +103,7 @@ export default function StudentHelp() {
                 instructor call on you by name. Only your instructor sees them; classmates and the
                 projector see your anonymous name.
               </Text>
-              <Text>Your food allergies and bio are shown only to your instructor.</Text>
+              <Text>Your bio is shown only to your instructor.</Text>
             </>
           ),
         },
