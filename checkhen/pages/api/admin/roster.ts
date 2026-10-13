@@ -11,7 +11,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(404).json({ message: 'Course not found' });
   }
   if (req.method === 'GET') {
-    return res.json({ roster: await prisma.rosterEntry.findMany({ where: { courseId }, include: { user: true }, orderBy: { userId: 'asc' } }) });
+    return res.json({ roster: await prisma.rosterEntry.findMany({ where: { courseId }, include: { user: { omit: { foodAllergies: true } } }, orderBy: { userId: 'asc' } }) });
   }
   const { email, active = true } = req.body;
   // A public demo holds only fictional addresses, never a real student's.

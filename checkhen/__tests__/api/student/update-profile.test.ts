@@ -67,7 +67,6 @@ describe('POST /api/student/update-profile', () => {
       displayName: 'Alice',
       namePronunciation: 'AL-iss',
       pronouns: 'she/her',
-      foodAllergies: 'peanuts',
       bio: 'Hello!',
     };
     const { req, res } = createMocks({ method: 'POST', body });
@@ -79,7 +78,6 @@ describe('POST /api/student/update-profile', () => {
         displayName: 'Alice',
         namePronunciation: 'AL-iss',
         pronouns: 'she/her',
-        foodAllergies: 'peanuts',
         bio: 'Hello!',
       },
     });
@@ -97,7 +95,6 @@ describe('POST /api/student/update-profile', () => {
         displayName: null,
         namePronunciation: null,
         pronouns: null,
-        foodAllergies: null,
         bio: null,
       },
     });
@@ -113,14 +110,17 @@ describe('POST /api/student/update-profile', () => {
     );
   });
 
-  it('preserves empty string for foodAllergies (uses ?? null, not || null)', async () => {
+  it('ignores food allergies and leaves a stored value unchanged', async () => {
     mockSession();
     (prisma.user.update as jest.Mock).mockResolvedValue({});
-    const { req, res } = createMocks({ method: 'POST', body: { foodAllergies: '' } });
+    const { req, res } = createMocks({
+      method: 'POST',
+      body: { foodAllergies: 'x'.repeat(500), bio: 'Hello!' },
+    });
     await handler(req as any, res as any);
-    expect(prisma.user.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ foodAllergies: '' }) })
-    );
+    expect(res._getStatusCode()).toBe(200);
+    const { data } = (prisma.user.update as jest.Mock).mock.calls[0][0];
+    expect(data).not.toHaveProperty('foodAllergies');
   });
 
   it('refuses a displayName longer than 100 characters', async () => {
@@ -137,7 +137,6 @@ describe('profile field limits', () => {
     ['displayName', 80],
     ['namePronunciation', 80],
     ['pronouns', 40],
-    ['foodAllergies', 200],
   ])('refuses a %s longer than %i characters', async (field, max) => {
     mockSession();
     const { req, res } = createMocks({ method: 'POST', body: { [field]: 'x'.repeat(max + 1) } });

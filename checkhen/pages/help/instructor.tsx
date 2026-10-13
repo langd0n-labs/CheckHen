@@ -37,7 +37,7 @@ export default function InstructorHelp() {
               <List>
                 <List.Item>
                   Present students: everyone checked in. Open a student to see their profile,
-                  including food allergies and bio, which students never see about each other.
+                  including their bio, which students never see about each other.
                 </List.Item>
                 <List.Item>
                   Hands raised: in the order raised. Acknowledge calls on that student. An

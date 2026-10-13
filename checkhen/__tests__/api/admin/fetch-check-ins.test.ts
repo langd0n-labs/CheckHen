@@ -96,6 +96,12 @@ describe('GET /api/admin/fetch-check-ins', () => {
     }
     expect(entry.name).toBe('jsmith');
   });
+  it('asks the database to leave out food allergies', async () => {
+    await invoke();
+    expect(prisma.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ omit: { foodAllergies: true } })
+    );
+  });
   it('excludes instructor attendance from the result', async () => {
     (isInstructor as jest.Mock).mockImplementation((email: string) => email === student.email);
     const res = await invoke();
