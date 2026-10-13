@@ -10,6 +10,7 @@ import {
   TextInput,
   UnstyledButton,
 } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { scopedFetch } from '@/lib/scoped-fetch';
 
@@ -64,6 +65,8 @@ export function UnderstandingCheck({
   const [timer, setTimer] = useState<'3' | 'none'>('3');
   const [busy, setBusy] = useState(false);
   const [showNames, setShowNames] = useState(false);
+  // Phones keep a full-size touch target; wider screens match the row's inputs.
+  const phone = useMediaQuery('(max-width: 48em)') ?? false;
   const offset = useRef(0);
   const [, setTick] = useState(0);
 
@@ -243,7 +246,7 @@ export function UnderstandingCheck({
             { value: 'none', label: 'No timer' },
           ]}
         />
-        <Button onClick={start} loading={busy} h={36}>
+        <Button onClick={start} loading={busy} h={phone ? 44 : 36}>
           Check understanding
         </Button>
       </Group>
