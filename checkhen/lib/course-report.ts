@@ -1,6 +1,7 @@
 /** I4 course record: attendance, participation, grade, and exam events from the event log. */
+import { anotherExampleShare } from './checks';
 import { grades, type ColdCallConfig, type Meeting } from './cold-call';
-import { effectiveEvents } from './events';
+import { effectiveEvents, foldEvents } from './events';
 
 export type SessionMeta = { classId: string; name: string; startedAt: Date };
 export type RosterStudent = { userId: string; name: string; email: string };
@@ -26,6 +27,8 @@ export type StudentRow = {
   score: number | null;
   examFails: number;
   examFailsExcused: number;
+  /** Understanding checks the student answered. */
+  checksAnswered: number;
 };
 
 export type SessionRow = {
@@ -42,6 +45,30 @@ export type SessionRow = {
   excusedAbsences: number;
   volunteerAnswers: number;
   examFails: number;
+  checks: number;
+  /** Checks where at least the threshold share of answers asked for another example. */
+  checksNeedingExample: number;
+};
+
+export type CheckRow = {
+  checkId: string;
+  classId: string;
+  sessionName: string;
+  openedAt: Date;
+  label: string | null;
+  present: number;
+  answered: number;
+  gotIt: number;
+  anotherExample: number;
+  needsExample: boolean;
+};
+
+/** "N of your last M lectures needed another example." Lectures without checks are skipped. */
+export type CheckTrend = {
+  lectures: number;
+  needingExample: number;
+  threshold: number;
+  window: number;
 };
 
 export type AbsenceRow = {
@@ -61,6 +88,8 @@ export type CourseReport = {
   students: StudentRow[];
   sessions: SessionRow[];
   absences: AbsenceRow[];
+  checks: CheckRow[];
+  checkTrend: CheckTrend;
 };
 
 /** `meetings` and `sessions` hold the same held sessions in meeting order. */
@@ -85,6 +114,8 @@ export function courseReport(
   const examFails = new Map<string, { fails: number; excused: number }>();
   const sessionRows: SessionRow[] = [];
   const absences: AbsenceRow[] = [];
+  const checkRows: CheckRow[] = [];
+  const checksAnswered = new Map<string, number>();
 
   // The record covers students active on the roster; inactive students' events are left out.
   const active = new Set(roster.map((student) => student.userId));
@@ -163,6 +194,32 @@ export function courseReport(
         fails += 1;
       }
     }
+    // Checks come from the fold, which applies their open and close rules.
+    const sessionChecks = foldEvents(meeting.events, meeting).checks.map((check) => {
+      const answers = check.answers.filter((answer) => active.has(answer.userId));
+      const counted = { ...check, answers };
+      for (const answer of answers) {
+        checksAnswered.set(answer.userId, (checksAnswered.get(answer.userId) ?? 0) + 1);
+      }
+      const row: CheckRow = {
+        checkId: check.checkId,
+        classId: meeting.classId,
+        sessionName: session.name,
+        openedAt: check.openedAt,
+        label: check.label,
+        // Students in the room when it opened, plus any who answered after arriving.
+        present: new Set([
+          ...check.present.filter((userId) => active.has(userId)),
+          ...answers.map((answer) => answer.userId),
+        ]).size,
+        answered: answers.length,
+        gotIt: answers.filter((answer) => answer.choice === 'got_it').length,
+        anotherExample: answers.filter((answer) => answer.choice === 'another_example').length,
+        needsExample: answers.length > 0 && anotherExampleShare(counted) >= config.check_threshold,
+      };
+      checkRows.push(row);
+      return row;
+    });
     sessionRows.push({
       classId: meeting.classId,
       name: session.name,
@@ -175,8 +232,11 @@ export function courseReport(
       excusedAbsences: excused,
       volunteerAnswers: volunteers,
       examFails: fails,
+      checks: sessionChecks.length,
+      checksNeedingExample: sessionChecks.filter((row) => row.needsExample).length,
     });
   });
+  const withChecks = sessionRows.filter((row) => row.checks > 0).slice(-config.check_window);
 
   const students = roster.map((student) => {
     const grade = graded.get(student.userId)!;
@@ -200,6 +260,7 @@ export function courseReport(
       score: grade.score,
       examFails: examFails.get(student.userId)?.fails ?? 0,
       examFailsExcused: examFails.get(student.userId)?.excused ?? 0,
+      checksAnswered: checksAnswered.get(student.userId) ?? 0,
     };
   });
   return {
@@ -208,6 +269,13 @@ export function courseReport(
     students,
     sessions: sessionRows,
     absences,
+    checks: checkRows,
+    checkTrend: {
+      lectures: withChecks.length,
+      needingExample: withChecks.filter((row) => row.checksNeedingExample > 0).length,
+      threshold: config.check_threshold,
+      window: config.check_window,
+    },
   };
 }
 
@@ -260,6 +328,7 @@ export function studentsCsv(report: CourseReport, config: ColdCallConfig, export
       'score',
       'exam_fails',
       'exam_fails_excused',
+      'checks_answered',
       ...header,
     ],
     ...report.students.map((row) => [
@@ -282,6 +351,7 @@ export function studentsCsv(report: CourseReport, config: ColdCallConfig, export
       row.score === null ? null : Math.round(row.score * 10000) / 10000,
       row.examFails,
       row.examFailsExcused,
+      row.checksAnswered,
       ...values,
     ]),
   ]);
@@ -302,6 +372,8 @@ export function sessionsCsv(report: CourseReport, config: ColdCallConfig, export
       'excused_absences',
       'volunteer_answers',
       'exam_fails',
+      'checks',
+      'checks_needing_example',
       ...header,
     ],
     ...report.sessions.map((row) => [
@@ -316,6 +388,8 @@ export function sessionsCsv(report: CourseReport, config: ColdCallConfig, export
       row.excusedAbsences,
       row.volunteerAnswers,
       row.examFails,
+      row.checks,
+      row.checksNeedingExample,
       ...values,
     ]),
   ]);

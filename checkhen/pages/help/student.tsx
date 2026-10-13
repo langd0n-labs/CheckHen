@@ -1,12 +1,12 @@
 import { Alert, Text } from '@mantine/core';
 import { HelpLayout, HelpList as List } from '@/components/HelpLayout';
 
-/** Help for students: checking in, chat, hands, pace, profile, and exam mode. */
+/** Help for students: checking in, chat, hands, understanding checks, profile, and exam mode. */
 export default function StudentHelp() {
   return (
     <HelpLayout
       title="How CheckHen works for students"
-      intro="CheckHen takes attendance, carries the class chat, and lets you raise your hand or tell your instructor about the pace."
+      intro="CheckHen takes attendance, carries the class chat, and lets you raise your hand or tell your instructor whether a part of the lecture landed."
       back={{ href: '/', label: 'Back to class' }}
       sections={[
         {
@@ -68,8 +68,8 @@ export default function StudentHelp() {
           ),
         },
         {
-          id: 'hands-and-pace',
-          title: 'Raising your hand and pace signals',
+          id: 'hands-and-checks',
+          title: 'Raising your hand and understanding checks',
           body: (
             <>
               <Text>
@@ -77,8 +77,9 @@ export default function StudentHelp() {
                 instructor sees who raised a hand and in what order.
               </Text>
               <Text>
-                Slow down and Ready tell your instructor how the pace feels. Only your instructor
-                sees how many students chose each one.
+                Sometimes your instructor asks &quot;Did that land?&quot; A card appears with Got it
+                and Another example, and a countdown. Your instructor sees your answer; other
+                students do not. You can change it until the check closes.
               </Text>
             </>
           ),

@@ -14,7 +14,15 @@ export async function requireIdentity(req: NextApiRequest, res: NextApiResponse,
   // After sign-in: an anonymous request is refused without using any demo counter.
   if (!await demoGate(req, res, gate)) return null;
   const admin = isInstructor(session.user.email);
-  if (adminOnly && !admin) { res.status(403).json({ message: 'Instructor access required' }); return null; }
+  // A browser holds one sign-in: signing in as a student in another tab replaces the
+  // instructor's, so say so rather than only refusing.
+  if (adminOnly && !admin) {
+    res.status(403).json({
+      message: 'Instructor access required. This browser is now signed in as a student; '
+        + 'sign in as the instructor again, and open student views in a private window.',
+    });
+    return null;
+  }
   const user = await prisma.user.findUnique({ where: { email: session.user.email } });
   if (!user) { res.status(401).json({ message: 'Unknown user' }); return null; }
   return { user, admin };

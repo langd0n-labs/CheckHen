@@ -1,6 +1,7 @@
 /** @jest-environment node */
 import { createHmac, randomUUID } from 'node:crypto';
 import { createMocks } from 'node-mocks-http';
+import { startCheck } from '@/lib/checks';
 import { appendEvent, readEvents, readState } from '@/lib/event-store';
 import { examAgent, recordExamFail, releaseExamNetwork } from '@/lib/exam-control';
 import {
@@ -12,20 +13,30 @@ import {
 import { prisma } from '@/lib/prisma';
 import { requireIdentity, requireScope } from '@/lib/request-scope';
 import { expireSessions } from '@/lib/session-expiry';
+import closeCheck from '@/pages/api/admin/close-check';
 import coldCallRoute from '@/pages/api/admin/cold-call';
 import courseReportRoute from '@/pages/api/admin/course-report';
-import demoResetRoute from '@/pages/api/demo/reset';
+import endClass from '@/pages/api/admin/end-class-early';
 import examRoute from '@/pages/api/admin/exam';
 import fetchAllChat from '@/pages/api/admin/fetch-all-chat';
+import fetchInstructorCheck from '@/pages/api/admin/fetch-check';
 import hideChat from '@/pages/api/admin/hide-chat';
 import muteStudent from '@/pages/api/admin/mute-student';
+import openCheck from '@/pages/api/admin/open-check';
 import unhideChat from '@/pages/api/admin/unhide-chat';
+import demoResetRoute from '@/pages/api/demo/reset';
+import answerCheck from '@/pages/api/student/answer-check';
 import checkIn from '@/pages/api/student/check-in';
 import checkOut from '@/pages/api/student/check-out';
+import fetchStudentCheck from '@/pages/api/student/fetch-check';
 import reBind from '@/pages/api/student/re-bind';
 import sendChat from '@/pages/api/student/send-chat';
 
-jest.mock('@/lib/request-scope', () => ({ requireScope: jest.fn(), requireIdentity: jest.fn() }));
+jest.mock('@/lib/request-scope', () => ({
+  requireScope: jest.fn(),
+  requireIdentity: jest.fn(),
+  isInstructor: jest.fn(() => false),
+}));
 jest.mock('@/lib/portal-binding', () => ({
   bindDevice: jest.fn(),
   revokeDevice: jest.fn(),
@@ -822,9 +833,8 @@ integration('route → store → attendance fold', () => {
         const attended = async () => {
           const { req, res } = createMocks({ method: 'GET', query: { courseId: scope.courseId } });
           await courseReportRoute(req as any, res as any);
-          return res
-            ._getJSONData()
-            .report.students.find((row: any) => row.userId === ada.id).sessionsAttended;
+          return res._getJSONData().report.students.find((row: any) => row.userId === ada.id)
+            .sessionsAttended;
         };
         expect(await attended()).toBe(0);
         // Marking Present again restores the credit.
@@ -1342,5 +1352,99 @@ integration('route → store → attendance fold', () => {
         )
       ).toBe(false);
     }
+  });
+  describe('understanding checks', () => {
+    const call = async (
+      handler: typeof checkIn,
+      method: 'GET' | 'POST',
+      body: Record<string, unknown> = {}
+    ) => {
+      const { req, res } = createMocks({ method, query: scope, body });
+      await handler(req as any, res as any);
+      return res;
+    };
+
+    it('opens one check at a time, keeps the latest answer, and refuses answers after close', async () => {
+      await invoke(checkIn, '172.16.77.20');
+      const opened = await call(openCheck, 'POST', { label: 'Sampling' });
+      expect(opened._getStatusCode()).toBe(200);
+      const { checkId } = opened._getJSONData();
+      expect((await call(openCheck, 'POST', {}))._getStatusCode()).toBe(409);
+
+      // The student sees the open check and a 3-minute timer, but no tally.
+      const seen = (await call(fetchStudentCheck, 'GET'))._getJSONData();
+      expect(seen.check).toMatchObject({ checkId, label: 'Sampling', answer: null });
+      expect(new Date(seen.check.closesAt).getTime() - Date.now()).toBeGreaterThan(170000);
+      expect(seen.check.counts).toBeUndefined();
+
+      const answer = (choice: string) => call(answerCheck, 'POST', { checkId, choice });
+      expect((await answer('another_example'))._getStatusCode()).toBe(200);
+      expect((await answer('got_it'))._getStatusCode()).toBe(200);
+      expect((await answer('maybe'))._getStatusCode()).toBe(409);
+
+      const tally = (await call(fetchInstructorCheck, 'GET'))._getJSONData();
+      expect(tally.threshold).toBe(0.25);
+      expect(tally.check).toMatchObject({
+        open: true,
+        present: 1,
+        answered: 1,
+        counts: { got_it: 1, another_example: 0 },
+        answers: [{ userId: user.id, choice: 'got_it' }],
+      });
+
+      expect((await call(closeCheck, 'POST', { checkId }))._getStatusCode()).toBe(200);
+      expect((await call(closeCheck, 'POST', { checkId }))._getStatusCode()).toBe(409);
+      expect((await answer('another_example'))._getStatusCode()).toBe(409);
+      expect((await call(fetchStudentCheck, 'GET'))._getJSONData().check).toBeNull();
+      const closed = (await call(fetchInstructorCheck, 'GET'))._getJSONData().check;
+      expect(closed).toMatchObject({ open: false, answered: 1 });
+
+      // A check without a timer stays open until closed; a new one may open now.
+      const untimed = await call(openCheck, 'POST', { minutes: null });
+      expect(untimed._getStatusCode()).toBe(200);
+      expect((await call(fetchStudentCheck, 'GET'))._getJSONData().check.closesAt).toBeNull();
+      expect((await readEvents(prisma, scope)).map((event) => event.kind)).toEqual(
+        expect.arrayContaining(['CHECK_OPENED', 'CHECK_ANSWERED', 'CHECK_CLOSED'])
+      );
+    });
+
+    it('refuses an answer from a student who is not checked in', async () => {
+      const { checkId } = (await call(openCheck, 'POST', {}))._getJSONData();
+      expect(
+        (await call(answerCheck, 'POST', { checkId, choice: 'got_it' }))._getStatusCode()
+      ).toBe(400);
+    });
+
+    it('rejects an invalid timer and an overlong label', async () => {
+      expect((await call(openCheck, 'POST', { minutes: 0 }))._getStatusCode()).toBe(400);
+      expect((await call(openCheck, 'POST', { minutes: 2.5 }))._getStatusCode()).toBe(400);
+      expect((await call(openCheck, 'POST', { label: 'x'.repeat(101) }))._getStatusCode()).toBe(
+        400
+      );
+    });
+
+    it('refuses to open a check once End class has committed', async () => {
+      // The route's session test runs before the lock; the locked guard decides.
+      await call(endClass, 'POST');
+      await expect(startCheck(prisma, scope, user.id, { minutes: null })).rejects.toThrow(
+        'This class has ended'
+      );
+      expect((await readState(prisma, scope)).checks).toEqual([]);
+    });
+
+    it('keeps the instructor count of students present when one leaves mid-check', async () => {
+      await invoke(checkIn, '172.16.77.20');
+      await call(openCheck, 'POST', { minutes: null });
+      await call(checkOut, 'POST');
+      const tally = (await call(fetchInstructorCheck, 'GET'))._getJSONData();
+      expect(tally.check).toMatchObject({ present: 1, answered: 0 });
+    });
+
+    it('closes an open check when the session ends', async () => {
+      await invoke(checkIn, '172.16.77.20');
+      await call(openCheck, 'POST', { minutes: null });
+      await call(endClass, 'POST');
+      expect((await readState(prisma, scope)).checks[0].closedAt).not.toBeNull();
+    });
   });
 });

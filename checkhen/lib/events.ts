@@ -21,6 +21,9 @@ export type EventKind =
   | 'COLD_CALL'
   | 'COLD_CALL_DRAWN'
   | 'COLD_CALL_EXCUSED'
+  | 'CHECK_OPENED'
+  | 'CHECK_ANSWERED'
+  | 'CHECK_CLOSED'
   | 'UNDO';
 
 export type ParticipationEvent = {
@@ -65,6 +68,31 @@ export function effectiveEvents(
     if (event.kind !== 'UNDO') effective.push(event);
   }
   return effective.reverse();
+}
+
+export type Check = {
+  checkId: string;
+  /** "understanding" now; clicker questions later. */
+  kind: string;
+  prompt: string | null;
+  choices: string[];
+  label: string | null;
+  openedAt: Date;
+  /** Null: no timer; the instructor closes it. */
+  closesAt: Date | null;
+  /** Set by a manual close or the end of the session. */
+  closedAt: Date | null;
+  /** Students checked in when the check opened. */
+  present: string[];
+  answers: { userId: string; choice: string; answeredAt: Date }[];
+};
+
+/** Understanding-check choices, in the order students see them. */
+export const UNDERSTANDING_CHOICES = ['got_it', 'another_example'];
+
+/** A check takes answers until its timer runs out or it is closed. */
+export function checkOpenAt(check: Check, at: Date): boolean {
+  return !check.closedAt && (!check.closesAt || at.getTime() < check.closesAt.getTime());
 }
 
 export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
@@ -142,6 +170,8 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
     startedAt: Date;
     active: boolean;
   } | null = null;
+  // Understanding checks (later clicker questions), keyed by check ID.
+  const checks = new Map<string, Check>();
   let endedAt: Date | null = null;
   const byId = new Map(
     events
@@ -278,8 +308,41 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
           excused: true,
           reason: String(payload.reason),
         });
+    } else if (event.kind === 'CHECK_OPENED') {
+      const checkId = String(payload.checkId);
+      checks.set(checkId, {
+        checkId,
+        kind: String(payload.kind),
+        prompt: typeof payload.prompt === 'string' ? payload.prompt : null,
+        choices: Array.isArray(payload.choices) ? payload.choices.map(String) : [],
+        label: typeof payload.label === 'string' && payload.label ? payload.label : null,
+        openedAt: createdAt,
+        closesAt: typeof payload.closesAt === 'string' ? new Date(payload.closesAt) : null,
+        closedAt: null,
+        present: Array.from(attendance.values())
+          .filter((entry) => entry.isPresent)
+          .map((entry) => entry.userId),
+        answers: [],
+      });
+    } else if (event.kind === 'CHECK_ANSWERED' && userId) {
+      const check = checks.get(String(payload.checkId));
+      // The latest answer while the check is open counts; the API refuses later ones.
+      if (
+        check &&
+        checkOpenAt(check, createdAt) &&
+        check.choices.includes(String(payload.choice))
+      ) {
+        check.answers = check.answers.filter((answer) => answer.userId !== userId);
+        check.answers.push({ userId, choice: String(payload.choice), answeredAt: createdAt });
+      }
+    } else if (event.kind === 'CHECK_CLOSED') {
+      const check = checks.get(String(payload.checkId));
+      if (check && checkOpenAt(check, createdAt)) check.closedAt = createdAt;
     } else if (event.kind === 'SESSION_ENDED') {
       endedAt = createdAt;
+      for (const check of Array.from(checks.values())) {
+        if (checkOpenAt(check, createdAt)) check.closedAt = createdAt;
+      }
       for (const [student, entry] of Array.from(attendance.entries())) {
         if (entry.isPresent)
           attendance.set(student, { ...entry, isPresent: false, checkOutTime: createdAt });
@@ -305,6 +368,7 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
     examFails: Array.from(examFails.values()).sort(
       (a, b) => a.createdAt.getTime() - b.createdAt.getTime()
     ),
+    checks: Array.from(checks.values()),
     endedAt,
   };
 }

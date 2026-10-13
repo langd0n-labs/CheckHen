@@ -30,10 +30,12 @@ const instructorRoutes = routes.filter((route) => route.name.startsWith('admin/'
 const instructorMethod = (name: string) =>
   [
     'ack-hand-raise',
+    'close-check',
     'end-class-early',
     'hide-chat',
     'unhide-chat',
     'mute-student',
+    'open-check',
     'projection-ticket',
     'rate-hand-raise',
     'reset-pace-signals',

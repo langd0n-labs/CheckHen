@@ -213,13 +213,13 @@ export function AggregatedView({ aggregated, classDuration, students, accentColo
             h={200}
             data={aggregated.paceSignalTimeline.map((b) => ({
               label: `${b.minutesBucket}m`,
-              'Slow Down': b.slowDown,
-              'Ready': b.readyToMove,
+              'Slow down': b.slowDown,
+              'Got it': b.readyToMove,
             }))}
             dataKey="label"
             series={[
-              { name: 'Slow Down', color: theme.colors.warning[5] },
-              { name: 'Ready', color: theme.colors.successGreen[5] },
+              { name: 'Slow down', color: theme.colors.warning[5] },
+              { name: 'Got it', color: theme.colors.successGreen[5] },
             ]}
             tickLine="y"
             withTooltip
@@ -235,8 +235,8 @@ export function AggregatedView({ aggregated, classDuration, students, accentColo
                   <TooltipCard
                     label={`At ${point.label}`}
                     rows={[
-                      { color: theme.colors.warning[5], name: 'Slow Down', value: String(point['Slow Down']) },
-                      { color: theme.colors.successGreen[5], name: 'Ready', value: String(point['Ready']) },
+                      { color: theme.colors.warning[5], name: 'Slow down', value: String(point['Slow down']) },
+                      { color: theme.colors.successGreen[5], name: 'Got it', value: String(point['Got it']) },
                     ]}
                   />
                 );
@@ -246,11 +246,11 @@ export function AggregatedView({ aggregated, classDuration, students, accentColo
           <Group gap="md" mt="xs">
             <Group gap={4}>
               <Box w={12} h={12} style={{ borderRadius: 2, backgroundColor: theme.colors.warning[5] }} />
-              <Text size="xs">Slow Down: {aggregated.paceSignalTimeline.reduce((s, b) => s + b.slowDown, 0)}</Text>
+              <Text size="xs">Slow down: {aggregated.paceSignalTimeline.reduce((s, b) => s + b.slowDown, 0)}</Text>
             </Group>
             <Group gap={4}>
               <Box w={12} h={12} style={{ borderRadius: 2, backgroundColor: theme.colors.successGreen[5] }} />
-              <Text size="xs">Ready: {aggregated.paceSignalTimeline.reduce((s, b) => s + b.readyToMove, 0)}</Text>
+              <Text size="xs">Got it: {aggregated.paceSignalTimeline.reduce((s, b) => s + b.readyToMove, 0)}</Text>
             </Group>
           </Group>
         </Card>
