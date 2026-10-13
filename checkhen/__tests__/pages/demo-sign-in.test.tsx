@@ -24,5 +24,5 @@ it('suggests a separate browser sign-in for each person in the class', async () 
     </MantineProvider>
   );
   expect(await screen.findByText(/private window or another browser/)).toBeInTheDocument();
-  expect(screen.getByText(/A browser holds one sign-in at a time/)).toBeInTheDocument();
+  expect(screen.getByText(/private windows share another/)).toBeInTheDocument();
 });

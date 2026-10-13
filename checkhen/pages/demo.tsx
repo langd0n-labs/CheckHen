@@ -84,9 +84,9 @@ export default function DemoSignIn() {
       </Text>
       <Text mb="lg">
         To see a class from both sides, sign in as the instructor here and as a student in a
-        private window or another browser, then put the windows side by side. A browser holds
-        one sign-in at a time, so two ordinary windows of the same browser can&apos;t be two
-        people. For more students, use another browser or browser profile for each.
+        private window or another browser, then put the windows side by side. A browser&apos;s
+        ordinary windows share one sign-in, and its private windows share another, so each
+        additional student needs another browser or browser profile.
       </Text>
       <Title order={2} fz={20} mb="sm">
         Instructor
