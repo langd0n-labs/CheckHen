@@ -18,7 +18,6 @@ This document provides an overview of the project structure for CheckHen, a web 
 Contains reusable UI components, such as:
 - **Chat**: Chat interface for real-time communication.
 - **TableScrollArea**: Scrollable table component.
-- **Welcome**: Example welcome component.
 
 #### `/pages`
 Contains Next.js pages, including:
