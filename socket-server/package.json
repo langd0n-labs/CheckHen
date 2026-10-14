@@ -1,5 +1,6 @@
 {
   "name": "socket-server",
+  "license": "AGPL-3.0-or-later",
   "packageManager": "yarn@4.6.0",
   "dependencies": {
     "@prisma/client": "^6.4.1",
