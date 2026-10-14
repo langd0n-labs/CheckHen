@@ -1,7 +1,7 @@
 # Contributors
 
 - [@langdon](https://github.com/langdon): project direction, and the earlier research the anonymous chat grew out of.
-- [@a1icja](https://github.com/a1icja): original author.
+- [@a1icja](https://github.com/a1icja) (alicja@bu.edu): original author.
 - [@aliciavcao](https://github.com/aliciavcao): development.
 - [@trgardos](https://github.com/trgardos): the idea for cold calling.
 - Pawel: the idea for raising hands, general guidance and feedback, and in-class testing.
