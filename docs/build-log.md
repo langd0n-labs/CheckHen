@@ -69,6 +69,12 @@ Branch: build/m0-m2. Scope: M0 through M5, then M7 and M8.
 - 2026-10-10, operator: the public items already in the pushed history stay; the
   pushed history is not rewritten or force-pushed again. New code names no site
   network: the VPN subnet becomes the `AP_RESERVED_SUBNETS` setting. Relayed by AICP.
+- 2026-10-11, operator: the canonical repository is `langd0n-labs/CheckHen`. The
+  earlier repository is now `langd0n-labs/CheckHen-fork`; its history came into `main`
+  through #48 and #49. Relayed by AICP.
+- 2026-10-12, operator: the public demo moves to `checkhen.langd0n.com`, served by the
+  existing demo tunnel. `checkhen-demo.rfkill.dev` redirects there with a 301 that
+  keeps the path and query. `AP_HOSTNAME` stays `checkhen.rfkill.dev`. Relayed by AICP.
 - 2026-10-06, operator: the call screen (I3) is the instructor's private phone
   view and is not designed for projection; the brief projects only I5 and I6.
   A projected cold-call view, if one is ever built, shows who is called and
@@ -1858,3 +1864,17 @@ operator's approval relayed by AICP.
   forged Host header 403; another hostname through the same edge 530. The deck sends
   `Referrer-Policy: no-referrer` and `nosniff`. 130 rapid requests from one address
   got 75 refusals (429), and access returned within 12 s.
+
+## Public demo moved to checkhen.langd0n.com
+
+Moved 2026-10-13, with the demo running `main` at 3f76d97.
+
+- `.env.hosted` sets `NEXTAUTH_URL=https://checkhen.langd0n.com`; the stack was
+  recreated without a rebuild, and the database was kept.
+- Through the public hostname: instructor and student persona sign-in each redirect
+  back to `checkhen.langd0n.com`; the socket server allows the origin
+  `https://checkhen.langd0n.com` and refuses `https://checkhen-demo.rfkill.dev`; a
+  student's chat message reached the instructor's chat list (then hidden).
+- `https://checkhen-demo.rfkill.dev/<path>?<query>` answers 301 to the same path and
+  query on `checkhen.langd0n.com`, so old links, including the instructor dashboard,
+  still arrive.
