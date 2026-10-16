@@ -12,12 +12,12 @@ office-hours visits.
 - Use synthetic data only. The demo seed (`checkhen/lib/demo.ts`) shows the
   style: made-up people at `demo.checkhen.invalid` addresses.
 - If you find real data in the repository or in an issue, do not copy it.
-  Tell a maintainer privately.
+  Report it with **Report a vulnerability** (see below).
 - Never commit credentials or `.env` files.
 
 ## Set up
 
-Read [the README](README.md) first. In short:
+[The README](README.md) has the full setup steps.
 
 - Install Podman, a Compose provider (podman-compose), Python 3, and Node.js 22
   with Corepack.
@@ -51,12 +51,12 @@ CHECKHEN_TEST_PG_ADMIN_URL=postgresql://USER:PASSWORD@localhost:5432/postgres \
   scripts/test-postgres.sh
 ```
 
-The script refuses any host other than `localhost` or `127.0.0.1`, and it
-recreates the `checkhen_test` and `checkhen_legacy_test` databases.
+The script accepts only `localhost` or `127.0.0.1`. It drops and recreates the
+`checkhen_test` and `checkhen_legacy_test` databases.
 
 If you change the Slidev chat component, also run `scripts/test-slidev-chat.sh`.
-If you change the classroom network tools, run
-`python3 -m unittest discover network/laptop` as well.
+If you change the classroom network tools, also run
+`python3 -m unittest discover network/laptop`.
 
 When a change breaks an existing test, update that test for the new behavior.
 Do not delete or replace an existing test suite without asking a maintainer
@@ -71,21 +71,19 @@ first.
    what the change does.
 4. Open a pull request against `main`. Say what changed, how you tested it,
    and which issue it closes, if any.
-5. A maintainer reviews every pull request before it merges. Expect questions
-   and requested changes.
+5. A maintainer reviews every pull request before it merges.
 
 If you change the database schema, add a migration under
 `checkhen/prisma/migrations/` and run `corepack yarn prisma-gen` in
 `socket-server/` to update its copy of the schema.
 
-## Security
+## Report problems
 
-Do not test against a live CheckHen deployment, including the class instances
-and the public demo. That covers load tests, penetration tests, and scans. If
-you find a security problem, do not open a public issue. Report it privately
-to a maintainer.
+File bugs and ideas as [GitHub issues](https://github.com/langd0n-labs/CheckHen/issues).
+Report a security problem with **Report a vulnerability** on the repository's
+[Security tab](https://github.com/langd0n-labs/CheckHen/security), not in a public issue.
 
 ## License
 
 CheckHen is licensed under the GNU Affero General Public License, version 3 or
-later. Contributions are accepted under the same license.
+later. You contribute your changes under the same license.
