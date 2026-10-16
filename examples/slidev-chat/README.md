@@ -19,3 +19,8 @@ newest line at the bottom, older lines scroll off the top. A slide hides it with
 demo serves it at `/deck/`, and the dashboard's **Open demo lecture** opens it with a
 ticket for the current session. The deck keeps the ticket for the browser tab, so the
 chat works on any slide.
+
+When the chat server cannot be reached, the panel shows "Chat unavailable"; it shows the
+expired-access text only when CheckHen refuses the ticket. A PDF or print export leaves the
+panel out. Set `VITE_CHECKHEN_COLLAPSE_WITHOUT_TICKET=1` to leave it out also when the deck
+opens without a ticket.

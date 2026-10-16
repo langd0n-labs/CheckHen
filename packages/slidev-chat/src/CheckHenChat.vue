@@ -16,7 +16,11 @@ function connect() {
   if (!props.ticket) { error.value = 'Open this deck with a projection ticket.'; return }
   stop = followChat({ server: props.server, ticket: props.ticket, connectSocket: io, fetchImpl: fetch,
     onMessages: value => { messages.value = value; error.value = '' },
-    onError: () => { error.value = 'Projection access expired. Get a new token from the instructor.' },
+    onError: failure => {
+      error.value = failure.kind === 'expired'
+        ? 'Projection access expired. Get a new token from the instructor.'
+        : 'Chat unavailable'
+    },
   })
 }
 onMounted(connect)

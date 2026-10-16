@@ -18,7 +18,11 @@ function connect() {
   if (!props.ticket) { error.value = 'Open this deck from the dashboard to show the class chat.'; return }
   stop = followChat({ server: props.server, ticket: props.ticket, connectSocket: io, fetchImpl: fetch,
     onMessages: value => { messages.value = value; error.value = '' },
-    onError: () => { error.value = 'Chat access expired. Open the deck again from the dashboard.' },
+    onError: failure => {
+      error.value = failure.kind === 'expired'
+        ? 'Chat access expired. Open the deck again from the dashboard.'
+        : 'Chat unavailable'
+    },
   })
 }
 onMounted(connect)
