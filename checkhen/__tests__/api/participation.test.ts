@@ -16,6 +16,7 @@ import endClass from '@/pages/api/admin/end-class-early';
 import fetchCheckIns from '@/pages/api/admin/fetch-check-ins';
 import hideChat from '@/pages/api/admin/hide-chat';
 import muteStudent from '@/pages/api/admin/mute-student';
+import revokeProjection from '@/pages/api/admin/revoke-projection';
 import checkIn from '@/pages/api/student/check-in';
 import checkOut from '@/pages/api/student/check-out';
 import examStatus from '@/pages/api/student/exam-status';
@@ -326,6 +327,14 @@ describe('event-backed chat and pace', () => {
     );
     (readState as jest.Mock).mockResolvedValue({ ...checkedIn(), mutedUsers: [user.id] });
     expect((await invoke(sendChat, 'POST', { message: 'Question?' }))._getStatusCode()).toBe(403);
+  });
+  it('records a revocation of the projection links for the whole session', async () => {
+    (readState as jest.Mock).mockResolvedValue(checkedIn());
+    expect((await invoke(revokeProjection, 'POST', {}))._getStatusCode()).toBe(200);
+    expect(appendEvent).toHaveBeenCalledWith(
+      prisma,
+      expect.objectContaining({ kind: 'PROJECTION_REVOKED', userId: null })
+    );
   });
   it('does not expose stable user IDs in student chat responses', async () => {
     const message = {

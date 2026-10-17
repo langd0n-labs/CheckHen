@@ -2,6 +2,7 @@ import { Server, Socket } from "socket.io";
 import { PrismaClient } from "@prisma/client";
 import cron from "node-cron";
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { purposeKey } from "./keys";
 
 const prisma = new PrismaClient(); // Initialize Prisma client for database operations
 
@@ -24,22 +25,27 @@ io.use(async (socket, next) => {
   try {
     const ticket = socket.handshake.auth.ticket;
     const [payload, signature] = typeof ticket === 'string' ? ticket.split('.') : [];
-    const secret = process.env.AUTH_SECRET;
-    if (!payload || !signature || !secret) throw new Error('Missing socket ticket');
-    const expected = createHmac('sha256', secret).update(payload).digest('base64url');
+    if (!payload || !signature) throw new Error('Missing socket ticket');
+    // The ticket names its type; each type has its own key, so one cannot pass as another.
+    const claimed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    const key = claimed?.typ === 'projection' ? purposeKey('projection-ticket')
+      : claimed?.typ === 'socket' ? purposeKey('socket-ticket') : null;
+    if (!key) throw new Error('Unknown ticket type');
+    const expected = createHmac('sha256', key).update(payload).digest('base64url');
     const a = Buffer.from(signature);
     const b = Buffer.from(expected);
     if (a.length !== b.length || !timingSafeEqual(a, b)) throw new Error('Invalid ticket');
-    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    const data = claimed;
     if (typeof data.expires !== 'number' || data.expires < Date.now() ||
         typeof data.courseId !== 'string' || typeof data.classId !== 'string' ||
-        (data.projection !== true &&
+        (data.typ === 'projection' && data.projection !== true) ||
+        (data.typ === 'socket' &&
           (typeof data.userId !== 'string' || typeof data.admin !== 'boolean'))) throw new Error('Expired ticket');
     const selected = await prisma.class.findFirst({
       where: { id: data.classId, courseId: data.courseId },
     });
     if (!selected) throw new Error('Unknown class session');
-    if (data.projection !== true) {
+    if (data.typ === 'socket') {
       const user = await prisma.user.findUnique({ where: { id: data.userId } });
       if (!user) throw new Error('Unknown user');
       if (!data.admin) {
@@ -51,15 +57,17 @@ io.use(async (socket, next) => {
     }
     socket.data.courseId = data.courseId;
     socket.data.classId = data.classId;
-    socket.data.userId = data.userId;
-    socket.data.admin = data.admin === true || data.projection === true;
+    // A projection socket only receives refresh notices; it is not an instructor.
+    socket.data.projection = data.typ === 'projection';
+    socket.data.userId = data.typ === 'socket' ? data.userId : undefined;
+    socket.data.admin = data.typ === 'socket' && data.admin === true;
     next();
   } catch { next(new Error('Socket authentication failed')); }
 });
 
 // Auto-start scheduled classes every minute
 cron.schedule("* * * * *", async () => {
-  const secret = process.env.AUTH_SECRET;
+  const secret = purposeKey("session-expiry");
   if (secret) {
     const body = JSON.stringify({ timestamp: Date.now() });
     const signature = createHmac('sha256', secret).update(body).digest('hex');

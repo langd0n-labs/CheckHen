@@ -33,6 +33,7 @@ const writes = new Set([
   'hide-chat',
   'unhide-chat',
   'mute-student',
+  'revoke-projection',
 ]);
 
 export function participationHandler(action: string, adminOnly = false) {
@@ -238,6 +239,10 @@ export function participationHandler(action: string, adminOnly = false) {
       }
       if (!state.mutedUsers?.includes(targetId)) await append('STUDENT_MUTED', {}, targetId);
       return res.json({ message: 'Student muted' });
+    }
+    if (action === 'revoke-projection') {
+      await append('PROJECTION_REVOKED', {}, null);
+      return res.json({ message: 'Projection links revoked' });
     }
     if (action === 'reset-pace-signals') {
       await append('PACE_RESET', {}, null);

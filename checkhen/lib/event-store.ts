@@ -26,6 +26,7 @@ const kinds: EventKind[] = [
   'COLD_CALL',
   'COLD_CALL_DRAWN',
   'COLD_CALL_EXCUSED',
+  'PROJECTION_REVOKED',
   'UNDO',
 ];
 type AppendInput = EventScope & {
