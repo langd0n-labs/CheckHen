@@ -1,14 +1,24 @@
 # Hosted mode: one local origin for the app and its socket server. A Cloudflare
 # Tunnel (or any reverse proxy) publishes this origin; nothing here listens publicly.
 
-# Behind the tunnel every request comes from cloudflared; Cloudflare names the client.
+# Behind the tunnel every request comes from cloudflared on loopback, and Cloudflare
+# names the client in CF-Connecting-IP. Any other peer is its own client: its header is
+# ignored, so it cannot choose its own key.
+map $remote_addr $checkhen_from_tunnel {
+    127.0.0.1 1;
+    ::1 1;
+    default 0;
+}
+map "$checkhen_from_tunnel:$http_cf_connecting_ip" $checkhen_client_ip {
+    "~^1:(?<address>.+)$" $address;
+    default $remote_addr;
+}
 # One IPv6 client usually holds a whole /64, so the /64 is the key: the first four
 # groups when written out, or everything before "::" when the address is shorter.
-map $http_cf_connecting_ip $checkhen_client {
-    "" $binary_remote_addr;
+map $checkhen_client_ip $checkhen_client {
     "~^(?<prefix>[0-9a-fA-F]{1,4}:[0-9a-fA-F]{1,4}:[0-9a-fA-F]{1,4}:[0-9a-fA-F]{1,4}):" $prefix;
     "~^(?<prefix>[0-9a-fA-F:]*?)::" $prefix;
-    default $http_cf_connecting_ip;
+    default $checkhen_client_ip;
 }
 # Per-client limits come from the environment (docker-compose.yml sets the demo's
 # values). Behind a campus NAT or one IPv6 /64, a whole class is one client.
@@ -39,6 +49,7 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
+        proxy_set_header x-middleware-subrequest "";
         proxy_read_timeout 120s;
     }
 
@@ -52,12 +63,21 @@ server {
         add_header Referrer-Policy no-referrer always;
     }
 
+    # Callbacks from the socket server and the classroom agent reach the app directly.
+    location /api/internal/ {
+        return 404;
+    }
+
     location /api/ {
         limit_req zone=checkhen_api burst=${PROXY_API_BURST} nodelay;
         proxy_pass http://127.0.0.1:${APP_PORT};
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $remote_addr;
+        # The app's one client address; set here, so a client cannot supply it.
+        proxy_set_header X-CheckHen-Client $checkhen_client_ip;
+        # Only the app itself may send this Next.js internal header.
+        proxy_set_header x-middleware-subrequest "";
         proxy_set_header X-Forwarded-Proto ${HOSTED_FORWARDED_PROTO};
     }
 
@@ -66,6 +86,10 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $remote_addr;
+        # The app's one client address; set here, so a client cannot supply it.
+        proxy_set_header X-CheckHen-Client $checkhen_client_ip;
+        # Only the app itself may send this Next.js internal header.
+        proxy_set_header x-middleware-subrequest "";
         # Set, not copied: a client's own header must not decide the scheme.
         proxy_set_header X-Forwarded-Proto ${HOSTED_FORWARDED_PROTO};
     }
