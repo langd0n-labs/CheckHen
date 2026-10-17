@@ -139,13 +139,69 @@ export function asEvent(
   };
 }
 
+const ORDER = [{ createdAt: 'asc' as const }, { id: 'asc' as const }];
+
+/**
+ * Every poll reads its session's log. Each database client keeps the logs it has read,
+ * so a read fetches only events after the last one it holds. appendEvent and session
+ * expiry give each new event a later createdAt than every event before it in its
+ * session, so nothing is missed. A full reload each minute is a backstop.
+ */
+const FULL_RELOAD_MS = 60_000;
+// Events held across all sessions; the session read longest ago goes first.
+const MAX_CACHED_EVENTS = 200_000;
+type CachedLog = { events: ParticipationEvent[]; loadedAt: number };
+type LogCache = { logs: Map<string, CachedLog>; size: number };
+const caches = new WeakMap<object, LogCache>();
+
+function cacheEnabled() {
+  // Unit tests reuse one mocked client and one session across tests.
+  return process.env.NODE_ENV !== 'test' || process.env.CHECKHEN_EVENT_CACHE === '1';
+}
+
 export async function readEvents(db: PrismaClient, scope: EventScope) {
-  return (
-    await db.participationEvent.findMany({
-      where: scope,
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    })
-  ).map(asEvent);
+  const full = async () =>
+    (await db.participationEvent.findMany({ where: scope, orderBy: ORDER })).map(asEvent);
+  if (!cacheEnabled()) return full();
+  let cache = caches.get(db);
+  if (!cache) {
+    cache = { logs: new Map(), size: 0 };
+    caches.set(db, cache);
+  }
+  const key = `${scope.courseId}:${scope.classId}`;
+  const now = Date.now();
+  const held = cache.logs.get(key);
+  const last = held?.events.at(-1);
+  let log: CachedLog;
+  if (!held || !last || now - held.loadedAt >= FULL_RELOAD_MS) {
+    log = { events: await full(), loadedAt: now };
+  } else {
+    const newer = (
+      await db.participationEvent.findMany({
+        where: {
+          ...scope,
+          OR: [
+            { createdAt: { gt: last.createdAt } },
+            { createdAt: last.createdAt, id: { gt: last.id } },
+          ],
+        },
+        orderBy: ORDER,
+      })
+    ).map(asEvent);
+    log = newer.length ? { events: held.events.concat(newer), loadedAt: held.loadedAt } : held;
+  }
+  if (held) {
+    cache.size -= held.events.length;
+    cache.logs.delete(key);
+  }
+  cache.logs.set(key, log);
+  cache.size += log.events.length;
+  while (cache.size > MAX_CACHED_EVENTS && cache.logs.size > 1) {
+    const [oldest, evicted] = cache.logs.entries().next().value!;
+    cache.logs.delete(oldest);
+    cache.size -= evicted.events.length;
+  }
+  return log.events.slice();
 }
 
 export async function readState(db: PrismaClient, scope: EventScope) {
