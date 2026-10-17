@@ -1,5 +1,5 @@
 diff --git a/dist/lib/helpers/get-registry.js b/dist/lib/helpers/get-registry.js
-index 1d793074fc7efda458c3eded4c4519572c151bb6..51854b34064958bb1c16f650f4d3013f9a8c73ca 100644
+index f73bf73a2222b70071c3f452d3f89a8860bcb7f0..e5705d4bd1f5935043e93afb0dc13ce8ce045afe 100644
 --- a/dist/lib/helpers/get-registry.js
 +++ b/dist/lib/helpers/get-registry.js
 @@ -21,7 +21,7 @@ function getRegistry(baseDir = process.cwd()) {
