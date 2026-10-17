@@ -3,6 +3,8 @@ import { appendEvent, readState } from '@/lib/event-store';
 import { prisma } from '@/lib/prisma';
 import { requireScope } from '@/lib/request-scope';
 import handler from '@/pages/api/student/send-pace-signal';
+import { EventBudgetError } from '@/lib/event-budget';
+import { resetWriteLimits } from '@/lib/write-limits';
 
 jest.mock('@/lib/request-scope', () => ({ requireScope: jest.fn() }));
 jest.mock('@/lib/event-store', () => ({ appendEvent: jest.fn(), readState: jest.fn() }));
@@ -17,7 +19,7 @@ const state = {
   messages: [],
   endedAt: null,
 };
-const invoke = async (body: Record<string, unknown>, method: 'GET' | 'POST' = 'POST', currentState = state) => {
+const invoke = async (body: Record<string, unknown>, method: 'GET' | 'POST' = 'POST', currentState: Record<string, unknown> = state) => {
   (readState as jest.Mock).mockResolvedValue(currentState);
   const { req, res } = createMocks({ method, body, query: scope });
   await handler(req as any, res as any);
@@ -25,6 +27,7 @@ const invoke = async (body: Record<string, unknown>, method: 'GET' | 'POST' = 'P
 };
 beforeEach(() => {
   jest.clearAllMocks();
+  resetWriteLimits();
   (requireScope as jest.Mock).mockResolvedValue({ scope, user, selected, admin: false });
   (appendEvent as jest.Mock).mockResolvedValue({ id: 'event-1', createdAt: new Date() });
 });
@@ -56,6 +59,30 @@ describe('POST /api/student/send-pace-signal', () => {
         payload: { signalType: 'slow_down' },
       })
     );
+  });
+  it('does not write a repeat of the student\'s current signal', async () => {
+    const current = { ...state, pace: [{ userId: user.id, signalType: 'slow_down', createdAt: new Date() }] };
+    expect((await invoke({ signalType: 'slow_down' }, 'POST', current))._getStatusCode()).toBe(200);
+    expect(appendEvent).not.toHaveBeenCalled();
+    expect((await invoke({ signalType: 'ready_to_move_on' }, 'POST', current))._getStatusCode()).toBe(200);
+    expect(appendEvent).toHaveBeenCalledTimes(1);
+  });
+  it('writes the same signal again once the earlier one is older than five minutes', async () => {
+    const old = { ...state, pace: [{ userId: user.id, signalType: 'slow_down', createdAt: new Date(Date.now() - 301000) }] };
+    expect((await invoke({ signalType: 'slow_down' }, 'POST', old))._getStatusCode()).toBe(200);
+    expect(appendEvent).toHaveBeenCalledTimes(1);
+  });
+  it('refuses a student past the per-minute limit with 429', async () => {
+    for (let i = 0; i < 30; i += 1) await invoke({ signalType: i % 2 ? 'slow_down' : 'ready_to_move_on' });
+    const res = await invoke({ signalType: 'slow_down' });
+    expect(res._getStatusCode()).toBe(429);
+    expect(res.getHeader('Retry-After')).toBe('60');
+  });
+  it('answers 429 when the session has reached its event budget', async () => {
+    (appendEvent as jest.Mock).mockRejectedValue(new EventBudgetError('This class session has reached its activity limit'));
+    const res = await invoke({ signalType: 'slow_down' });
+    expect(res._getStatusCode()).toBe(429);
+    expect(res._getJSONData().message).toMatch(/activity limit/);
   });
   it('records a ready-to-move-on signal', async () => {
     expect((await invoke({ signalType: 'ready_to_move_on' }))._getStatusCode()).toBe(200);

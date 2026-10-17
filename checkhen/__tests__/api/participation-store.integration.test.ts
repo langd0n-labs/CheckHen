@@ -1,6 +1,7 @@
 /** @jest-environment node */
 import { createHmac, randomUUID } from 'node:crypto';
 import { createMocks } from 'node-mocks-http';
+import { EventBudgetError } from '@/lib/event-budget';
 import { appendEvent, readEvents, readState } from '@/lib/event-store';
 import { examAgent, recordExamFail, releaseExamNetwork } from '@/lib/exam-control';
 import {
@@ -133,6 +134,27 @@ integration('route → store → attendance fold', () => {
       'CHECK_OUT',
     ]);
     expect((await readState(prisma, scope)).attendance[0].isPresent).toBe(false);
+  });
+
+  it('refuses student events past the session budget but keeps instructor events', async () => {
+    process.env.CHECKHEN_SESSION_EVENT_BUDGET = '3';
+    try {
+      const own = { ...scope, actorId: user.id, userId: user.id };
+      await appendEvent(prisma, { ...own, kind: 'CHECK_IN', payload: { anonymousName: 'Calm Fox' } });
+      await appendEvent(prisma, { ...own, kind: 'HAND_RAISED', payload: {} });
+      await appendEvent(prisma, { ...own, kind: 'PACE_SIGNAL', payload: { signalType: 'slow_down' } });
+      await expect(
+        appendEvent(prisma, { ...own, kind: 'PACE_SIGNAL', payload: { signalType: 'ready_to_move_on' } })
+      ).rejects.toBeInstanceOf(EventBudgetError);
+      const instructor = await prisma.user.create({ data: { email: `instructor-${randomUUID()}@example.edu` } });
+      await appendEvent(prisma, { ...scope, actorId: instructor.id, userId: user.id, kind: 'STUDENT_MUTED', payload: {} });
+      await appendEvent(prisma, { ...scope, actorId: instructor.id, userId: null, kind: 'SESSION_ENDED', payload: {} });
+      expect((await readEvents(prisma, scope)).map((event) => event.kind)).toEqual([
+        'CHECK_IN', 'HAND_RAISED', 'PACE_SIGNAL', 'STUDENT_MUTED', 'SESSION_ENDED',
+      ]);
+    } finally {
+      delete process.env.CHECKHEN_SESSION_EVENT_BUDGET;
+    }
   });
 
   it('records checkout and session end when duration lapses', async () => {

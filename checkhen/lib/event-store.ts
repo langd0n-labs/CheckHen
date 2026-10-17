@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { generateUniqueAnonymousName } from './anonymousNames';
+import { EventBudgetError, sessionEventBudget } from './event-budget';
 import { effectiveEvents, EventKind, EventScope, foldEvents, ParticipationEvent } from './events';
 
 const kinds: EventKind[] = [
@@ -159,6 +160,16 @@ export async function appendEvent(db: PrismaClient, input: AppendInput) {
       SELECT "id" FROM "Class" WHERE "id" = ${input.classId} AND "courseId" = ${input.courseId} FOR UPDATE
     `;
     if (!sessions.length) throw new Error('Unknown course/session');
+    // Only events a student writes for themself count against the budget, so the
+    // instructor can always correct, moderate, and end the session.
+    if (input.userId && input.actorId === input.userId) {
+      const written = await tx.participationEvent.count({
+        where: { courseId: input.courseId, classId: input.classId },
+      });
+      if (written >= sessionEventBudget()) {
+        throw new EventBudgetError('This class session has reached its activity limit');
+      }
+    }
     if (input.guard) {
       await input.guard(tx);
     }
