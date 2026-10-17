@@ -19,6 +19,8 @@ function connect() {
   stop = followChat({ server: props.server, ticket: props.ticket, connectSocket: io, fetchImpl: fetch,
     onMessages: value => { messages.value = value; error.value = '' },
     onError: failure => {
+      // An expired ticket clears the chat; an unreachable server keeps what was shown.
+      if (failure.kind === 'expired') messages.value = []
       error.value = failure.kind === 'expired'
         ? 'Chat access expired. Open the deck again from the dashboard.'
         : 'Chat unavailable'

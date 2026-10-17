@@ -15,23 +15,35 @@ export default function ProjectionPage() {
   useEffect(() => {
     if (typeof ticket !== 'string' || !ticket) return;
     let live = true;
+    // Only the newest request may change what the room sees.
+    let latest = 0;
     const refresh = async () => {
+      const request = ++latest;
       try {
         const response = await fetch(`/api/projection/chat?ticket=${encodeURIComponent(ticket)}`);
-        if (!response.ok) throw new Error('Projection access expired');
+        if (!live || request !== latest) return;
+        if (response.status === 401 || response.status === 403) {
+          // A refused ticket never works again: clear the chat and stop asking.
+          stop();
+          setMessages([]);
+          setError('Projection access expired. Open a new projection from the instructor dashboard.');
+          return;
+        }
+        if (!response.ok) throw new Error('Chat unavailable');
         const result = await response.json();
-        if (live) { setMessages(result.messages); setError(''); }
+        if (live && request === latest) { setMessages(result.messages); setError(''); }
       } catch {
-        if (live) setError('Projection access expired. Open a new projection from the instructor dashboard.');
+        if (live && request === latest) setError('Chat unavailable');
       }
     };
-    void refresh();
     const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL ?? 'http://localhost:6060';
     const socket = io(socketUrl || undefined, { auth: { ticket } });
-    socket.on('fetch-messages', refresh);
     // Socket notifications bring new messages at once; the poll is only a fallback.
     const timer = window.setInterval(refresh, 5000);
-    return () => { live = false; window.clearInterval(timer); socket.disconnect(); };
+    const stop = () => { live = false; window.clearInterval(timer); socket.disconnect(); };
+    socket.on('fetch-messages', refresh);
+    void refresh();
+    return stop;
   }, [ticket]);
 
   return (
