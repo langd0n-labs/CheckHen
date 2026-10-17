@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { generateUniqueAnonymousName } from './anonymousNames';
+import { EventBudgetError, sessionEventBudget } from './event-budget';
 import { effectiveEvents, EventKind, EventScope, foldEvents, ParticipationEvent } from './events';
 
 const kinds: EventKind[] = [
@@ -179,6 +180,24 @@ export async function appendEvent(db: PrismaClient, input: AppendInput) {
   });
 }
 
+// A student can still leave or lower a hand at the budget; each needs a current
+// check-in, device, or raised hand, so these cannot repeat without bound.
+const UNBUDGETED_KINDS: string[] = ['CHECK_OUT', 'DEVICE_UNBOUND', 'HAND_LOWERED'];
+
+/**
+ * Only events a student writes for themself count against the budget, so the
+ * instructor can always correct, moderate, and end the session.
+ */
+async function checkBudget(tx: Prisma.TransactionClient, input: AppendInput, kind: string) {
+  if (!input.userId || input.actorId !== input.userId || UNBUDGETED_KINDS.includes(kind)) return;
+  const written = await tx.participationEvent.count({
+    where: { courseId: input.courseId, classId: input.classId },
+  });
+  if (written >= sessionEventBudget()) {
+    throw new EventBudgetError('This class session has reached its activity limit');
+  }
+}
+
 /** Validate and write one event. The caller holds the session lock. */
 async function writeEvent(tx: Prisma.TransactionClient, input: AppendInput) {
   let kind = input.kind;
@@ -298,6 +317,7 @@ async function writeEvent(tx: Prisma.TransactionClient, input: AppendInput) {
       return asEvent(duplicate);
     }
   }
+  await checkBudget(tx, input, kind);
   const latest = await tx.participationEvent.findFirst({
     where: { courseId: input.courseId, classId: input.classId },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],

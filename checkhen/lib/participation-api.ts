@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { generateUniqueAnonymousName } from './anonymousNames';
 import { instructorChat, studentChat } from './chat-view';
+import { EventBudgetError } from './event-budget';
 import { appendEvent, readState } from './event-store';
 import type { EventKind } from './events';
 import { examAgent, releaseExamNetwork } from './exam-control';
@@ -16,6 +17,7 @@ import {
 import type { DeviceBinding } from './portal-binding';
 import { prisma } from './prisma';
 import { isInstructor, requireScope } from './request-scope';
+import { allowStudentWrite } from './write-limits';
 
 const writes = new Set([
   'check-in',
@@ -35,12 +37,25 @@ const writes = new Set([
 
 export function participationHandler(action: string, adminOnly = false) {
   return async function handler(req: NextApiRequest, res: NextApiResponse) {
+    try {
+      return await participate(req, res);
+    } catch (error) {
+      if (!(error instanceof EventBudgetError)) throw error;
+      return res.status(429).json({ message: error.message });
+    }
+  };
+
+  async function participate(req: NextApiRequest, res: NextApiResponse) {
     if (req.method !== (writes.has(action) ? 'POST' : 'GET')) {
       return res.status(405).json({ message: 'Method Not Allowed' });
     }
     const context = await requireScope(req, res, adminOnly);
     if (!context) return;
     const { scope, user, selected } = context;
+    if (!adminOnly && writes.has(action) && !allowStudentWrite(user.id, action)) {
+      res.setHeader('Retry-After', '60');
+      return res.status(429).json({ message: 'Too many requests. Wait a minute, then try again.' });
+    }
     const state = await readState(prisma, scope);
     const active =
       !state.endedAt && selected.createdAt.getTime() + selected.duration * 60000 > Date.now();
@@ -154,7 +169,16 @@ export function participationHandler(action: string, adminOnly = false) {
       const signalType = req.body?.signalType;
       if (!['slow_down', 'ready_to_move_on'].includes(signalType))
         return res.status(400).json({ message: 'Invalid signal type' });
-      await append('PACE_SIGNAL', { signalType });
+      // The counts keep each student's latest signal for five minutes. A repeat of the
+      // current signal only extends that, so it is written at most once a minute.
+      const current = pace.find((entry) => entry.userId === user.id);
+      if (
+        !current ||
+        current.signalType !== signalType ||
+        Date.now() - current.createdAt.getTime() >= 60_000
+      ) {
+        await append('PACE_SIGNAL', { signalType });
+      }
       return res.json({ message: 'Pace signal recorded', signalType });
     }
     if (action === 'send-chat') {
@@ -348,5 +372,5 @@ export function participationHandler(action: string, adminOnly = false) {
       );
     }
     return res.status(404).json({ message: 'Unknown action' });
-  };
+  }
 }
