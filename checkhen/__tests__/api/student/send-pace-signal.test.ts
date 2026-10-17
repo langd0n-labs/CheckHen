@@ -67,8 +67,8 @@ describe('POST /api/student/send-pace-signal', () => {
     expect((await invoke({ signalType: 'ready_to_move_on' }, 'POST', current))._getStatusCode()).toBe(200);
     expect(appendEvent).toHaveBeenCalledTimes(1);
   });
-  it('writes the same signal again once the earlier one is older than five minutes', async () => {
-    const old = { ...state, pace: [{ userId: user.id, signalType: 'slow_down', createdAt: new Date(Date.now() - 301000) }] };
+  it('writes a repeat after a minute, so the signal stays current', async () => {
+    const old = { ...state, pace: [{ userId: user.id, signalType: 'slow_down', createdAt: new Date(Date.now() - 61000) }] };
     expect((await invoke({ signalType: 'slow_down' }, 'POST', old))._getStatusCode()).toBe(200);
     expect(appendEvent).toHaveBeenCalledTimes(1);
   });

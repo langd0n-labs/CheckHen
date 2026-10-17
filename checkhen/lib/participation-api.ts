@@ -169,10 +169,16 @@ export function participationHandler(action: string, adminOnly = false) {
       const signalType = req.body?.signalType;
       if (!['slow_down', 'ready_to_move_on'].includes(signalType))
         return res.status(400).json({ message: 'Invalid signal type' });
-      // The counts keep one signal per student for five minutes, so a repeat of the
-      // student's current signal changes nothing and is not written.
+      // The counts keep each student's latest signal for five minutes. A repeat of the
+      // current signal only extends that, so it is written at most once a minute.
       const current = pace.find((entry) => entry.userId === user.id);
-      if (current?.signalType !== signalType) await append('PACE_SIGNAL', { signalType });
+      if (
+        !current ||
+        current.signalType !== signalType ||
+        Date.now() - current.createdAt.getTime() >= 60_000
+      ) {
+        await append('PACE_SIGNAL', { signalType });
+      }
       return res.json({ message: 'Pace signal recorded', signalType });
     }
     if (action === 'send-chat') {

@@ -160,16 +160,6 @@ export async function appendEvent(db: PrismaClient, input: AppendInput) {
       SELECT "id" FROM "Class" WHERE "id" = ${input.classId} AND "courseId" = ${input.courseId} FOR UPDATE
     `;
     if (!sessions.length) throw new Error('Unknown course/session');
-    // Only events a student writes for themself count against the budget, so the
-    // instructor can always correct, moderate, and end the session.
-    if (input.userId && input.actorId === input.userId) {
-      const written = await tx.participationEvent.count({
-        where: { courseId: input.courseId, classId: input.classId },
-      });
-      if (written >= sessionEventBudget()) {
-        throw new EventBudgetError('This class session has reached its activity limit');
-      }
-    }
     if (input.guard) {
       await input.guard(tx);
     }
@@ -188,6 +178,24 @@ export async function appendEvent(db: PrismaClient, input: AppendInput) {
     }
     return event;
   });
+}
+
+// A student can still leave or lower a hand at the budget; each needs a current
+// check-in, device, or raised hand, so these cannot repeat without bound.
+const UNBUDGETED_KINDS: string[] = ['CHECK_OUT', 'DEVICE_UNBOUND', 'HAND_LOWERED'];
+
+/**
+ * Only events a student writes for themself count against the budget, so the
+ * instructor can always correct, moderate, and end the session.
+ */
+async function checkBudget(tx: Prisma.TransactionClient, input: AppendInput, kind: string) {
+  if (!input.userId || input.actorId !== input.userId || UNBUDGETED_KINDS.includes(kind)) return;
+  const written = await tx.participationEvent.count({
+    where: { courseId: input.courseId, classId: input.classId },
+  });
+  if (written >= sessionEventBudget()) {
+    throw new EventBudgetError('This class session has reached its activity limit');
+  }
 }
 
 /** Validate and write one event. The caller holds the session lock. */
@@ -309,6 +317,7 @@ async function writeEvent(tx: Prisma.TransactionClient, input: AppendInput) {
       return asEvent(duplicate);
     }
   }
+  await checkBudget(tx, input, kind);
   const latest = await tx.participationEvent.findFirst({
     where: { courseId: input.courseId, classId: input.classId },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],

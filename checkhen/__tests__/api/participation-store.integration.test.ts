@@ -148,9 +148,14 @@ integration('route → store → attendance fold', () => {
       ).rejects.toBeInstanceOf(EventBudgetError);
       const instructor = await prisma.user.create({ data: { email: `instructor-${randomUUID()}@example.edu` } });
       await appendEvent(prisma, { ...scope, actorId: instructor.id, userId: user.id, kind: 'STUDENT_MUTED', payload: {} });
+      // A repeated check-in adds nothing, and leaving still works at the budget.
+      await appendEvent(prisma, { ...own, kind: 'CHECK_IN', payload: { anonymousName: 'Calm Fox' } });
+      const hand = (await readState(prisma, scope)).hands[0];
+      await appendEvent(prisma, { ...own, kind: 'HAND_LOWERED', payload: { handRaiseId: hand.id } });
+      await appendEvent(prisma, { ...own, kind: 'CHECK_OUT', payload: {} });
       await appendEvent(prisma, { ...scope, actorId: instructor.id, userId: null, kind: 'SESSION_ENDED', payload: {} });
       expect((await readEvents(prisma, scope)).map((event) => event.kind)).toEqual([
-        'CHECK_IN', 'HAND_RAISED', 'PACE_SIGNAL', 'STUDENT_MUTED', 'SESSION_ENDED',
+        'CHECK_IN', 'HAND_RAISED', 'PACE_SIGNAL', 'STUDENT_MUTED', 'HAND_LOWERED', 'CHECK_OUT', 'SESSION_ENDED',
       ]);
     } finally {
       delete process.env.CHECKHEN_SESSION_EVENT_BUDGET;
