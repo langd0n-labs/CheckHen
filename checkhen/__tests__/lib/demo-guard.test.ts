@@ -27,7 +27,7 @@ jest.mock('next-auth', () => ({ getServerSession: jest.fn() }));
 jest.mock('@/pages/api/auth/[...nextauth]', () => ({ authOptions: {} }));
 
 const request = (method = 'POST', ip = '203.0.113.5', body: Record<string, unknown> = {}) =>
-  createMocks({ method: method as any, headers: { 'cf-connecting-ip': ip }, body });
+  createMocks({ method: method as any, headers: { 'x-checkhen-client': ip }, body });
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -232,6 +232,12 @@ it('does not let one client use up the shared limit', async () => {
     await gate('POST', '203.0.113.5', 'reset');
   }
   expect((await gate('POST', '198.51.100.7', 'reset')).allowed).toBe(true);
+});
+
+it('keys a client by the proxy header, not by a header the client sends', () => {
+  const { req } = createMocks({ method: 'POST', headers: { 'cf-connecting-ip': '198.51.100.7', 'x-forwarded-for': '198.51.100.8' } });
+  (req as any).socket = { remoteAddress: '127.0.0.1' };
+  expect(clientKey(req as any)).toBe('127.0.0.1');
 });
 
 it('keys an IPv6 client by its /64', async () => {
