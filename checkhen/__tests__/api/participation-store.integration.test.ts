@@ -41,6 +41,8 @@ jest.mock('@/lib/exam-control', () => ({
   releaseExamNetwork: jest.fn().mockResolvedValue(undefined),
 }));
 
+// Each test reads its own new session, so the store's log cache runs as in production.
+process.env.CHECKHEN_EVENT_CACHE = '1';
 const integration = process.env.CHECKHEN_INTEGRATION === '1' ? describe : describe.skip;
 integration('route → store → attendance fold', () => {
   let user: { id: string; email: string };
