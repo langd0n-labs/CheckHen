@@ -204,3 +204,12 @@ it('keeps every fail, across exams and after an exam ends (M5 findings 3 and 11)
     expect.objectContaining({ id: '07', examId: 'exam-2', excused: false }),
   ]);
 });
+
+it('raises the projection generation once for each effective revocation', () => {
+  const at = (e: ParticipationEvent, ms: number) => ({ ...e, userId: null, createdAt: new Date(ms) });
+  const revoked = [at(event('01', 'PROJECTION_REVOKED'), 1000), at(event('02', 'PROJECTION_REVOKED'), 2000)];
+  expect(foldEvents([], scope).projectionGeneration).toBe(0);
+  expect(foldEvents(revoked, scope).projectionGeneration).toBe(2);
+  const undone = [...revoked, at(event('03', 'UNDO', {}, '02'), 3000)];
+  expect(foldEvents(undone, scope).projectionGeneration).toBe(1);
+});

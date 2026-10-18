@@ -28,9 +28,10 @@ export default function ProjectionHelp() {
                 </List.Item>
                 <List.Item>Cold-call draws and their outcomes never appear.</List.Item>
                 <List.Item>
-                  Access lasts until the class&apos;s scheduled end, or four hours at most. Ending
-                  the class early does not close it, so close the window yourself. If the window
-                  says its access expired, open it again from the dashboard.
+                  Access lasts until the class ends, or four hours at most. Choose Revoke
+                  projection links on the dashboard to stop every open window and deck; each
+                  clears its chat within a few seconds. To show chat again, open the projection
+                  again from the dashboard.
                 </List.Item>
               </List>
             </>

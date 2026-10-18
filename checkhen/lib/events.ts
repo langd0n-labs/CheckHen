@@ -21,6 +21,7 @@ export type EventKind =
   | 'COLD_CALL'
   | 'COLD_CALL_DRAWN'
   | 'COLD_CALL_EXCUSED'
+  | 'PROJECTION_REVOKED'
   | 'UNDO';
 
 export type ParticipationEvent = {
@@ -143,6 +144,8 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
     active: boolean;
   } | null = null;
   let endedAt: Date | null = null;
+  // Each revocation of the projection links refuses every ticket minted before it.
+  let projectionGeneration = 0;
   const byId = new Map(
     events
       .filter((e) => e.courseId === scope.courseId && e.classId === scope.classId)
@@ -278,6 +281,8 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
           excused: true,
           reason: String(payload.reason),
         });
+    } else if (event.kind === 'PROJECTION_REVOKED') {
+      projectionGeneration += 1;
     } else if (event.kind === 'SESSION_ENDED') {
       endedAt = createdAt;
       for (const [student, entry] of Array.from(attendance.entries())) {
@@ -306,5 +311,6 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
       (a, b) => a.createdAt.getTime() - b.createdAt.getTime()
     ),
     endedAt,
+    projectionGeneration,
   };
 }

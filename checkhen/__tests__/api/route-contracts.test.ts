@@ -37,6 +37,7 @@ const instructorMethod = (name: string) =>
     'projection-ticket',
     'rate-hand-raise',
     'reset-pace-signals',
+    'revoke-projection',
     'start-new-class',
   ].some((action) => name === `admin/${action}.ts`)
     ? 'POST'

@@ -11,24 +11,34 @@ export function followChat({ server, ticket, connectSocket, fetchImpl, onMessage
   interval = setInterval, clear = clearInterval }) {
   if (!server || !ticket) throw new Error('CheckHen server and projection ticket are required');
   let active = true;
+  // Only the newest request may report; a refused ticket never works again, so the
+  // feed stops after one.
+  let latest = 0;
   const endpoint = `${server.replace(/\/$/, '')}/api/projection/chat?ticket=${encodeURIComponent(ticket)}`;
   const refresh = async () => {
+    const request = ++latest;
     try {
       const response = await fetchImpl(endpoint);
-      if (response.status === 401 || response.status === 403)
-        throw new ChatFeedError('expired', 'Projection access expired');
+      if (!active || request !== latest) return;
+      if (response.status === 401 || response.status === 403) {
+        stop();
+        onError(new ChatFeedError('expired', 'Projection access expired'));
+        return;
+      }
       if (!response.ok) throw new ChatFeedError('unavailable', `Chat server returned ${response.status}`);
       const result = await response.json();
-      if (active) onMessages(result.messages.map(({ id, message, anonymousName, createdAt }) =>
+      if (active && request === latest) onMessages(result.messages.map(({ id, message, anonymousName, createdAt }) =>
         ({ id, message, anonymousName, createdAt })));
     } catch (error) {
-      if (active) onError(error instanceof ChatFeedError ? error : new ChatFeedError('unavailable', String(error)));
+      if (active && request === latest)
+        onError(error instanceof ChatFeedError ? error : new ChatFeedError('unavailable', String(error)));
     }
   };
-  void refresh();
   const socket = connectSocket(server, { auth: { ticket } });
-  socket.on('fetch-messages', refresh);
   // Socket notifications bring new messages at once; the poll is only a fallback.
   const timer = interval(refresh, 5000);
-  return () => { active = false; clear(timer); socket.disconnect(); };
+  const stop = () => { active = false; clear(timer); socket.disconnect(); };
+  socket.on('fetch-messages', refresh);
+  void refresh();
+  return stop;
 }

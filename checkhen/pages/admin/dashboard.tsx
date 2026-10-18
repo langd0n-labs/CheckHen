@@ -470,6 +470,17 @@ export default function AdminDashboard() {
     });
   };
 
+  // Every open projection window and deck stops showing chat; new links still work.
+  const revokeProjectionLinks = async () => {
+    if (!window.confirm('Stop every open projection window and deck from showing chat?')) return;
+    const response = await fetch('/api/admin/revoke-projection', { method: 'POST' });
+    notifications.show(
+      response.ok
+        ? { title: 'Projection links revoked', message: 'Open the projection again to show chat.' }
+        : { title: 'Error', message: 'Could not revoke projection links', color: 'red' }
+    );
+  };
+
   // Fetch pace signals
   const fetchPaceSignals = async () => {
     const response = await fetch('/api/student/fetch-pace-signals');
@@ -1050,6 +1061,15 @@ export default function AdminDashboard() {
                     disabled={!currentClassId}
                   >
                     Copy Slidev token
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="subtle"
+                    color="red"
+                    onClick={revokeProjectionLinks}
+                    disabled={!currentClassId}
+                  >
+                    Revoke projection links
                   </Button>
                   <Anchor component={Link} href="/help/projection" size="xs">
                     What the room sees

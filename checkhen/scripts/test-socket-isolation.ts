@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { PrismaClient } from '@prisma/client';
 import { io } from 'socket.io-client';
 import { readState } from '../lib/event-store';
+import { purposeKey } from '../lib/keys';
 
 if (
   new URL(process.env.DATABASE_URL || 'postgresql://localhost/invalid').pathname !==
@@ -13,6 +14,8 @@ if (
 }
 const secret = process.env.TEST_AUTH_SECRET || '';
 if (!secret) throw new Error('Set a non-production TEST_AUTH_SECRET');
+const socketKey = purposeKey('socket-ticket', secret)!;
+const projectionKey = purposeKey('projection-ticket', secret)!;
 const db = new PrismaClient();
 async function main() {
   const heartbeatRequests: { body: string; signature: string | undefined }[] = [];
@@ -44,6 +47,7 @@ async function main() {
   const ticket = (courseId: string, classId: string) => {
     const payload = Buffer.from(
       JSON.stringify({
+        typ: 'socket',
         courseId,
         classId,
         userId: user.id,
@@ -51,25 +55,29 @@ async function main() {
         expires: Date.now() + 60000,
       })
     ).toString('base64url');
-    return payload + '.' + createHmac('sha256', secret).update(payload).digest('base64url');
+    return payload + '.' + createHmac('sha256', socketKey).update(payload).digest('base64url');
   };
   const url = process.env.TEST_SOCKET_URL || 'http://localhost:6061';
-  const first = io(url, { transports: ['websocket'], auth: { ticket: ticket(courseA.id, a.id) } });
+  // The classroom proxy names the device in X-Real-IP; exam heartbeats are credited to it.
+  const device = { extraHeaders: { 'x-real-ip': '172.16.77.20' } };
+  const first = io(url, { transports: ['websocket'], ...device, auth: { ticket: ticket(courseA.id, a.id) } });
   const second = io(url, { transports: ['websocket'], auth: { ticket: ticket(courseB.id, b.id) } });
   // The same student on a second device in the same session.
-  const twin = io(url, { transports: ['websocket'], auth: { ticket: ticket(courseA.id, a.id) } });
+  const twin = io(url, { transports: ['websocket'], ...device, auth: { ticket: ticket(courseA.id, a.id) } });
   const projectionPayload = Buffer.from(
     JSON.stringify({
+      typ: 'projection',
       courseId: courseA.id,
       classId: a.id,
       projection: true,
       expires: Date.now() + 60000,
+      generation: 0,
     })
   ).toString('base64url');
   const projectionTicket =
     projectionPayload +
     '.' +
-    createHmac('sha256', secret).update(projectionPayload).digest('base64url');
+    createHmac('sha256', projectionKey).update(projectionPayload).digest('base64url');
   const projection = io(url, { transports: ['websocket'], auth: { ticket: projectionTicket } });
   const connected = (socket: ReturnType<typeof io>) =>
     new Promise<void>((resolve, reject) => {
@@ -93,6 +101,8 @@ async function main() {
       courseId: courseA.id,
       classId: a.id,
       userId: user.id,
+      ip: '172.16.77.20',
+      action: 'exam-heartbeat',
       timestamp: JSON.parse(heartbeatRequests[0].body).timestamp,
     });
     assert.equal(
@@ -196,8 +206,22 @@ async function main() {
     });
     inactive.disconnect();
     assert.equal(rosterDenied, true);
+    // A ticket signed with AUTH_SECRET itself, not the socket-ticket key, is refused.
+    const rawPayload = Buffer.from(
+      JSON.stringify({ typ: 'socket', courseId: courseA.id, classId: a.id, userId: user.id,
+        admin: false, expires: Date.now() + 60000 })
+    ).toString('base64url');
+    const raw = io(url, { transports: ['websocket'], auth: {
+      ticket: rawPayload + '.' + createHmac('sha256', secret).update(rawPayload).digest('base64url'),
+    } });
+    const rawDenied = await new Promise<boolean>((resolve) => {
+      raw.once('connect_error', () => resolve(true));
+      raw.once('connect', () => resolve(false));
+    });
+    raw.disconnect();
+    assert.equal(rawDenied, true);
     console.log(
-      'PASS: persisted socket events, signed scoped exam heartbeat, anonymous projection hide latency, forged relay rejection, and roster isolation'
+      'PASS: persisted socket events, signed scoped exam heartbeat, anonymous projection hide latency, forged relay rejection, roster isolation, and per-purpose ticket keys'
     );
   } finally {
     first.disconnect();

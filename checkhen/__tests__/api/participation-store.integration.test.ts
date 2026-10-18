@@ -2,6 +2,7 @@
 import { createHmac, randomUUID } from 'node:crypto';
 import { createMocks } from 'node-mocks-http';
 import { EventBudgetError } from '@/lib/event-budget';
+import { purposeKey } from '@/lib/keys';
 import { appendEvent, readEvents, readState } from '@/lib/event-store';
 import { examAgent, recordExamFail, releaseExamNetwork } from '@/lib/exam-control';
 import {
@@ -435,7 +436,7 @@ integration('route → store → attendance fold', () => {
     const signed = (fields: Record<string, unknown>) => {
       const body = Buffer.from(JSON.stringify(fields)).toString('base64url');
       return (
-        body + '.' + createHmac('sha256', process.env.AUTH_SECRET!).update(body).digest('base64url')
+        body + '.' + createHmac('sha256', purposeKey('cold-call-draw')!).update(body).digest('base64url')
       );
     };
 

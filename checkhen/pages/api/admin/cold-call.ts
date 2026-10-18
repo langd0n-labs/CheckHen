@@ -24,6 +24,7 @@ import { effectiveEvents, foldEvents, type EventScope } from '@/lib/events';
 import { checkhenMode } from '@/lib/mode';
 import { prisma } from '@/lib/prisma';
 import { requireScope } from '@/lib/request-scope';
+import { purposeKey } from '@/lib/keys';
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -83,7 +84,7 @@ async function eligibleStudents(db: Db, scope: EventScope, requirePresent = true
 }
 
 function drawSecret() {
-  const secret = process.env.AUTH_SECRET;
+  const secret = purposeKey('cold-call-draw');
   if (!secret) {
     throw new Error('AUTH_SECRET is not configured');
   }
