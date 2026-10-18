@@ -7,6 +7,7 @@ import {
   GraduationCap,
   Hand,
   HelpCircle,
+  LayoutDashboard,
   LogOut,
   Send,
   TrendingDown,
@@ -35,7 +36,7 @@ import {
 import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { takesACourse } from '@/lib/course-roles';
-import { scopedFetch as fetch, selectedScope } from '@/lib/scoped-fetch';
+import { scopedFetch as fetch, selectedScope, selectScope } from '@/lib/scoped-fetch';
 import { getSocket } from '@/lib/socket';
 
 type UserInfo = {
@@ -97,13 +98,21 @@ export default function HomePage() {
     scrollToBottom();
   }, [messages]);
 
-  // Send an instructor to the dashboard, unless they also take a course here.
+  // Send an instructor to the dashboard, unless they also take a course here; then the
+  // header links to the courses they instruct.
+  const [alsoInstructs, setAlsoInstructs] = useState(false);
   useEffect(() => {
     if (status !== 'authenticated' || router.query.preview === 'true' || !isAdmin) return;
     void takesACourse().then((takes) => {
       if (!takes) router.push('/admin/dashboard');
+      else setAlsoInstructs(true);
     });
   }, [status, isAdmin, router]);
+  // The dashboard starts with no course selected, not the course this person takes.
+  const openDashboard = () => {
+    selectScope({});
+    router.push('/admin/dashboard');
+  };
 
   // Fetches the current user's information from the backend
   const fetchUser = async () => {
@@ -530,6 +539,17 @@ export default function HomePage() {
                 >
                   <HelpCircle size={20} />
                 </ActionIcon>
+                {alsoInstructs && (
+                  <ActionIcon
+                    variant="subtle"
+                    color="gray"
+                    size={44}
+                    aria-label="Courses you instruct"
+                    onClick={openDashboard}
+                  >
+                    <LayoutDashboard size={20} />
+                  </ActionIcon>
+                )}
                 <ActionIcon
                   variant="subtle"
                   color="gray"
@@ -561,6 +581,17 @@ export default function HomePage() {
                 >
                   Help
                 </Button>
+                {alsoInstructs && (
+                  <Button
+                    variant="subtle"
+                    color="gray"
+                    size="sm"
+                    leftSection={<LayoutDashboard size={16} />}
+                    onClick={openDashboard}
+                  >
+                    Courses you instruct
+                  </Button>
+                )}
                 <Button
                   variant="subtle"
                   color="gray"

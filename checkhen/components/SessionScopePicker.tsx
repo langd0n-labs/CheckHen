@@ -75,9 +75,9 @@ export function SessionScopePicker() {
         <Button size="xs" onClick={addCourse}>Create course</Button>
       </Group>}
       {instructorPage && takes.length > 0 &&
-        <Anchor component={Link} href="/join" size="sm">Courses you take</Anchor>}
+        <Anchor component={Link} href="/join" size="sm" onClick={() => selectScope({})}>Courses you take</Anchor>}
       {!instructorPage && takes.length > 0 && instructs.length > 0 &&
-        <Anchor component={Link} href="/admin/dashboard" size="sm">Courses you instruct</Anchor>}
+        <Anchor component={Link} href="/admin/dashboard" size="sm" onClick={() => selectScope({})}>Courses you instruct</Anchor>}
       {!courseId && <Text size="sm">Select a course to continue.</Text>}
     </Group>
   );
