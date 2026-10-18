@@ -22,7 +22,7 @@ const stored = { email: 'student@bu.edu', bio: 'Hello', foodAllergies: 'peanuts'
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (requireIdentity as jest.Mock).mockResolvedValue({ email: 'prof@bu.edu' });
+  (requireIdentity as jest.Mock).mockResolvedValue({ email: 'prof@bu.edu', deploymentInstructor: true });
   (nextAuth.getServerSession as jest.Mock).mockResolvedValue({ user: { email: stored.email } });
   (prisma.user.findUnique as jest.Mock).mockResolvedValue(stored);
 });

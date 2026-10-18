@@ -12,6 +12,9 @@ jest.mock('@/lib/request-scope', () => ({
   isInstructor: (email: string) => email === 'prof@bu.edu',
 }));
 jest.mock('../../pages/api/auth/[...nextauth]', () => ({ authOptions: {} }));
+jest.mock('@/lib/staff', () => ({
+  instructsAnyCourse: async (email: string) => email === 'prof@bu.edu',
+}));
 
 const view = (Page: ComponentType) =>
   render(

@@ -7,6 +7,7 @@ import handler from '@/pages/api/admin/fetch-check-ins';
 jest.mock('@/lib/request-scope', () => ({ requireScope: jest.fn(), isInstructor: jest.fn() }));
 jest.mock('@/lib/event-store', () => ({ readState: jest.fn() }));
 jest.mock('@/lib/prisma', () => ({ prisma: { user: { findMany: jest.fn() } } }));
+jest.mock('@/lib/staff', () => ({ courseStaffIds: jest.fn().mockResolvedValue(new Set()) }));
 const admin = { id: 'admin', email: 'prof@bu.edu' };
 const selected = { id: 'session-a', courseId: 'course-a', createdAt: new Date(), duration: 60 };
 const scope = { courseId: 'course-a', classId: 'session-a' };

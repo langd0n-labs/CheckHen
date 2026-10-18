@@ -14,7 +14,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.json({ courses: course ? [course] : [] });
     }
     const courses = await prisma.course.findMany({
-      where: identity.admin ? {} : { roster: { some: { userId: identity.user.id, active: true } } },
+      where: identity.deploymentInstructor
+        ? {}
+        : {
+            OR: [
+              { roster: { some: { userId: identity.user.id, active: true } } },
+              { staff: { some: { userId: identity.user.id } } },
+            ],
+          },
       orderBy: [{ name: 'asc' }, { id: 'asc' }],
     });
     return res.json({ courses });

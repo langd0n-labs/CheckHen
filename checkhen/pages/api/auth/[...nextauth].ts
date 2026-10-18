@@ -4,6 +4,7 @@ import GoogleProvider from 'next-auth/providers/google';
 import { DEMO_DOMAIN, isDemo } from '@/lib/demo';
 import { demoDatabaseRefusal } from '@/lib/demo-guard';
 import { isInstructor } from '@/lib/instructor';
+import { instructsAnyCourse } from '@/lib/staff';
 import { prisma } from '@/lib/prisma';
 
 /**
@@ -72,7 +73,9 @@ export const authOptions = {
     async jwt({ token, user }: any) {
       // Embed isAdmin into the JWT at sign-in so it's available on every request
       if (user?.email) {
-        token.isAdmin = isInstructor(user.email);
+        // Deployment instructors and course staff get the instructor screens; each
+        // route still checks the course a request names.
+        token.isAdmin = await instructsAnyCourse(user.email);
       }
       return token;
     },

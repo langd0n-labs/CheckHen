@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { isInstructor, requireIdentity } from '@/lib/request-scope';
 import { prisma } from '@/lib/prisma';
 import { readState } from '@/lib/event-store';
+import { courseStaffIds } from '@/lib/staff';
 
 type StudentSummary = {
   email: string;
@@ -117,9 +118,11 @@ export default async function handler(
       where: { id: { in: entries.map(entry => entry.userId) } },
       omit: { foodAllergies: true },
     });
+    const staff = await courseStaffIds(courseId);
     const checkIns = entries.flatMap(entry => {
       const user = users.find(candidate => candidate.id === entry.userId);
-      return user && !isInstructor(user.email) ? [{ ...entry, updatedAt: null, user }] : [];
+      return user && !isInstructor(user.email) && !staff.has(user.id)
+        ? [{ ...entry, updatedAt: null, user }] : [];
     });
     return {
       checkIns,
