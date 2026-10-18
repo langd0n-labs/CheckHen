@@ -11,7 +11,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // A demo deployment shows only the current demo course; earlier resets stay hidden.
     if (isDemo()) {
       const course = await currentDemoCourse(prisma);
-      return res.json({ courses: course ? [course] : [] });
+      const role = identity.deploymentInstructor ? 'instructor' : 'student';
+      return res.json({ courses: course ? [{ ...course, role }] : [], canCreate: false });
     }
     const courses = await prisma.course.findMany({
       where: identity.deploymentInstructor
@@ -22,12 +23,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               { staff: { some: { userId: identity.user.id } } },
             ],
           },
+      include: { staff: { where: { userId: identity.user.id }, select: { userId: true } } },
       orderBy: [{ name: 'asc' }, { id: 'asc' }],
     });
-    return res.json({ courses });
+    // Each course says whether the caller instructs it or takes it.
+    return res.json({
+      courses: courses.map(({ staff, ...course }) => ({
+        ...course,
+        role: identity.deploymentInstructor || staff.length ? 'instructor' : 'student',
+      })),
+      canCreate: identity.deploymentInstructor,
+    });
   }
   // The demo course comes only from the seed; visitors cannot add courses.
   if (isDemo()) return res.status(403).json({ message: 'The demo cannot add courses' });
+  // Course staff instruct their own courses; only a deployment instructor adds one.
+  if (!identity.deploymentInstructor)
+    return res.status(403).json({ message: 'Only a deployment instructor adds courses' });
   const name = req.body?.name;
   if (typeof name !== 'string' || !name.trim() || name.length > 200)
     return res.status(400).json({ message: 'Invalid course name' });

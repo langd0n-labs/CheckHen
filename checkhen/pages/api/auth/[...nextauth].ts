@@ -4,8 +4,8 @@ import GoogleProvider from 'next-auth/providers/google';
 import { DEMO_DOMAIN, isDemo } from '@/lib/demo';
 import { demoDatabaseRefusal } from '@/lib/demo-guard';
 import { isInstructor } from '@/lib/instructor';
-import { instructsAnyCourse } from '@/lib/staff';
 import { prisma } from '@/lib/prisma';
+import { instructsAnyCourse } from '@/lib/staff';
 
 /**
  * Demo mode signs in as a seeded persona instead of Google. It accepts only demo

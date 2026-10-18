@@ -174,6 +174,42 @@ integration('course-scoped staff', () => {
     ).toEqual([]);
   });
 
+  it('lets only a deployment instructor add a course, and labels each course with the role', async () => {
+    as('ta');
+    const refused = await call(
+      coursesRoute,
+      'POST',
+      { courseId: courseA.id },
+      { name: 'New course' }
+    );
+    expect(refused._getStatusCode()).toBe(403);
+    const listed = (await call(coursesRoute, 'GET', {}))._getJSONData();
+    expect(listed.canCreate).toBe(false);
+    expect(listed.courses.find((c: { id: string }) => c.id === courseA.id).role).toBe('instructor');
+    as('student-b');
+    const student = (await call(coursesRoute, 'GET', {}))._getJSONData();
+    expect(student.courses.map((c: { role: string }) => c.role)).toEqual(['student']);
+    as('owner');
+    expect((await call(coursesRoute, 'GET', {}))._getJSONData().canCreate).toBe(true);
+  });
+
+  it('cannot reach course B with course A in the query and course B in the body', async () => {
+    as('ta');
+    const route = adminRoutes.find((candidate) => candidate.name === 'roster')!;
+    const { req, res } = createMocks({
+      method: 'POST',
+      query: { courseId: courseA.id },
+      body: { courseId: courseB.id, email: email('student-b'), active: false },
+    });
+    await route.handler(req, res);
+    expect(res._getStatusCode()).toBe(200);
+    // The route acted on course A, the course it checked, not course B.
+    const entry = await prisma.rosterEntry.findFirst({
+      where: { courseId: courseB.id, user: { email: email('student-b') } },
+    });
+    expect(entry?.active).toBe(true);
+  });
+
   it('gives course staff the instructor screens', async () => {
     expect(await instructsAnyCourse(email('ta'))).toBe(true);
     expect(await instructsAnyCourse(email('student-b'))).toBe(false);

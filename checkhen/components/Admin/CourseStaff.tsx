@@ -13,15 +13,21 @@ export function CourseStaff({ courseId }: { courseId: string }) {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('instructor');
   const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   const load = useCallback(async () => {
-    const response = await fetch(
-      `/api/admin/course-staff?courseId=${encodeURIComponent(courseId)}`
-    );
-    if (!response.ok) return;
-    const result = await response.json();
-    setStaff(result.staff);
-    setCanManage(result.canManage);
+    setFailed(false);
+    try {
+      const response = await fetch(
+        `/api/admin/course-staff?courseId=${encodeURIComponent(courseId)}`
+      );
+      if (!response.ok) throw new Error('Could not load course staff');
+      const result = await response.json();
+      setStaff(result.staff);
+      setCanManage(result.canManage);
+    } catch {
+      setFailed(true);
+    }
   }, [courseId]);
   useEffect(() => {
     void load();
@@ -29,28 +35,47 @@ export function CourseStaff({ courseId }: { courseId: string }) {
 
   const change = async (method: 'POST' | 'DELETE', body: Record<string, string>) => {
     setBusy(true);
-    const response = await fetch('/api/admin/course-staff', {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ courseId, ...body }),
-    });
-    const result = await response.json().catch(() => ({}));
-    setBusy(false);
-    notifications.show(
-      response.ok
-        ? { message: result.message }
-        : {
-            title: 'Error',
-            message: result.message ?? 'Could not change course staff',
-            color: 'red',
-          }
-    );
-    if (response.ok) {
-      setEmail('');
-      void load();
+    try {
+      const response = await fetch('/api/admin/course-staff', {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ courseId, ...body }),
+      });
+      const result = await response.json().catch(() => ({}));
+      notifications.show(
+        response.ok
+          ? { message: result.message }
+          : {
+              title: 'Error',
+              message: result.message ?? 'Could not change course staff',
+              color: 'red',
+            }
+      );
+      if (response.ok) {
+        setEmail('');
+        void load();
+      }
+    } catch {
+      notifications.show({
+        title: 'Error',
+        message: 'Could not change course staff',
+        color: 'red',
+      });
+    } finally {
+      setBusy(false);
     }
   };
 
+  if (failed) {
+    return (
+      <Group>
+        <Text c="red">Could not load course staff.</Text>
+        <Button size="xs" variant="light" onClick={() => void load()}>
+          Try again
+        </Button>
+      </Group>
+    );
+  }
   if (!staff) return <Text c="dimmed">Loading course staff…</Text>;
   return (
     <Stack gap="md">

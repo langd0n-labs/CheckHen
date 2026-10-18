@@ -34,6 +34,7 @@ import {
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
+import { takesACourse } from '@/lib/course-roles';
 import { scopedFetch as fetch, selectedScope } from '@/lib/scoped-fetch';
 import { getSocket } from '@/lib/socket';
 
@@ -96,10 +97,12 @@ export default function HomePage() {
     scrollToBottom();
   }, [messages]);
 
-  // Redirect admins to dashboard (isAdmin is embedded in the session token — no extra fetch)
+  // Send an instructor to the dashboard, unless they also take a course here.
   useEffect(() => {
-    if (status !== 'authenticated' || router.query.preview === 'true') return;
-    if (isAdmin) router.push('/admin/dashboard');
+    if (status !== 'authenticated' || router.query.preview === 'true' || !isAdmin) return;
+    void takesACourse().then((takes) => {
+      if (!takes) router.push('/admin/dashboard');
+    });
   }, [status, isAdmin, router]);
 
   // Fetches the current user's information from the backend
