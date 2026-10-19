@@ -5,6 +5,7 @@ import { DEMO_DOMAIN, isDemo } from '@/lib/demo';
 import { demoDatabaseRefusal } from '@/lib/demo-guard';
 import { isInstructor } from '@/lib/instructor';
 import { prisma } from '@/lib/prisma';
+import { instructsAnyCourse } from '@/lib/staff';
 
 /**
  * Demo mode signs in as a seeded persona instead of Google. It accepts only demo
@@ -72,7 +73,9 @@ export const authOptions = {
     async jwt({ token, user }: any) {
       // Embed isAdmin into the JWT at sign-in so it's available on every request
       if (user?.email) {
-        token.isAdmin = isInstructor(user.email);
+        // Deployment instructors and course staff get the instructor screens; each
+        // route still checks the course a request names.
+        token.isAdmin = await instructsAnyCourse(user.email);
       }
       return token;
     },

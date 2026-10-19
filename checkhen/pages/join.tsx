@@ -19,6 +19,7 @@ import {
 } from '@mantine/core';
 import { GraduationCap, BookOpen, Clock, Users, User } from 'lucide-react';
 import { notifications } from '@mantine/notifications';
+import { takesACourse } from '@/lib/course-roles';
 
 type ActiveClass = {
   id: string;
@@ -40,10 +41,12 @@ export default function JoinPage() {
   const [loading, setLoading] = useState(true);
   const [joiningId, setJoiningId] = useState<string | null>(null);
 
-  // Redirect instructors away (isAdmin from session token — no extra fetch)
+  // Send an instructor to the dashboard, unless they also take a course here.
   useEffect(() => {
-    if (status !== 'authenticated') return;
-    if (isAdmin) router.push('/admin/dashboard');
+    if (status !== 'authenticated' || !isAdmin) return;
+    void takesACourse().then((takes) => {
+      if (!takes) router.push('/admin/dashboard');
+    });
   }, [status, isAdmin, router]);
 
   // Fetch active classes
@@ -53,7 +56,9 @@ export default function JoinPage() {
       setActiveClasses([]);
       return;
     }
-    const { courses } = await coursesResponse.json();
+    const { courses: all } = await coursesResponse.json();
+    // The join page lists the courses this person takes, not the ones they instruct.
+    const courses = all.filter((course: { role?: string }) => course.role !== 'instructor' || !isAdmin);
     const results = await Promise.all(courses.map(async (course: { id: string }) => {
       const response = await fetch(`/api/sessions?courseId=${encodeURIComponent(course.id)}`);
       if (!response.ok) return [];

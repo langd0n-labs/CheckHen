@@ -45,6 +45,7 @@ jest.mock('@/lib/portal-binding', () => ({
   revokeSessionDevices: jest.fn(),
 }));
 jest.mock('@/lib/exam-control', () => ({ examAgent: jest.fn(), releaseExamNetwork: jest.fn() }));
+jest.mock('@/lib/staff', () => ({ courseStaffIds: jest.fn().mockResolvedValue(new Set()) }));
 
 const user = { id: 'student', email: 'student@bu.edu' };
 const selected = {
@@ -453,7 +454,7 @@ describe('pace totals', () => {
     (readState as jest.Mock).mockResolvedValue(checkedIn());
     const student = await invoke(fetchPace, 'GET');
     expect(student._getStatusCode()).toBe(403);
-    (isInstructor as jest.Mock).mockReturnValue(true);
+    (requireScope as jest.Mock).mockResolvedValue({ scope, user, selected, admin: true });
     const instructor = await invoke(fetchPace, 'GET');
     expect(instructor._getStatusCode()).toBe(200);
     expect(instructor._getJSONData()).toMatchObject({ slowDown: 0, readyToMove: 0 });

@@ -18,6 +18,7 @@ import {
   VisuallyHidden,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
+import { CourseStaff } from '@/components/Admin/CourseStaff';
 import type { ColdCallConfig } from '@/lib/cold-call';
 import type { CourseReport } from '@/lib/course-report';
 import { selectedScope } from '@/lib/scoped-fetch';
@@ -66,6 +67,7 @@ export default function CourseRecord() {
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [tab, setTab] = useState<string | null>('students');
 
   const load = useCallback(async (id: string) => {
     setFailed(false);
@@ -183,7 +185,7 @@ export default function CourseRecord() {
           the Settings tab; saving there replaces them.
         </Alert>
       )}
-      <Tabs defaultValue="students">
+      <Tabs value={tab} onChange={setTab}>
         <Tabs.List mb="md">
           <Tabs.Tab value="students">Students</Tabs.Tab>
           <Tabs.Tab value="sessions">Sessions</Tabs.Tab>
@@ -200,6 +202,7 @@ export default function CourseRecord() {
             Absences
           </Tabs.Tab>
           <Tabs.Tab value="settings">Settings</Tabs.Tab>
+          <Tabs.Tab value="staff">Staff</Tabs.Tab>
         </Tabs.List>
 
         <Tabs.Panel value="students">
@@ -432,6 +435,10 @@ export default function CourseRecord() {
           >
             Save settings
           </Button>
+        </Tabs.Panel>
+
+        <Tabs.Panel value="staff">
+          {tab === 'staff' && <CourseStaff courseId={courseId} />}
         </Tabs.Panel>
       </Tabs>
     </Box>

@@ -11,6 +11,7 @@ jest.mock('next-auth', () => {
 jest.mock('@/pages/api/auth/[...nextauth]', () => ({
   authOptions: {},
 }));
+jest.mock('@/lib/prisma', () => ({ prisma: { courseStaff: { count: jest.fn().mockResolvedValue(0) } } }));
 
 import { createMocks } from 'node-mocks-http';
 import handler from '@/pages/api/auth/is-admin';

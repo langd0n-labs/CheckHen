@@ -9,6 +9,7 @@ jest.mock('@/lib/prisma', () => ({ prisma: {
   user: { findUnique: jest.fn() },
   class: { findFirst: jest.fn() },
   rosterEntry: { findUnique: jest.fn() },
+  courseStaff: { findUnique: jest.fn().mockResolvedValue(null) },
 } }));
 beforeEach(() => {
   jest.clearAllMocks();

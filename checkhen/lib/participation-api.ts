@@ -17,6 +17,7 @@ import {
 import type { DeviceBinding } from './portal-binding';
 import { prisma } from './prisma';
 import { isInstructor, requireScope } from './request-scope';
+import { courseStaffIds } from './staff';
 import { allowStudentWrite } from './write-limits';
 
 const writes = new Set([
@@ -300,7 +301,7 @@ export function participationHandler(action: string, adminOnly = false) {
     }
     // How many students want a slower pace is for the instructor only.
     if (action === 'fetch-pace-signals')
-      return isInstructor(user.email)
+      return context.admin
         ? res.json({ message: 'Pace signals fetched', ...counts })
         : res.status(403).json({ message: 'Instructor access required' });
     if (action === 'startup') {
@@ -340,12 +341,13 @@ export function participationHandler(action: string, adminOnly = false) {
       omit: { foodAllergies: true },
     });
     if (action === 'fetch-check-ins') {
+      const staff = await courseStaffIds(scope.courseId);
       return json(
         state.attendance
           .filter((entry) => entry.isPresent)
           .flatMap((entry) => {
             const student = users.find((candidate) => candidate.id === entry.userId);
-            if (!student || isInstructor(student.email)) return [];
+            if (!student || isInstructor(student.email) || staff.has(student.id)) return [];
             return [
               {
                 ...entry,

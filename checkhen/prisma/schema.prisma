@@ -80,6 +80,7 @@ model HandRaise {
 
 model User {
   rosterEntries RosterEntry[]
+  staffOf CourseStaff[]
   participationEvents ParticipationEvent[]
   id                String        @id @default(uuid())
   email             String        @unique
@@ -134,6 +135,7 @@ model Course {
   classes Class[]
   templates ClassTemplate[]
   roster RosterEntry[]
+  staff CourseStaff[]
 }
 
 model RosterEntry {
@@ -143,6 +145,18 @@ model RosterEntry {
   course Course @relation(fields: [courseId], references: [id])
   user User @relation(fields: [userId], references: [id])
   @@id([courseId, userId])
+}
+// Instructors and TAs of one course. ADMIN_EMAILS lists the deployment's instructors,
+// who have every course and assign staff; course staff have only their own courses.
+model CourseStaff {
+  courseId String
+  userId String
+  role String @default("instructor")
+  createdAt DateTime @default(now())
+  course Course @relation(fields: [courseId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+  @@id([courseId, userId])
+  @@index([userId])
 }
 
 model ParticipationEvent {
