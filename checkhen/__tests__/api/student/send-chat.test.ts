@@ -1,3 +1,4 @@
+beforeEach(() => { process.env.NEXTAUTH_URL = 'https://checkhen.test'; });
 import { createMocks } from 'node-mocks-http';
 import { appendEvent, readState } from '@/lib/event-store';
 import { prisma } from '@/lib/prisma';
@@ -23,7 +24,7 @@ const invoke = async (
   method: 'GET' | 'POST' = 'POST'
 ) => {
   (readState as jest.Mock).mockResolvedValue(state);
-  const { req, res } = createMocks({ method, body, query: scope });
+  const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method, body, query: scope });
   await handler(req as any, res as any);
   return res;
 };

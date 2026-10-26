@@ -1,3 +1,4 @@
+beforeEach(() => { process.env.NEXTAUTH_URL = 'https://checkhen.test'; });
 jest.mock('next-auth', () => {
   const mockGetServerSession = jest.fn();
   return {
@@ -33,21 +34,21 @@ afterEach(() => jest.clearAllMocks());
 describe('POST /api/student/update-profile', () => {
   it('returns 405 for non-POST requests', async () => {
     mockNoSession();
-    const { req, res } = createMocks({ method: 'GET' });
+    const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: 'GET' });
     await handler(req as any, res as any);
     expect(res._getStatusCode()).toBe(405);
   });
 
   it('returns 401 if no session', async () => {
     mockNoSession();
-    const { req, res } = createMocks({ method: 'POST', body: {} });
+    const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: 'POST', body: {} });
     await handler(req as any, res as any);
     expect(res._getStatusCode()).toBe(401);
   });
 
   it('returns 400 if bio exceeds 280 characters', async () => {
     mockSession();
-    const { req, res } = createMocks({ method: 'POST', body: { bio: 'x'.repeat(281) } });
+    const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: 'POST', body: { bio: 'x'.repeat(281) } });
     await handler(req as any, res as any);
     expect(res._getStatusCode()).toBe(400);
   });
@@ -55,7 +56,7 @@ describe('POST /api/student/update-profile', () => {
   it('accepts bio of exactly 280 characters', async () => {
     mockSession();
     (prisma.user.update as jest.Mock).mockResolvedValue({});
-    const { req, res } = createMocks({ method: 'POST', body: { bio: 'x'.repeat(280) } });
+    const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: 'POST', body: { bio: 'x'.repeat(280) } });
     await handler(req as any, res as any);
     expect(res._getStatusCode()).toBe(200);
   });
@@ -69,7 +70,7 @@ describe('POST /api/student/update-profile', () => {
       pronouns: 'she/her',
       bio: 'Hello!',
     };
-    const { req, res } = createMocks({ method: 'POST', body });
+    const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: 'POST', body });
     await handler(req as any, res as any);
     expect(res._getStatusCode()).toBe(200);
     expect(prisma.user.update).toHaveBeenCalledWith({
@@ -86,7 +87,7 @@ describe('POST /api/student/update-profile', () => {
   it('passes null for all fields when body is empty', async () => {
     mockSession();
     (prisma.user.update as jest.Mock).mockResolvedValue({});
-    const { req, res } = createMocks({ method: 'POST', body: {} });
+    const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: 'POST', body: {} });
     await handler(req as any, res as any);
     expect(res._getStatusCode()).toBe(200);
     expect(prisma.user.update).toHaveBeenCalledWith({
@@ -103,7 +104,7 @@ describe('POST /api/student/update-profile', () => {
   it('coerces empty string displayName to null (via || null)', async () => {
     mockSession();
     (prisma.user.update as jest.Mock).mockResolvedValue({});
-    const { req, res } = createMocks({ method: 'POST', body: { displayName: '' } });
+    const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: 'POST', body: { displayName: '' } });
     await handler(req as any, res as any);
     expect(prisma.user.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ displayName: null }) })
@@ -113,7 +114,7 @@ describe('POST /api/student/update-profile', () => {
   it('ignores food allergies and leaves a stored value unchanged', async () => {
     mockSession();
     (prisma.user.update as jest.Mock).mockResolvedValue({});
-    const { req, res } = createMocks({
+    const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' },
       method: 'POST',
       body: { foodAllergies: 'x'.repeat(500), bio: 'Hello!' },
     });
@@ -126,7 +127,7 @@ describe('POST /api/student/update-profile', () => {
   it('refuses a displayName longer than 100 characters', async () => {
     mockSession();
     (prisma.user.update as jest.Mock).mockResolvedValue({});
-    const { req, res } = createMocks({ method: 'POST', body: { displayName: 'x'.repeat(500) } });
+    const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: 'POST', body: { displayName: 'x'.repeat(500) } });
     await handler(req as any, res as any);
     expect(res._getStatusCode()).toBe(400);
   });
@@ -139,7 +140,7 @@ describe('profile field limits', () => {
     ['pronouns', 40],
   ])('refuses a %s longer than %i characters', async (field, max) => {
     mockSession();
-    const { req, res } = createMocks({ method: 'POST', body: { [field]: 'x'.repeat(max + 1) } });
+    const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: 'POST', body: { [field]: 'x'.repeat(max + 1) } });
     await handler(req as any, res as any);
     expect(res._getStatusCode()).toBe(400);
     expect(prisma.user.update).not.toHaveBeenCalled();

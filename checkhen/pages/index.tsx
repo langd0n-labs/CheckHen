@@ -125,7 +125,7 @@ export default function HomePage() {
   const checkIfCheckedIn = async () => {
     const response = await fetch('/api/student/fetch-check-in');
     if (response.ok)
-      setUplinkUnavailable(!(await fetch('/api/student/re-bind', { method: 'POST' })).ok);
+      setUplinkUnavailable(!(await fetch('/api/student/re-bind', { method: 'POST', headers: { 'Content-Type': 'application/json' } })).ok);
     setIsCheckedIn(response.ok);
     setCheckInResolved(true);
     return response.ok;
@@ -150,6 +150,7 @@ export default function HomePage() {
   const toggleHandRaise = async () => {
     const response = await fetch('/api/student/toggle-vhr', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
     });
 
     if (!response.ok) {
@@ -281,7 +282,7 @@ export default function HomePage() {
       .then((r) => r.json())
       .then((d) => {
         if (d.isCheckedIn) {
-          fetch('/api/student/re-bind', { method: 'POST' })
+          fetch('/api/student/re-bind', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
             .then((response) => setUplinkUnavailable(!response.ok))
             .catch(() => setUplinkUnavailable(true));
           setIsCheckedIn(true);
@@ -316,7 +317,7 @@ export default function HomePage() {
     if (!isCheckedIn) return;
 
     const _dataInterval = setInterval(() => {
-      fetch('/api/student/re-bind', { method: 'POST' })
+      fetch('/api/student/re-bind', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
         .then((response) => setUplinkUnavailable(!response.ok))
         .catch(() => setUplinkUnavailable(true));
       fetchAllChatMessages();
@@ -336,7 +337,7 @@ export default function HomePage() {
       const scope = selectedScope();
       if (scope.courseId && scope.classId) {
         const query = new URLSearchParams({ courseId: scope.courseId, classId: scope.classId });
-        navigator.sendBeacon('/api/student/check-out?' + query);
+        navigator.sendBeacon('/api/student/check-out?' + query, new Blob(['{}'], { type: 'application/json' }));
       }
     };
 
@@ -387,13 +388,13 @@ export default function HomePage() {
 
   // Sign out after marking the student as not present
   const handleSignOut = async () => {
-    await fetch('/api/student/check-out', { method: 'POST' });
+    await fetch('/api/student/check-out', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
     signOut({ callbackUrl: '/' });
   };
 
   // Leave the current class without signing out (logo click)
   const handleLeaveClass = async () => {
-    await fetch('/api/student/check-out', { method: 'POST' });
+    await fetch('/api/student/check-out', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
     router.push('/join');
   };
 

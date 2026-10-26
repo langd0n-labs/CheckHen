@@ -1,3 +1,4 @@
+beforeEach(() => { process.env.NEXTAUTH_URL = 'https://checkhen.test'; });
 import { createMocks } from 'node-mocks-http';
 import { generateUniqueAnonymousName } from '@/lib/anonymousNames';
 import { appendEvent, readState } from '@/lib/event-store';
@@ -38,7 +39,7 @@ const empty = () => ({
 });
 const invoke = async (method: 'GET' | 'POST', state = empty()) => {
   (readState as jest.Mock).mockResolvedValue(state);
-  const { req, res } = createMocks({ method, query: scope });
+  const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method, query: scope });
   await handler(req as any, res as any);
   return res;
 };

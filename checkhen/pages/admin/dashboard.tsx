@@ -168,7 +168,7 @@ export default function AdminDashboard() {
     ) {
       return;
     }
-    const response = await fetch('/api/demo/reset', { method: 'POST' });
+    const response = await fetch('/api/demo/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
     if (!response.ok) {
       notifications.show({ message: 'Could not reset the demo', color: 'red' });
       return;
@@ -413,7 +413,7 @@ export default function AdminDashboard() {
   };
 
   const projectionTicket = async (): Promise<string | null> => {
-    const response = await fetch('/api/admin/projection-ticket', { method: 'POST' });
+    const response = await fetch('/api/admin/projection-ticket', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
     if (!response.ok) {
       notifications.show({ title: 'Error', message: 'Could not open projection', color: 'red' });
       return null;
@@ -473,7 +473,7 @@ export default function AdminDashboard() {
   // Every open projection window and deck stops showing chat; new links still work.
   const revokeProjectionLinks = async () => {
     if (!window.confirm('Stop every open projection window and deck from showing chat?')) return;
-    const response = await fetch('/api/admin/revoke-projection', { method: 'POST' });
+    const response = await fetch('/api/admin/revoke-projection', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
     notifications.show(
       response.ok
         ? { title: 'Projection links revoked', message: 'Open the projection again to show chat.' }
@@ -497,6 +497,7 @@ export default function AdminDashboard() {
   const resetPaceSignals = async () => {
     const response = await fetch('/api/admin/reset-pace-signals', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
     });
 
     if (!response.ok) {

@@ -1,3 +1,4 @@
+beforeEach(() => { process.env.NEXTAUTH_URL = 'https://checkhen.test'; });
 import { createMocks } from 'node-mocks-http';
 import { requireScope } from '@/lib/request-scope';
 import { prisma } from '@/lib/prisma';
@@ -21,7 +22,7 @@ beforeEach(() => {
   (prisma.rosterEntry.findUnique as jest.Mock).mockResolvedValue({ active: true });
 });
 const invoke = async (courseId: string, classId: string) => {
-  const { req, res } = createMocks({ method: 'GET', query: { courseId, classId } });
+  const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: 'GET', query: { courseId, classId } });
   const result = await requireScope(req as any, res as any);
   return { result, res };
 };
