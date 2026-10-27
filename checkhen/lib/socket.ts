@@ -19,7 +19,7 @@ export const getSocket = (classId: string): Socket | null => {
   const socket = io(SOCKET_URL || undefined, {
     auth: async (callback) => {
       try {
-        const response = await scopedFetch('/api/socket-ticket', { method: 'POST' });
+        const response = await scopedFetch('/api/socket-ticket', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
         if (!response.ok) throw new Error('Socket ticket unavailable');
         callback({ ticket: (await response.json()).ticket });
       } catch {

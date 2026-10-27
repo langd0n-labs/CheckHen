@@ -1,3 +1,4 @@
+import { guardWriteOrigin } from './write-origin';
 import { getServerSession } from 'next-auth';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { authOptions } from '../pages/api/auth/[...nextauth]';
@@ -12,6 +13,7 @@ export async function requireIdentity(req: NextApiRequest, res: NextApiResponse,
   gate: GateOptions = {}) {
   const session = await getServerSession(req, res, authOptions);
   if (!session?.user?.email) { res.status(401).json({ message: 'Unauthorized' }); return null; }
+  if (!guardWriteOrigin(req, res)) return null;
   // After sign-in: an anonymous request is refused without using any demo counter.
   if (!await demoGate(req, res, gate)) return null;
   // A deployment instructor (ADMIN_EMAILS) instructs every course; course staff

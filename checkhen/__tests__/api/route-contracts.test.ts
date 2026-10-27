@@ -1,3 +1,4 @@
+beforeEach(() => { process.env.NEXTAUTH_URL = 'https://checkhen.test'; });
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { getServerSession } from 'next-auth';
@@ -45,7 +46,7 @@ const instructorMethod = (name: string) =>
     : 'GET';
 
 async function invoke(route: Route, method: 'GET' | 'POST' | 'OPTIONS') {
-  const { req, res } = createMocks({
+  const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' },
     method,
     query: { courseId: 'course-1', classId: 'session-1' },
     body: { courseId: 'course-1', classId: 'session-1' },

@@ -1,4 +1,5 @@
 /** @jest-environment node */
+beforeEach(() => { process.env.NEXTAUTH_URL = 'https://checkhen.test'; });
 import { createHmac, randomUUID } from 'node:crypto';
 import { createMocks } from 'node-mocks-http';
 import { EventBudgetError } from '@/lib/event-budget';
@@ -53,7 +54,7 @@ integration('route → store → attendance fold', () => {
     const { req, res } = createMocks({
       method: 'POST',
       query: scope,
-      headers: { 'x-real-ip': ip },
+      headers: { origin: 'https://checkhen.test', 'content-type': 'application/json', 'x-real-ip': ip },
     });
     await handler(req as any, res as any);
     expect(res._getStatusCode()).toBe(200);
@@ -128,7 +129,7 @@ integration('route → store → attendance fold', () => {
     const { req, res } = createMocks({
       method: 'POST',
       query: scope,
-      headers: { 'x-real-ip': '172.16.77.20' },
+      headers: { origin: 'https://checkhen.test', 'content-type': 'application/json', 'x-real-ip': '172.16.77.20' },
     });
     await reBind(req as any, res as any);
     expect(res._getStatusCode()).toBe(409);
@@ -250,7 +251,7 @@ integration('route → store → attendance fold', () => {
       scope,
       admin: true,
     });
-    const { req, res } = createMocks({
+    const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' },
       method: 'POST',
       query: scope,
       body: { action: 'excuse', failId: fail.id, reason: 'Verified AP outage' },
@@ -260,7 +261,7 @@ integration('route → store → attendance fold', () => {
     const events = await readEvents(prisma, scope);
     expect(events.find((event) => event.id === fail.id)?.kind).toBe('EXAM_FAILED');
     expect(events.find((event) => event.kind === 'EXAM_EXCUSED')?.supersedesId).toBe(fail.id);
-    const { req: statusReq, res: statusRes } = createMocks({ method: 'GET', query: scope });
+    const { req: statusReq, res: statusRes } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: 'GET', query: scope });
     await examRoute(statusReq as any, statusRes as any);
     expect(statusRes._getJSONData().fails[0]).toMatchObject({
       id: fail.id,
@@ -271,7 +272,7 @@ integration('route → store → attendance fold', () => {
 
   describe('cold calling', () => {
     const call = async (method: 'GET' | 'POST', body?: Record<string, unknown>) => {
-      const { req, res } = createMocks({ method, query: scope, body });
+      const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method, query: scope, body });
       await coldCallRoute(req as any, res as any);
       return res;
     };
@@ -601,7 +602,7 @@ integration('route → store → attendance fold', () => {
         expect.objectContaining({ userId: ari.id, outcome: 'answered', followUp: true }),
       ]);
       (requireIdentity as jest.Mock).mockResolvedValue({ user: { id: 'instructor' }, admin: true });
-      const { req, res } = createMocks({ method: 'GET', query: { courseId: scope.courseId } });
+      const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: 'GET', query: { courseId: scope.courseId } });
       await courseReportRoute(req as any, res as any);
       expect(
         res._getJSONData().report.students.find((row: any) => row.userId === ari.id)
@@ -756,7 +757,7 @@ integration('route → store → attendance fold', () => {
         payload: { anonymousName: 'Anon Ned' },
       });
       const nextCall = async (body: Record<string, unknown>) => {
-        const { req, res } = createMocks({ method: 'POST', query: nextScope, body });
+        const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: 'POST', query: nextScope, body });
         await coldCallRoute(req as any, res as any);
         return res;
       };
@@ -775,7 +776,7 @@ integration('route → store → attendance fold', () => {
       const { draw: token } = await draw();
       const callId = (await record(token, 'absent'))._getJSONData().id;
       (requireIdentity as jest.Mock).mockResolvedValue({ user: { id: 'instructor' }, admin: true });
-      const { req, res } = createMocks({
+      const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' },
         method: 'POST',
         query: { courseId: scope.courseId },
         body: {
@@ -850,7 +851,7 @@ integration('route → store → attendance fold', () => {
           admin: true,
         });
         const attended = async () => {
-          const { req, res } = createMocks({ method: 'GET', query: { courseId: scope.courseId } });
+          const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: 'GET', query: { courseId: scope.courseId } });
           await courseReportRoute(req as any, res as any);
           return res
             ._getJSONData()
@@ -885,7 +886,7 @@ integration('route → store → attendance fold', () => {
           scope,
           admin: false,
         });
-        const joined = createMocks({ method: 'POST', query: scope });
+        const joined = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: 'POST', query: scope });
         await checkIn(joined.req as any, joined.res as any);
         expect(joined.res._getStatusCode()).toBe(200);
         const roll = async () =>
@@ -897,7 +898,7 @@ integration('route → store → attendance fold', () => {
           admin: true,
         });
         const record = async () => {
-          const { req, res } = createMocks({ method: 'GET', query: { courseId: scope.courseId } });
+          const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: 'GET', query: { courseId: scope.courseId } });
           await courseReportRoute(req as any, res as any);
           return res._getJSONData().report.students.find((row: any) => row.userId === bea.id);
         };
@@ -979,7 +980,7 @@ integration('route → store → attendance fold', () => {
 
     describe('course record', () => {
       const report = async (method: 'GET' | 'POST', body?: Record<string, unknown>, query = {}) => {
-        const { req, res } = createMocks({
+        const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' },
           method,
           query: { courseId: scope.courseId, ...query },
           body: body && { courseId: scope.courseId, ...body },
@@ -1260,7 +1261,7 @@ integration('route → store → attendance fold', () => {
         user: { id: 'instructor' },
         admin: true,
       });
-      const { req, res } = createMocks({ method: 'POST' });
+      const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: 'POST' });
       await demoResetRoute(req as any, res as any);
       expect(res._getStatusCode()).toBe(200);
       const ended = await readState(prisma, {
@@ -1277,7 +1278,7 @@ integration('route → store → attendance fold', () => {
   it('hides a stored message and mutes its student without deleting facts', async () => {
     await invoke(checkIn, '172.16.77.20');
     const request = async (handler: typeof checkIn, body: Record<string, unknown>) => {
-      const { req, res } = createMocks({ method: 'POST', query: scope, body });
+      const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: 'POST', query: scope, body });
       await handler(req as any, res as any);
       return res;
     };
@@ -1295,7 +1296,7 @@ integration('route → store → attendance fold', () => {
       hidden: true,
       hideEventId: hide.id,
     });
-    const { req: adminReq, res: adminRes } = createMocks({ method: 'GET', query: scope });
+    const { req: adminReq, res: adminRes } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: 'GET', query: scope });
     await fetchAllChat(adminReq as any, adminRes as any);
     expect(JSON.parse(adminRes._getJSONData().message)[0]).toMatchObject({
       id: message.id,

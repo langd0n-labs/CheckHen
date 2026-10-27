@@ -1,3 +1,4 @@
+beforeEach(() => { process.env.NEXTAUTH_URL = 'https://checkhen.test'; });
 import { createHmac } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { createMocks } from 'node-mocks-http';
@@ -43,7 +44,7 @@ beforeEach(() => {
 });
 
 const invoke = async (action: string, body: Record<string, unknown> = {}) => {
-  const { req, res } = createMocks({ method: 'POST', query: scope, body: { action, ...body } });
+  const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: 'POST', query: scope, body: { action, ...body } });
   await examRoute(req as any, res as any);
   return res;
 };

@@ -1,4 +1,5 @@
 /** @jest-environment node */
+beforeEach(() => { process.env.NEXTAUTH_URL = 'https://checkhen.test'; });
 import { randomUUID } from 'node:crypto';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -53,7 +54,7 @@ integration('course-scoped staff', () => {
     query: Record<string, string>,
     body: Record<string, unknown> = {}
   ) => {
-    const { req, res } = createMocks({ method: method as any, query, body: { ...query, ...body } });
+    const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: method as any, query, body: { ...query, ...body } });
     await handler(req, res);
     return res;
   };
@@ -196,7 +197,7 @@ integration('course-scoped staff', () => {
   it('cannot reach course B with course A in the query and course B in the body', async () => {
     as('ta');
     const route = adminRoutes.find((candidate) => candidate.name === 'roster')!;
-    const { req, res } = createMocks({
+    const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' },
       method: 'POST',
       query: { courseId: courseA.id },
       body: { courseId: courseB.id, email: email('student-b'), active: false },

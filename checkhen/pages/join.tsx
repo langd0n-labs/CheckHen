@@ -74,7 +74,7 @@ export default function JoinPage() {
       Promise.all([
         fetch('/api/student/fetch-check-in').then(async (res) => {
           if (res.ok) {
-            if ((await fetch('/api/student/re-bind', { method: 'POST' })).ok) router.push('/');
+            if ((await fetch('/api/student/re-bind', { method: 'POST', headers: { 'Content-Type': 'application/json' } })).ok) router.push('/');
             else notifications.show({ title: 'No uplink',
               message: 'This device has no internet access through the class network. Check in again or ask your instructor for help.',
               color: 'red' });
@@ -92,7 +92,7 @@ export default function JoinPage() {
   const handleJoin = async (cls: ActiveClass) => {
     setJoiningId(cls.id);
     selectScope({ courseId: cls.courseId, classId: cls.id });
-    const response = await fetch('/api/student/check-in', { method: 'POST' });
+    const response = await fetch('/api/student/check-in', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
     if (response.ok) {
       router.push('/');
     } else {

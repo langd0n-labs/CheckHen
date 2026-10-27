@@ -1,3 +1,4 @@
+beforeEach(() => { process.env.NEXTAUTH_URL = 'https://checkhen.test'; });
 import { createMocks } from 'node-mocks-http';
 import { generateUniqueAnonymousName } from '@/lib/anonymousNames';
 import { appendEvent, readState } from '@/lib/event-store';
@@ -76,7 +77,7 @@ const invoke = async (
   method: 'GET' | 'POST',
   body: Record<string, unknown> = {}
 ) => {
-  const { req, res } = createMocks({ method, body, query: scope });
+  const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method, body, query: scope });
   await handler(req as any, res as any);
   return res;
 };
@@ -243,7 +244,7 @@ describe('event-backed check-in', () => {
     const { req, res } = createMocks({
       method: 'POST',
       query: scope,
-      headers: { 'x-real-ip': '172.16.77.21' },
+      headers: { origin: 'https://checkhen.test', 'content-type': 'application/json', 'x-real-ip': '172.16.77.21' },
     });
     await checkOut(req as any, res as any);
     expect(res._getStatusCode()).toBe(200);

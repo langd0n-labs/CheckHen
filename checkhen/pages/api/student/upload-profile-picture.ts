@@ -1,3 +1,4 @@
+import { guardWriteOrigin } from '@/lib/write-origin';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import { isDemo } from '@/lib/demo';
@@ -19,6 +20,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!session?.user?.email) {
     return res.status(401).json({ message: 'Unauthorized' });
   }
+
+  if (!guardWriteOrigin(req, res)) return;
 
   const { imageBase64 } = req.body as { imageBase64?: string };
 

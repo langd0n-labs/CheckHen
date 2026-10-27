@@ -1,3 +1,4 @@
+beforeEach(() => { process.env.NEXTAUTH_URL = 'https://checkhen.test'; });
 import { createMocks } from 'node-mocks-http';
 import * as nextAuth from 'next-auth';
 import { prisma } from '@/lib/prisma';
@@ -32,7 +33,7 @@ describe('food allergies are not shown', () => {
     ['the student profile page', ownProfile, {}],
     ['the instructor profile modal', studentProfile, { email: stored.email }],
   ])('%s neither reads nor returns them', async (_name, handler, query) => {
-    const { req, res } = createMocks({ method: 'GET', query });
+    const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: 'GET', query });
     await handler(req as any, res as any);
     expect(res._getStatusCode()).toBe(200);
     const { select } = (prisma.user.findUnique as jest.Mock).mock.calls[0][0];
@@ -43,7 +44,7 @@ describe('food allergies are not shown', () => {
   it('the roster asks the database to leave them out', async () => {
     (prisma.course.findUnique as jest.Mock).mockResolvedValue({ id: 'course-a' });
     (prisma.rosterEntry.findMany as jest.Mock).mockResolvedValue([]);
-    const { req, res } = createMocks({ method: 'GET', query: { courseId: 'course-a' } });
+    const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: 'GET', query: { courseId: 'course-a' } });
     await roster(req as any, res as any);
     expect(res._getStatusCode()).toBe(200);
     expect(prisma.rosterEntry.findMany).toHaveBeenCalledWith(

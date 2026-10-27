@@ -1,3 +1,4 @@
+beforeEach(() => { process.env.NEXTAUTH_URL = 'https://checkhen.test'; });
 import { createMocks } from 'node-mocks-http';
 import { requireScope } from '@/lib/request-scope';
 import { readState } from '@/lib/event-store';
@@ -25,7 +26,7 @@ const live = (extra: Record<string, unknown> = {}) => ({
 });
 const invoke = async (handler: typeof projectionChat, method: 'GET' | 'POST', ticket?: string) => {
   const { req, res } = createMocks({ method, query: { ...scope, ticket },
-    headers: { origin: 'http://localhost:3030' } });
+    headers: { origin: handler === projectionChat ? 'http://localhost:3030' : 'https://checkhen.test', 'content-type': 'application/json' } });
   await handler(req as any, res as any);
   return res;
 };
