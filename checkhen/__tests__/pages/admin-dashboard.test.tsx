@@ -262,6 +262,7 @@ it('keeps dashboard moderation and author profiles usable through newest-first c
     createdAt: `2026-10-29T${hour}:00:00Z`,
     user: {
       email: `${id}@example.edu`,
+      name: `Canonical ${id}`,
       displayName: `Author ${id}`,
       pronouns: 'they/them',
       namePronunciation: null,
@@ -319,7 +320,7 @@ it('keeps dashboard moderation and author profiles usable through newest-first c
   });
   expect(order()).toEqual(['new', 'middle', 'old']);
   const newest = within(region.querySelector('[data-message-id="new"]') as HTMLElement);
-  fireEvent.click(newest.getByText('Author new'));
+  fireEvent.click(newest.getByText(/Author new/));
   expect(StudentProfileModal).toHaveBeenLastCalledWith(
     expect.objectContaining({ email: 'new@example.edu' }),
     undefined
