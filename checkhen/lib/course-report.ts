@@ -3,9 +3,10 @@ import { grades, type ColdCallConfig, type Meeting } from './cold-call';
 import { effectiveEvents } from './events';
 
 export type SessionMeta = { classId: string; name: string; startedAt: Date };
-export type RosterStudent = { userId: string; name: string; email: string };
+export type RosterStudent = { userId: string; name: string; nickname?: string | null; email: string };
 
 export type StudentRow = {
+  nickname?: string | null;
   userId: string;
   name: string;
   email: string;
@@ -183,6 +184,7 @@ export function courseReport(
     return {
       userId: student.userId,
       name: student.name,
+      nickname: student.nickname ?? null,
       email: student.email,
       sessionsAttended: attended.get(student.userId) ?? 0,
       sessionsSelfReported: selfAttended.get(student.userId) ?? 0,
@@ -243,6 +245,7 @@ export function studentsCsv(report: CourseReport, config: ColdCallConfig, export
     [
       'student_id',
       'name',
+      'nickname',
       'email',
       'sessions_attended',
       'sessions_self_reported',
@@ -265,6 +268,7 @@ export function studentsCsv(report: CourseReport, config: ColdCallConfig, export
     ...report.students.map((row) => [
       row.userId,
       row.name,
+      row.nickname ?? '',
       row.email,
       row.sessionsAttended,
       row.sessionsSelfReported,

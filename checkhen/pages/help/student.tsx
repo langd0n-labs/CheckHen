@@ -99,9 +99,9 @@ export default function StudentHelp() {
           body: (
             <>
               <Text>
-                Your display name, its pronunciation, your pronouns, and your photo help your
-                instructor call on you by name. Only your instructor sees them; classmates and the
-                projector see your anonymous name.
+                Your instructor sees your name from Google sign-in, with your optional nickname
+                beside it. You can edit your nickname, pronunciation, pronouns, and photo on your
+                profile. Classmates and the projector see your anonymous name.
               </Text>
               <Text>Your bio is shown only to your instructor.</Text>
             </>

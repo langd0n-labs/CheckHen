@@ -320,12 +320,13 @@ integration('route → store → attendance fold', () => {
       });
       await prisma.user.update({
         where: { id: user.id },
-        data: { displayName: 'Alisha', namePronunciation: 'ale-EE-sha' },
+        data: { name: 'Alisha Moreno', displayName: 'Ace', namePronunciation: 'ale-EE-sha' },
       });
       const drawn = await draw();
       expect(drawn.student).toMatchObject({
         userId: user.id,
-        name: 'Alisha',
+        name: 'Alisha Moreno',
+        nickname: 'Ace',
         pronunciation: 'ale-EE-sha',
       });
       const recorded = await record(drawn.draw);

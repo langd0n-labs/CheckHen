@@ -87,7 +87,8 @@ model User {
   isAdmin           Boolean       @default(false)
   profilePicture    String?       // URL from Google OAuth
   foodAllergies     String?       // No longer collected or shown; keeps values stored before
-  displayName       String?       // Preferred display name
+  name              String?       // Trusted Google sign-in name
+  displayName       String?       // Student-editable nickname
   namePronunciation String?       // e.g. "ale-EE-sha"
   pronouns          String?       // "she/her", "he/him", "they/them", or custom
   bio               String?       // Up to 280 chars — fun facts / what they look forward to

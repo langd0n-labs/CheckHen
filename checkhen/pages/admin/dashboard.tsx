@@ -1,3 +1,4 @@
+import { instructorLabel } from '@/lib/name-label';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
@@ -53,6 +54,7 @@ type UserInfo = {
 };
 
 type HandRaise = {
+  nickname?: string | null;
   id: string;
   name: string;
   email: string;
@@ -70,6 +72,7 @@ type ChatMessage = {
   createdAt: string;
   user: {
     email: string;
+    name?: string | null;
     displayName: string | null;
     namePronunciation: string | null;
     pronouns: string | null;
@@ -84,6 +87,7 @@ type AttendanceRecord = {
   user: {
     email: string;
     profilePicture: string | null;
+    name?: string | null;
     displayName: string | null;
     namePronunciation: string | null;
     pronouns: string | null;
@@ -105,7 +109,7 @@ type ExamStatus = {
     // The access point's connection checks; unhealthy means fails are not being recorded.
     monitor?: { healthy: boolean; error: string | null };
   };
-  students: { userId: string; name: string }[];
+  students: { userId: string; name: string; nickname?: string | null }[];
 };
 
 export default function AdminDashboard() {
@@ -250,8 +254,10 @@ export default function AdminDashboard() {
     if (response.ok) setExam(await response.json());
   };
 
-  const studentName = (userId: string) =>
-    exam?.students.find((item) => item.userId === userId)?.name || userId;
+  const studentName = (userId: string) => {
+    const student = exam?.students.find((item) => item.userId === userId);
+    return student ? `${student.name}${student.nickname ? ` (${student.nickname})` : ''}` : userId;
+  };
   // Fails from ended or earlier exams stay listed and excusable.
   const earlierFails = (exam?.fails ?? []).filter(
     (fail) => !(exam?.exam?.active && fail.examId === exam.exam.id)
@@ -968,7 +974,7 @@ export default function AdminDashboard() {
                             style={{ cursor: 'pointer', textDecoration: 'underline' }}
                             onClick={() => setProfileEmail(raise.email)}
                           >
-                            {raise.name}
+                            {raise.name}{raise.nickname && <Text span c="dimmed"> ({raise.nickname})</Text>}
                           </Text>
                           <Text size="xs" c="dimmed">
                             {new Date(raise.raisedAt).toLocaleTimeString()}
@@ -1099,7 +1105,7 @@ export default function AdminDashboard() {
                             style={{ cursor: 'pointer' }}
                             onClick={() => setProfileEmail(msg.user.email)}
                           >
-                            {msg.user.displayName || msg.user.email.split('@')[0]}
+                            {instructorLabel(msg.user)}
                           </Text>
                           <Badge size="xs" variant="light" color="gray">
                             as {msg.anonymousName || 'Anonymous'}
@@ -1238,7 +1244,7 @@ export default function AdminDashboard() {
                         <Avatar src={record.user.profilePicture} size={36} radius="50%" />
                         <Box style={{ flex: 1, minWidth: 0 }}>
                           <Text size="sm" fw={600} truncate>
-                            {record.user.displayName || record.user.email.split('@')[0]}
+                            {instructorLabel(record.user)}
                           </Text>
                           <Group justify="space-between" mt={2}>
                             <Badge size="xs" variant="light">

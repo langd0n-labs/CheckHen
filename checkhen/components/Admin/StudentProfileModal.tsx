@@ -1,3 +1,4 @@
+import { instructorLabel } from '@/lib/name-label';
 import { scopedFetch as fetch } from '@/lib/scoped-fetch';
 import { useEffect, useState } from 'react';
 import { Avatar, Badge, Group, Loader, Modal, Stack, Text, Title } from '@mantine/core';
@@ -5,6 +6,7 @@ import { Avatar, Badge, Group, Loader, Modal, Stack, Text, Title } from '@mantin
 type StudentProfile = {
   email: string;
   profilePicture: string | null;
+  name?: string | null;
   displayName: string | null;
   namePronunciation: string | null;
   pronouns: string | null;
@@ -32,7 +34,7 @@ export function StudentProfileModal({ email, onClose }: Props) {
       .finally(() => setLoading(false));
   }, [email]);
 
-  const displayName = profile?.displayName || profile?.email.split('@')[0] || '';
+  const displayName = profile ? instructorLabel(profile) : '';
 
   return (
     <Modal

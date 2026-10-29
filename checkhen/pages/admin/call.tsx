@@ -20,12 +20,12 @@ import { useCheckhenMode } from '@/lib/use-mode';
 type Outcome = 'answered' | 'pass' | 'retry' | 'absent' | 'skip';
 type Student = {
   userId: string;
-  name: string;
+  name: string; nickname?: string | null;
   pronunciation: string | null;
   pronouns: string | null;
   photo: string | null;
 };
-type Call = { id: string; userId: string; name: string; outcome: Outcome; followUp?: boolean };
+type Call = { id: string; userId: string; name: string; nickname?: string | null; outcome: Outcome; followUp?: boolean };
 type Card = Student & {
   token: string;
   followUp: boolean;
@@ -37,7 +37,7 @@ type Card = Student & {
 };
 
 const callLabel = (call: Call) =>
-  `${call.name}: ${outcomeLabel[call.outcome]}${call.followUp ? ' (follow-up)' : ''}`;
+  `${call.name}${call.nickname ? ` (${call.nickname})` : ''}: ${outcomeLabel[call.outcome]}${call.followUp ? ' (follow-up)' : ''}`;
 
 const outcomeLabel: Record<Outcome, string> = {
   answered: 'Answered',
@@ -352,6 +352,7 @@ export default function ColdCall() {
                 <Text fz="clamp(28px, 5dvh, 40px)" fw={800} lh={1.1} mt={4}>
                   {student.name}
                 </Text>
+                {student.nickname && <Text c="dimmed">{student.nickname}</Text>}
                 {student.pronunciation && (
                   <Text fz="clamp(18px, 3.5dvh, 24px)" fw={500}>
                     {student.pronunciation}

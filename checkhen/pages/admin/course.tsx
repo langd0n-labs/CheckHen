@@ -227,6 +227,7 @@ export default function CourseRecord() {
                     <Table.Tr key={student.userId}>
                       <Table.Td>
                         <Text fw={600}>{student.name}</Text>
+                        {student.nickname && <Text c="dimmed">{student.nickname}</Text>}
                         <Text size="sm" c="dimmed">
                           {student.email}
                         </Text>

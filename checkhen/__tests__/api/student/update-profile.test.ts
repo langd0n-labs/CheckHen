@@ -65,7 +65,8 @@ describe('POST /api/student/update-profile', () => {
     mockSession();
     (prisma.user.update as jest.Mock).mockResolvedValue({});
     const body = {
-      displayName: 'Alice',
+      displayName: 'Ace',
+      name: 'Forged Name',
       namePronunciation: 'AL-iss',
       pronouns: 'she/her',
       bio: 'Hello!',
@@ -76,7 +77,7 @@ describe('POST /api/student/update-profile', () => {
     expect(prisma.user.update).toHaveBeenCalledWith({
       where: { email: 'student@bu.edu' },
       data: {
-        displayName: 'Alice',
+        displayName: 'Ace',
         namePronunciation: 'AL-iss',
         pronouns: 'she/her',
         bio: 'Hello!',

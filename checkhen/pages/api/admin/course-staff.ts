@@ -1,3 +1,4 @@
+import { primaryName } from '@/lib/name-label';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { isDemo } from '@/lib/demo';
 import { prisma } from '@/lib/prisma';
@@ -22,13 +23,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method === 'GET') {
     const staff = await prisma.courseStaff.findMany({
       where: { courseId },
-      include: { user: { select: { email: true, displayName: true } } },
+      include: { user: { select: { email: true, name: true, displayName: true } } },
       orderBy: { createdAt: 'asc' },
     });
     return res.json({
       staff: staff.map((entry) => ({
         email: entry.user.email,
-        name: entry.user.displayName,
+        name: primaryName(entry.user),
+        nickname: entry.user.displayName,
         role: entry.role,
       })),
       canManage: identity.deploymentInstructor && !isDemo(),

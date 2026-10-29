@@ -37,6 +37,7 @@ function mockServer(fail: { record?: number; status?: boolean; offline?: boolean
           student: {
             userId: 'student-1',
             name: 'Alisha Moreno',
+            nickname: 'Ace',
             pronunciation: 'ale-EE-sha',
             pronouns: 'she/her',
             photo: null,
@@ -387,4 +388,23 @@ it('notes invalid grade settings between calls', async () => {
     </MantineProvider>
   );
   expect(await screen.findByText(/Some grade settings are invalid/)).toBeInTheDocument();
+});
+
+it('shows canonical name and a separate nickname on the drawn card', async () => {
+  mockServer();
+  render(<MantineProvider theme={theme}><ColdCall /></MantineProvider>);
+  await tap('Call on someone');
+  expect(await screen.findByText('Alisha Moreno')).toBeInTheDocument();
+  expect(screen.getByText('Ace')).toBeInTheDocument();
+});
+
+it('keeps a nickname secondary in recorded-call history', async () => {
+  global.fetch = jest.fn(async () => ({
+    ok: true,
+    json: async () => ({ present: 1, calls: [
+      { id: 'named-call', userId: 'student', name: 'Alisha Moreno', nickname: 'Ace', outcome: 'answered' },
+    ] }),
+  })) as jest.Mock;
+  render(<MantineProvider theme={theme}><ColdCall /></MantineProvider>);
+  expect(await screen.findByText('Alisha Moreno (Ace): Answered')).toBeInTheDocument();
 });

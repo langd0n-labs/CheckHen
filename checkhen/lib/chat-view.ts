@@ -1,7 +1,8 @@
+import { primaryName } from './name-label';
 import type { foldEvents } from './events';
 
 type Message = ReturnType<typeof foldEvents>['messages'][number];
-type Author = { id: string; email: string; displayName: string | null;
+type Author = { name?: string | null; id: string; email: string; displayName: string | null;
   namePronunciation: string | null; pronouns: string | null };
 
 export function projectionChat(messages: Message[]) {
@@ -19,7 +20,7 @@ export function instructorChat(messages: (Message & { hidden?: boolean; hideEven
     const author = byId.get(message.userId);
     return { ...projectionChat([message])[0], userId: message.userId,
       hidden: message.hidden === true, hideEventId: message.hideEventId ?? null,
-      user: { email: author?.email ?? '', displayName: author?.displayName ?? null,
+      user: { name: author ? primaryName(author) : '', nickname: author?.displayName ?? null, email: author?.email ?? '', displayName: author?.displayName ?? null,
         namePronunciation: author?.namePronunciation ?? null, pronouns: author?.pronouns ?? null } };
   });
 }

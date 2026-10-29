@@ -1,3 +1,4 @@
+import { instructorLabel } from '@/lib/name-label';
 import { Box, Card, Group, Slider, Stack, Table, Text, Title, Tooltip, UnstyledButton } from '@mantine/core';
 import { useMantineTheme } from '@mantine/core';
 import { useState } from 'react';
@@ -6,6 +7,7 @@ import { StudentProfileModal } from '../StudentProfileModal';
 
 type StudentSummary = {
   email: string;
+  name?: string | null;
   displayName: string | null;
   anonymousName: string | null;
   checkInTime: string;
@@ -196,8 +198,8 @@ export function StudentDetailView({ data, accentColor, attendanceWeight, handRai
               .sort((a, b) => {
                 let cmp = 0;
                 if (sortKey === 'name') {
-                  const na = (a.displayName || a.email.split('@')[0]).toLowerCase();
-                  const nb = (b.displayName || b.email.split('@')[0]).toLowerCase();
+                  const na = (instructorLabel(a)).toLowerCase();
+                  const nb = (instructorLabel(b)).toLowerCase();
                   cmp = na.localeCompare(nb);
                 } else if (sortKey === 'duration') {
                   cmp = (a.durationMinutes ?? -1) - (b.durationMinutes ?? -1);
@@ -227,7 +229,7 @@ export function StudentDetailView({ data, accentColor, attendanceWeight, handRai
                         style={{ cursor: 'pointer', textDecoration: 'underline' }}
                         onClick={() => setProfileEmail(s.email)}
                       >
-                        {s.displayName || s.email.split('@')[0]}
+                        {instructorLabel(s)}
                       </Text>
                     </Table.Td>
                     {!data.allTime && <Table.Td>{s.anonymousName ?? '—'}</Table.Td>}

@@ -193,3 +193,13 @@ it('releases the network on stop even when the log shows no exam', async () => {
   expect(releaseExamNetwork).toHaveBeenCalledWith(scope);
   expect(appendEvent).not.toHaveBeenCalled();
 });
+
+it('keeps a trusted name primary and the nickname separate in instructor exam status', async () => {
+  (prisma.user.findMany as jest.Mock).mockResolvedValue([
+    { id: 'student', name: 'Alisha Moreno', displayName: 'Ace', email: 'student@example.edu' },
+  ]);
+  const res = await invoke('status');
+  expect(res._getJSONData().students).toEqual([
+    { userId: 'student', name: 'Alisha Moreno', nickname: 'Ace' },
+  ]);
+});

@@ -17,10 +17,13 @@ describe('Google Workspace sign-in', () => {
     expect(
       await signIn({
         user: { email: 'student@bu.edu', image: null },
-        profile: { email_verified: true, hd: 'bu.edu' },
+        profile: { email_verified: true, hd: 'bu.edu', name: 'Alice Canonical' },
       })
     ).toBe(true);
-    expect(prisma.user.upsert).toHaveBeenCalledTimes(1);
+    expect(prisma.user.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      update: { name: 'Alice Canonical' },
+      create: expect.objectContaining({ name: 'Alice Canonical' }),
+    }));
   });
 
   it.each([

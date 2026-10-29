@@ -1,3 +1,4 @@
+import { primaryName } from '@/lib/name-label';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 import type { Prisma, PrismaClient } from '@prisma/client';
@@ -249,8 +250,7 @@ async function linkedCheckOut(
   return linked;
 }
 
-const studentName = (user: { displayName: string | null; email: string }) =>
-  user.displayName || user.email.split('@')[0];
+const studentName = primaryName;
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET' && req.method !== 'POST') {
@@ -396,6 +396,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .map((entry) => ({
           userId: entry.userId,
           name: studentName(entry.user),
+          nickname: entry.user.displayName,
           pronunciation: entry.user.namePronunciation,
           photo: entry.user.profilePicture,
           present: state.attendance.some(
@@ -419,7 +420,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     );
     const users = await prisma.user.findMany({
       where: { id: { in: calls.map((call) => call.userId!) } },
-      select: { id: true, displayName: true, email: true },
+      select: { id: true, name: true, displayName: true, email: true },
     });
     return res.json({
       present: state.attendance.filter((entry) => entry.isPresent).length,
@@ -433,6 +434,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           id: call.id,
           userId: call.userId,
           name: student ? studentName(student) : call.userId,
+          nickname: student?.displayName ?? null,
           outcome: call.payload.outcome,
           followUp: typeof call.payload.followUpOf === 'string',
           createdAt: call.createdAt,
@@ -466,6 +468,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       student: {
         userId: selected,
         name: student ? studentName(student) : selected,
+        nickname: student?.displayName ?? null,
         pronunciation: student?.namePronunciation ?? null,
         pronouns: student?.pronouns ?? null,
         photo: student?.profilePicture ?? null,
