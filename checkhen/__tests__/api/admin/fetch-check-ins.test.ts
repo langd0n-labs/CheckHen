@@ -96,7 +96,7 @@ describe('GET /api/admin/fetch-check-ins', () => {
     for (const key of ['id', 'email', 'name', 'anonymousName', 'joinTime', 'handRaiseCount', 'userId', 'user']) {
       expect(entry).toHaveProperty(key);
     }
-    expect(entry.name).toBe('jsmith');
+    expect(entry.name).toBe('jsmith@bu.edu');
   });
   it('asks the database to leave out food allergies', async () => {
     await invoke();

@@ -11,7 +11,7 @@ const MAX_FIELD: Record<string, number> = {
   pronouns: 40,
 };
 const LABEL: Record<string, string> = {
-  displayName: 'Display name',
+  displayName: 'Nickname',
   namePronunciation: 'Pronunciation',
   pronouns: 'Pronouns',
 };

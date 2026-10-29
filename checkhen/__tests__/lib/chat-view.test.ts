@@ -2,7 +2,7 @@ import { instructorChat, projectionChat, studentChat } from '@/lib/chat-view';
 
 const message = { id: 'message', userId: 'student', classId: 'class', message: 'Question?',
   anonymousName: 'Swift Panda', createdAt: new Date('2026-10-04T18:00:00Z') };
-const author = { id: 'student', email: 'student@example.edu', displayName: 'Student Name',
+const author = { id: 'student', email: 'student@example.edu', name: 'Alice Canonical', displayName: 'Ace',
   namePronunciation: null, pronouns: null };
 
 it('shows anonymous names to students and marks only their own message', () => {
@@ -14,7 +14,7 @@ it('shows anonymous names to students and marks only their own message', () => {
 
 it('shows the real student only to the instructor', () => {
   expect(instructorChat([message], [author])[0]).toMatchObject({
-    anonymousName: 'Swift Panda', userId: 'student', user: { email: 'student@example.edu', displayName: 'Student Name' },
+    anonymousName: 'Swift Panda', userId: 'student', user: { email: 'student@example.edu', name: 'Alice Canonical', nickname: 'Ace', displayName: 'Ace' },
   });
 });
 
@@ -29,4 +29,12 @@ it('keeps the projection payload anonymous for both I5 and I6', () => {
   expect(projected).toEqual([{ id: 'message', message: 'Question?', anonymousName: 'Swift Panda',
     createdAt: message.createdAt }]);
   expect(JSON.stringify(projected)).not.toContain('student');
+});
+
+it('strips all identity fields even when an input contains trusted and custom names', () => {
+  const identified = { ...message, name: author.name, nickname: author.displayName, user: author };
+  for (const payload of [projectionChat([identified]), studentChat([identified], 'student')]) {
+    const serialized = JSON.stringify(payload);
+    for (const secret of [author.name, author.displayName, author.email]) expect(serialized).not.toContain(secret);
+  }
 });

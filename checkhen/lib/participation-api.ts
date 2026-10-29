@@ -1,3 +1,4 @@
+import { primaryName } from '@/lib/name-label';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { generateUniqueAnonymousName } from './anonymousNames';
 import { instructorChat, studentChat } from './chat-view';
@@ -353,7 +354,8 @@ export function participationHandler(action: string, adminOnly = false) {
                 ...entry,
                 joinTime: entry.createdAt,
                 email: student.email,
-                name: student.email.split('@')[0],
+                name: primaryName(student),
+                nickname: student.displayName,
                 handRaiseCount: state.hands.filter((hand) => hand.userId === student.id).length,
                 user: student,
               },
@@ -370,7 +372,8 @@ export function participationHandler(action: string, adminOnly = false) {
             return {
               id: entry.id,
               email: student?.email,
-              name: student?.displayName || student?.email.split('@')[0],
+              name: student ? primaryName(student) : entry.userId,
+              nickname: student?.displayName ?? null,
               isAck: entry.isAcknowledged,
               isAcknowledged: entry.isAcknowledged,
               handRaiseCount: state.hands.filter((hand) => hand.userId === entry.userId).length,

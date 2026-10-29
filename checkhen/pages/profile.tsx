@@ -34,6 +34,7 @@ export default function ProfilePage() {
   const theme = useMantineTheme();
 
   const [profilePicture, setProfilePicture] = useState<string | null>(null);
+  const [canonicalName, setCanonicalName] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState('');
   const [namePronunciation, setNamePronunciation] = useState('');
   const [pronounsSelection, setPronounsSelection] = useState('');
@@ -59,6 +60,7 @@ export default function ProfilePage() {
       .then((r) => r.json())
       .then((data) => {
         setProfilePicture(data.profilePicture ?? null);
+        setCanonicalName(data.name ?? null);
         setDisplayName(data.displayName ?? '');
         setNamePronunciation(data.namePronunciation ?? '');
         setBio(data.bio ?? '');
@@ -230,10 +232,10 @@ export default function ProfilePage() {
             </div>
           </Group>
 
-          {/* Display Name */}
+          {canonicalName && <TextInput label="Name from Google sign-in" value={canonicalName} readOnly />}
           <TextInput
-            label="Display Name"
-            description="Your preferred name to show instructors (leave blank to use your email)"
+            label="Nickname"
+            description="Optional nickname shown beside your name to instructors. Classmates and projection see anonymous labels only."
             placeholder={email.split('@')[0]}
             value={displayName}
             maxLength={80}

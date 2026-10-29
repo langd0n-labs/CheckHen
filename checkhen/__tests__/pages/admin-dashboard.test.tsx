@@ -133,7 +133,7 @@ it('keeps fails from an ended exam listed and excusable', async () => {
           { id: 'fail-1', userId: 'student', examId: 'exam-1', excused: false, reason: null },
         ],
         network: { active: false, clients: [] },
-        students: [{ userId: 'student', name: 'Alisha Moreno' }],
+        students: [{ userId: 'student', name: 'Alisha Moreno', nickname: 'Ace' }],
       };
     }
     return { ok: true, json: async () => data } as Response;
@@ -144,8 +144,8 @@ it('keeps fails from an ended exam listed and excusable', async () => {
     </MantineProvider>
   );
   expect(await screen.findByText('Exam fails')).toBeInTheDocument();
-  expect(screen.getByText('Alisha Moreno')).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Excuse Alisha Moreno' })).toBeInTheDocument();
+  expect(screen.getByText('Alisha Moreno (Ace)')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Excuse Alisha Moreno (Ace)' })).toBeInTheDocument();
   view.unmount();
 });
 

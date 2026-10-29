@@ -1,3 +1,4 @@
+import { instructorLabel } from '@/lib/name-label';
 import { Alert, Badge, Box, Card, Group, SimpleGrid, Stack, Table, Text, Title } from '@mantine/core';
 import { BarChart } from '@mantine/charts';
 import { useMantineTheme } from '@mantine/core';
@@ -33,6 +34,7 @@ type PaceTimelineBucket = {
 };
 
 type LeaveEvent = {
+  name?: string | null;
   displayName: string | null;
   anonymousName: string | null;
   checkInTime: string;
@@ -53,6 +55,7 @@ type AggregatedStats = {
 
 type StudentSummary = {
   email: string;
+  name?: string | null;
   displayName: string | null;
   durationMinutes: number | null;
   engagementScore: number | null;
@@ -85,7 +88,7 @@ export function AggregatedView({ aggregated, classDuration, students, accentColo
   const earlyLeaves = aggregated.leaveEvents.filter((e) => e.leftEarly);
   const stillPresent = aggregated.leaveEvents.filter((e) => e.checkOutTime === null);
 
-  const studentLabel = (s: StudentSummary) => s.displayName || s.email.split('@')[0];
+  const studentLabel = (s: StudentSummary) => instructorLabel(s);
 
   const durationChartData = students.map((s, i) => ({
     index: i + 1,
@@ -304,7 +307,7 @@ export function AggregatedView({ aggregated, classDuration, students, accentColo
 
                 return (
                   <Table.Tr key={i}>
-                    <Table.Td>{e.displayName || e.anonymousName || '—'}</Table.Td>
+                    <Table.Td>{e.name ? `${e.name}${e.displayName ? ` (${e.displayName})` : ''}` : e.anonymousName || '—'}</Table.Td>
                     <Table.Td>{e.anonymousName ?? '—'}</Table.Td>
                     <Table.Td>{formatTime(e.checkInTime)}</Table.Td>
                     <Table.Td>{formatTime(e.checkOutTime)}</Table.Td>

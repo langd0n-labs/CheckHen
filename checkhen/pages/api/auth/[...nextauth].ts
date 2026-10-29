@@ -21,7 +21,7 @@ const demoProvider = CredentialsProvider({
       return null;
     }
     const user = await prisma.user.findUnique({ where: { email } });
-    return user ? { id: user.id, email: user.email, name: user.displayName } : null;
+    return user ? { id: user.id, email: user.email, name: user.name } : null;
   },
 });
 
@@ -61,9 +61,10 @@ export const authOptions = {
       // On first sign-in seed profile picture from Google; on subsequent sign-ins preserve any custom upload
       await prisma.user.upsert({
         where: { email: user.email },
-        update: {},
+        update: { name: typeof profile?.name === 'string' ? profile.name.trim() || null : null },
         create: {
           email: user.email,
+          name: typeof profile?.name === 'string' ? profile.name.trim() || null : null,
           profilePicture: user.image ?? undefined,
           isAdmin: isInstructor(user.email),
         },
