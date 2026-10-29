@@ -41,6 +41,8 @@ import {
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
+import DashboardChat, { newestFirst } from '@/components/Admin/DashboardChat';
+import chatClasses from '@/components/Admin/DashboardChat.module.css';
 import ClassSessionManager from '@/components/Admin/ClassSessionManager/ClassSessionManager';
 import { StudentProfileModal } from '@/components/Admin/StudentProfileModal';
 import { EXAM_UNAVAILABLE } from '@/lib/mode';
@@ -116,7 +118,6 @@ export default function AdminDashboard() {
   const router = useRouter();
   const theme = useMantineTheme();
   const ws = useRef<Socket | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const openModalRef = useRef<(() => void) | null>(null);
 
   // State variables
@@ -221,15 +222,6 @@ export default function AdminDashboard() {
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
   };
-
-  // Auto-scroll to bottom on new messages
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
 
   // Fetch user info
   const fetchUser = async () => {
@@ -1088,21 +1080,27 @@ export default function AdminDashboard() {
               </Text>
             </Paper>
 
-            <ScrollArea style={narrow ? { height: '60vh' } : { flex: 1 }} p="md">
+            <DashboardChat key={currentClassId} narrow={narrow}>
               <Stack gap="sm">
                 {messages.length === 0 ? (
                   <Text size="sm" c="dimmed" ta="center" mt="xl">
                     No messages yet
                   </Text>
                 ) : (
-                  messages.map((msg) => (
-                    <Paper key={msg.id} p="sm" radius="md" bg={theme.colors.gray[0]}>
+                  newestFirst(messages).map((msg) => (
+                    <Paper
+                      data-message-id={msg.id}
+                      key={msg.id}
+                      p="sm"
+                      radius="md"
+                      bg={theme.colors.gray[0]}
+                    >
                       <Group justify="space-between" mb={4}>
-                        <Group gap="xs">
+                        <Group gap="xs" style={{ minWidth: 0, maxWidth: '100%' }}>
                           <Text
-                            size="sm"
+                            size="24px"
                             fw={600}
-                            style={{ cursor: 'pointer' }}
+                            style={{ cursor: 'pointer', overflowWrap: 'anywhere', minWidth: 0 }}
                             onClick={() => setProfileEmail(msg.user.email)}
                           >
                             {instructorLabel(msg.user)}
@@ -1132,7 +1130,7 @@ export default function AdminDashboard() {
                           </Badge>
                         )}
                       </Group>
-                      <Text size="sm">{msg.message}</Text>
+                      <Text className={chatClasses.message}>{msg.message}</Text>
                       <Group gap="xs" mt="xs">
                         {msg.hidden ? (
                           <Button
@@ -1165,9 +1163,8 @@ export default function AdminDashboard() {
                     </Paper>
                   ))
                 )}
-                <div ref={messagesEndRef} />
               </Stack>
-            </ScrollArea>
+            </DashboardChat>
           </Box>
 
           {/* Right drag handle */}
