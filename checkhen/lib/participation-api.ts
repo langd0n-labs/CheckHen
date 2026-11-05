@@ -39,6 +39,7 @@ const writes = new Set([
   'check-out',
   'toggle-vhr',
   'send-chat',
+  'send-instructor-chat',
   'send-pace-signal',
   'ack-hand-raise',
   'rate-hand-raise',
@@ -309,8 +310,8 @@ export function participationHandler(action: string, adminOnly = false) {
         },
       });
     }
-    if (action === 'send-chat') {
-      if (state.mutedUsers?.includes(user.id))
+    if (action === 'send-chat' || action === 'send-instructor-chat') {
+      if (action === 'send-chat' && state.mutedUsers?.includes(user.id))
         return res.status(403).json({ message: 'Muted for this class' });
       const message = req.body?.message;
       if (typeof message !== 'string' || !message.trim() || message.length > 1000) {
@@ -318,13 +319,15 @@ export function participationHandler(action: string, adminOnly = false) {
       }
       const event = await append('CHAT_MESSAGE', {
         message,
-        anonymousName: checkIn!.anonymousName,
+        anonymousName: action === 'send-instructor-chat' ? 'Instructor' : checkIn!.anonymousName,
+        ...(action === 'send-instructor-chat' ? { fromInstructor: true } : {}),
       });
       return json({
         id: event.id,
         createdAt: event.createdAt,
         message,
-        anonymousName: checkIn!.anonymousName,
+        anonymousName: action === 'send-instructor-chat' ? 'Instructor' : checkIn!.anonymousName,
+        ...(action === 'send-instructor-chat' ? { fromInstructor: true } : {}),
       });
     }
     if (action === 'hide-chat') {

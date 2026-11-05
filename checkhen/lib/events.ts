@@ -135,6 +135,7 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
       classId: string;
       message: string;
       anonymousName: string;
+      fromInstructor?: true;
       createdAt: Date;
     }
   >();
@@ -146,6 +147,7 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
       classId: string;
       message: string;
       anonymousName: string;
+      fromInstructor?: true;
       createdAt: Date;
       hidden: true;
       hideEventId: string;
@@ -265,6 +267,7 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
         createdAt,
         message: String(payload.message),
         anonymousName: String(payload.anonymousName),
+        ...(payload.fromInstructor === true ? { fromInstructor: true as const } : {}),
       });
     } else if (event.kind === 'CHAT_HIDDEN') {
       const target = byId.get(event.supersedesId!)!;
@@ -274,6 +277,7 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
         classId: target.classId,
         message: String(target.payload.message),
         anonymousName: String(target.payload.anonymousName),
+        ...(target.payload.fromInstructor === true ? { fromInstructor: true as const } : {}),
         createdAt: target.createdAt,
         hidden: true,
         hideEventId: event.id,

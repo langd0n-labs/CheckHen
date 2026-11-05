@@ -213,3 +213,14 @@ it('raises the projection generation once for each effective revocation', () => 
   const undone = [...revoked, at(event('03', 'UNDO', {}, '02'), 3000)];
   expect(foldEvents(undone, scope).projectionGeneration).toBe(1);
 });
+
+it('preserves instructor status through hiding and restoring without marking student messages', () => {
+  const messages = [event('01', 'CHAT_MESSAGE', { message: 'Hello', anonymousName: 'Instructor', fromInstructor: true })];
+  expect(foldEvents(messages, scope).messages[0].fromInstructor).toBe(true);
+  messages.push(event('02', 'CHAT_HIDDEN', { messageId: '01' }, '01'));
+  expect(foldEvents(messages, scope).messages).toEqual([]);
+  expect(foldEvents(messages, scope).instructorMessages[0]).toMatchObject({ hidden: true, fromInstructor: true });
+  messages.push(event('03', 'UNDO', {}, '02'));
+  expect(foldEvents(messages, scope).messages[0].fromInstructor).toBe(true);
+  expect(foldEvents([event('04', 'CHAT_MESSAGE', { message: 'Student', anonymousName: 'Swift Panda' })], scope).messages[0]).not.toHaveProperty('fromInstructor');
+});

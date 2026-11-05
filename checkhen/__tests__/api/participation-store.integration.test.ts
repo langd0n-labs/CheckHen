@@ -1,3 +1,5 @@
+import sendInstructorChat from '@/pages/api/admin/send-chat';
+import { studentChat, projectionChat } from '@/lib/chat-view';
 /** @jest-environment node */
 beforeEach(() => { process.env.NEXTAUTH_URL = 'https://checkhen.test'; });
 import { createHmac, randomUUID } from 'node:crypto';
@@ -1284,6 +1286,29 @@ integration('route → store → attendance fold', () => {
       delete process.env.CHECKHEN_DEMO;
       delete process.env.CHECKHEN_MODE;
     }
+  });
+
+  it('stores instructor messages without check-in, strips identity, and hides and restores them', async () => {
+    (requireScope as jest.Mock).mockResolvedValue({ user, selected, scope, admin: true });
+    const request = async (handler: typeof checkIn, body: Record<string, unknown>) => {
+      const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: 'POST', query: scope, body });
+      await handler(req as any, res as any);
+      expect(res._getStatusCode()).toBe(200);
+    };
+    await request(sendInstructorChat, { message: 'Hello class', fromInstructor: false, anonymousName: 'Fake' });
+    const state = await readState(prisma, scope);
+    expect(state.attendance).toEqual([]);
+    expect(state.messages[0]).toMatchObject({ anonymousName: 'Instructor', fromInstructor: true });
+    for (const payload of [studentChat(state.messages, 'student'), projectionChat(state.messages)]) {
+      expect(payload[0]).not.toHaveProperty('userId');
+      expect(JSON.stringify(payload)).not.toContain(user.email);
+      expect(JSON.stringify(payload)).not.toContain(user.id);
+    }
+    await request(hideChat, { messageId: state.messages[0].id });
+    expect((await readState(prisma, scope)).messages).toEqual([]);
+    expect((await readState(prisma, scope)).instructorMessages[0]).toMatchObject({ hidden: true, fromInstructor: true });
+    await request(unhideChat, { messageId: state.messages[0].id });
+    expect((await readState(prisma, scope)).messages[0].fromInstructor).toBe(true);
   });
 
   it('hides a stored message and mutes its student without deleting facts', async () => {

@@ -62,6 +62,7 @@ type HandRaise = {
 };
 
 type ChatMessage = {
+  fromInstructor?: boolean;
   id: string;
   hidden: boolean;
   hideEventId: string | null;
@@ -124,6 +125,8 @@ export default function AdminDashboard() {
   const [currentClassColor, setCurrentClassColor] = useState<string | null>(null);
   const [dashboardReady, setDashboardReady] = useState(false);
   const [handRaises, setHandRaises] = useState<HandRaise[]>([]);
+  const [chatDraft, setChatDraft] = useState('');
+  const [sendingChat, setSendingChat] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [exam, setExam] = useState<ExamStatus | null>(null);
@@ -369,6 +372,24 @@ export default function AdminDashboard() {
     const data = await response.json();
     const jsonData = JSON.parse(data.message);
     setMessages(jsonData);
+  };
+
+  const sendInstructorChat = async () => {
+    if (!currentClassId || !chatDraft.trim() || sendingChat) return;
+    setSendingChat(true);
+    try {
+      const response = await fetch('/api/admin/send-chat', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: chatDraft }),
+      });
+      if (!response.ok) throw new Error('Could not send message');
+      setChatDraft('');
+      await fetchAllChatMessages();
+    } catch {
+      notifications.show({ title: 'Error', message: 'Could not send message', color: 'red' });
+    } finally {
+      setSendingChat(false);
+    }
   };
 
   const hideMessage = async (messageId: string) => {
@@ -1080,20 +1101,29 @@ export default function AdminDashboard() {
                             Hide
                           </Button>
                         )}
-                        <Button
+                        {!msg.fromInstructor && <Button
                           size="xs"
                           variant="subtle"
                           color="red"
                           onClick={() => muteStudent(msg.userId)}
                         >
                           Mute student
-                        </Button>
+                        </Button>}
                       </Group>
                     </Paper>
                   ))
                 )}
               </Stack>
             </DashboardChat>
+            <form onSubmit={(event) => { event.preventDefault(); void sendInstructorChat(); }}>
+              <Group mt="sm" align="end">
+                <TextInput label="Message as Instructor" value={chatDraft}
+                  onChange={(event) => setChatDraft(event.currentTarget.value)} maxLength={1000}
+                  disabled={!currentClassId || sendingChat} style={{ flex: 1 }} />
+                <Button type="submit" loading={sendingChat}
+                  disabled={!currentClassId || !chatDraft.trim()}>Send</Button>
+              </Group>
+            </form>
           </Box>
 
           {/* Right drag handle */}

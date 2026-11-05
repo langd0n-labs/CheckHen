@@ -6,8 +6,8 @@ type Author = { name?: string | null; id: string; email: string; displayName: st
   namePronunciation: string | null; pronouns: string | null };
 
 export function projectionChat(messages: Message[]) {
-  return messages.map(({ id, message, anonymousName, createdAt }) =>
-    ({ id, message, anonymousName, createdAt }));
+  return messages.map(({ id, message, anonymousName, createdAt, fromInstructor }) =>
+    ({ id, message, anonymousName, createdAt, ...(fromInstructor ? { fromInstructor } : {}) }));
 }
 
 export function studentChat(messages: Message[], viewerId: string) {

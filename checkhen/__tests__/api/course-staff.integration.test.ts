@@ -27,6 +27,7 @@ const POST_ROUTES = [
   'rate-hand-raise',
   'reset-pace-signals',
   'revoke-projection',
+  'send-chat',
   'start-new-class',
 ];
 const adminDir = join(process.cwd(), 'pages', 'api', 'admin');
