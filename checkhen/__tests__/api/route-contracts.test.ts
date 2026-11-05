@@ -35,6 +35,7 @@ const instructorMethod = (name: string) =>
     'close-check',
     'end-class-early',
     'hide-chat',
+    'send-chat',
     'unhide-chat',
     'mute-student',
     'open-check',

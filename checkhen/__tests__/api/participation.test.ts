@@ -1,5 +1,6 @@
+import sendInstructorChat from '@/pages/api/admin/send-chat';
 import { EventBudgetError } from '@/lib/event-budget';
-import { courseStaffIds } from '@/lib/staff';
+import { courseStaffIds, isCourseStaff } from '@/lib/staff';
 import { resetWriteLimits } from '@/lib/write-limits';
 import answerCheckRoute from '@/pages/api/student/answer-check';
 import fetchCheckRoute from '@/pages/api/admin/fetch-check';
@@ -54,7 +55,7 @@ jest.mock('@/lib/portal-binding', () => ({
   revokeSessionDevices: jest.fn(),
 }));
 jest.mock('@/lib/exam-control', () => ({ examAgent: jest.fn(), releaseExamNetwork: jest.fn() }));
-jest.mock('@/lib/staff', () => ({ courseStaffIds: jest.fn().mockResolvedValue(new Set()) }));
+jest.mock('@/lib/staff', () => ({ courseStaffIds: jest.fn().mockResolvedValue(new Set()), isCourseStaff: jest.fn().mockResolvedValue(false) }));
 
 const user = { id: 'student', email: 'student@bu.edu' };
 const selected = {
@@ -304,6 +305,20 @@ it('shows only the checked-in student’s exam fail', async () => {
 });
 
 describe('event-backed chat and pace', () => {
+  it.each([false, true])('refuses course staff before check-in (deployment instructor: %s)', async (deploymentInstructor) => {
+    (requireScope as jest.Mock).mockResolvedValue({ scope, user, selected, admin: true, deploymentInstructor });
+    (isCourseStaff as jest.Mock).mockResolvedValueOnce(true);
+    const res = await invoke(sendChat, 'POST', { message: 'Question' });
+    expect(res._getStatusCode()).toBe(403);
+    expect(res._getJSONData().message).toBe('Instructors cannot post anonymous messages in this course');
+    expect(appendEvent).not.toHaveBeenCalled();
+  });
+  it('still permits course staff to check in', async () => {
+    (requireScope as jest.Mock).mockResolvedValue({ scope, user, selected, admin: true });
+    expect((await invoke(checkIn, 'POST'))._getStatusCode()).toBe(200);
+    expect(appendEvent).toHaveBeenCalledWith(prisma, expect.objectContaining({ kind: 'CHECK_IN' }));
+    expect(isCourseStaff).not.toHaveBeenCalled();
+  });
   it('writes a hide event that supersedes the message', async () => {
     (readState as jest.Mock).mockResolvedValue({
       ...checkedIn(),
@@ -523,5 +538,36 @@ describe('understanding check protections', () => {
     expect(response._getJSONData().check).toMatchObject({
       present: 1, answers: [{ name: 'Trusted Student (Nickname)' }],
     });
+  });
+});
+
+describe('instructor chat', () => {
+  it('requires POST and admin scope', async () => {
+    expect((await invoke(sendInstructorChat, 'GET'))._getStatusCode()).toBe(405);
+    (requireScope as jest.Mock).mockImplementation(async (_req, res, adminOnly) => {
+      expect(adminOnly).toBe(true);
+      res.status(403).json({ message: 'Instructor access required' });
+      return null;
+    });
+    expect((await invoke(sendInstructorChat, 'POST', { message: 'Hello' }))._getStatusCode()).toBe(403);
+  });
+  it('requires an active class', async () => {
+    (readState as jest.Mock).mockResolvedValue({ ...empty(), endedAt: new Date() });
+    expect((await invoke(sendInstructorChat, 'POST', { message: 'Hi' }))._getJSONData()).toEqual({ message: 'No active class' });
+  });
+  it.each([null, 1, '', ' ', 'x'.repeat(1001)])('validates %s', async (message) => {
+    expect((await invoke(sendInstructorChat, 'POST', { message }))._getStatusCode()).toBe(400);
+    expect(appendEvent).not.toHaveBeenCalled();
+  });
+  it('sends without check-in and ignores caller identity fields', async () => {
+    expect((await invoke(sendInstructorChat, 'POST', { message: 'Hello', anonymousName: 'Fake', fromInstructor: false }))._getStatusCode()).toBe(200);
+    expect(appendEvent).toHaveBeenCalledWith(prisma, expect.objectContaining({
+      kind: 'CHAT_MESSAGE', userId: null, actorId: 'student', payload: { message: 'Hello', anonymousName: 'Instructor', fromInstructor: true },
+    }));
+  });
+  it('ignores a student attempt to impersonate an instructor', async () => {
+    (readState as jest.Mock).mockResolvedValue(checkedIn());
+    await invoke(sendChat, 'POST', { message: 'Hello', fromInstructor: true, anonymousName: 'Instructor' });
+    expect(appendEvent).toHaveBeenCalledWith(prisma, expect.objectContaining({ payload: { message: 'Hello', anonymousName: 'Swift Panda' } }));
   });
 });

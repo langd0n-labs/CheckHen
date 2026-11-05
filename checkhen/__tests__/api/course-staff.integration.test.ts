@@ -27,6 +27,7 @@ const POST_ROUTES = [
   'rate-hand-raise',
   'reset-pace-signals',
   'revoke-projection',
+  'send-chat',
   'start-new-class',
 ];
 const adminDir = join(process.cwd(), 'pages', 'api', 'admin');
@@ -110,6 +111,17 @@ integration('course-scoped staff', () => {
     }
     expect((await call(sessionsRoute, 'GET', { courseId: courseA.id }))._getStatusCode()).toBe(200);
     expect((await call(sessionsRoute, 'GET', { courseId: courseB.id }))._getStatusCode()).toBe(403);
+  });
+
+  it('lets course A staff send chat only in course A without a roster entry', async () => {
+    as('ta');
+    const selected = await prisma.class.create({ data: { courseId: courseA.id, name: 'Active chat', createdAt: new Date(), duration: 60 } });
+    const staff = await prisma.user.findUniqueOrThrow({ where: { email: email('ta') } });
+    expect(await prisma.rosterEntry.count({ where: { userId: staff.id } })).toBe(0);
+    const route = adminRoutes.find(candidate => candidate.name === 'send-chat')!;
+    expect((await call(route.handler, 'POST', { courseId: courseB.id, classId: classB.id }, { message: 'Hello' }))._getStatusCode()).toBe(403);
+    expect((await call(route.handler, 'POST', { courseId: courseA.id, classId: selected.id }, { message: 'Hello' }))._getStatusCode()).toBe(200);
+    expect(await prisma.participationEvent.findFirst({ where: { classId: selected.id, kind: 'CHAT_MESSAGE' } })).toMatchObject({ userId: null, actorId: staff.id });
   });
 
   it('lists only the courses a staff member instructs', async () => {
