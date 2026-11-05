@@ -87,7 +87,9 @@ export function StudentCheck({
         body: JSON.stringify({ checkId: check.checkId, choice }),
       }).catch(() => null);
       if (response?.ok) {
-        setCheck({ ...check, answer: choice });
+        // A poll that started before this answer must not clear it.
+        requestSequence.current += 1;
+        setCheck((current) => current && { ...current, answer: choice });
       } else {
         const data = await response?.json().catch(() => ({}));
         notifications.show({

@@ -32,7 +32,7 @@ export async function simulateCheckAnswers(
       }
       const choice = random() < ANOTHER_EXAMPLE_RATE ? 'another_example' : 'got_it';
       const delay = FIRST_MS + random() * (LAST_MS - FIRST_MS);
-      setTimeout(async () => {
+      const timer = setTimeout(async () => {
         try {
           if (await databaseFull()) {
             return;
@@ -41,7 +41,8 @@ export async function simulateCheckAnswers(
         } catch {
           // The check closed or the student left: the answer is simply not given.
         }
-      }, delay).unref();
+      }, delay);
+      (timer as unknown as { unref?: () => void }).unref?.();
     }
   } catch {
     // A demo nicety; the check itself is already open.
