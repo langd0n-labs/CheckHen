@@ -1298,12 +1298,24 @@ The tunnel stays off until M1 and M2 are fixed and AICP confirms.
 2. Start: `podman-compose -p checkhen-demo --env-file .env.hosted --profile hosted up -d --build`.
    podman-compose does not replace a running container when only its image changed.
    After a rebuild, update the containers as "Update app and socket" below says.
-3. Start the tunnel: `podman-compose -p checkhen-tunnel -f docker-compose.tunnel.yml up -d`.
+3. Confirm the list under "Before opening the tunnel" below. Then start the tunnel from
+   the repository root: `podman-compose -p checkhen-tunnel -f docker-compose.tunnel.yml up -d`.
    It serves the demo and class hostnames, so stopping it stops both.
 4. A fresh demo database: `podman-compose -p checkhen-demo --env-file .env.hosted --profile hosted down -v`,
    then start. The first visit to `/demo` seeds it.
    Do this too when the database reaches `DEMO_MAX_DATABASE_MB` and writes return
    507: the event log is append-only, so nothing else frees space.
+
+Move a tunnel that runs in the demo project to `checkhen-tunnel` once. The two containers
+use the same metrics address, so they cannot run together. Both hostnames drop until the
+new tunnel connects.
+
+1. `podman stop checkhen-demo_tunnel_1`
+2. Start the tunnel as step 3 above says.
+3. Verify. `curl -s http://127.0.0.1:20241/ready` shows `readyConnections` above 0, and the
+   demo and class hostnames answer.
+4. If a check passes, `podman rm checkhen-demo_tunnel_1`. If a check fails, run
+   `podman rm -f checkhen-tunnel_tunnel_1`, then `podman start checkhen-demo_tunnel_1`.
 
 Update app and socket after a rebuild. Do not pass `--profile`, and do not use the
 full-stack command with `--force-recreate`. With a profile active, podman-compose 1.6.0
