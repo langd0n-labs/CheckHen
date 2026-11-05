@@ -1294,12 +1294,41 @@ The tunnel stays off until M1 and M2 are fixed and AICP confirms.
 1. Create the tunnel secret once, from Secrets Manager:
    `agent-credential run --project fishjump -- podman secret create --env=true checkhen_demo_tunnel_token CHECKHEN_DEMO_TUNNEL_TOKEN`
 2. Start: `podman-compose -p checkhen-demo --env-file .env.hosted --profile hosted --profile tunnel up -d --build`.
-   After a rebuild, add `--force-recreate`: podman-compose does not replace a running
-   container when only its image changed.
+   podman-compose does not replace a running container when only its image changed.
+   After a rebuild, update the containers as "Update app and socket" below says.
 3. A fresh demo database: `podman-compose -p checkhen-demo --env-file .env.hosted --profile hosted down -v`,
    then start. The first visit to `/demo` seeds it.
    Do this too when the database reaches `DEMO_MAX_DATABASE_MB` and writes return
    507: the event log is append-only, so nothing else frees space.
+
+Update app and socket after a rebuild. Do not pass `--profile`, and do not use the
+full-stack command with `--force-recreate`. With a profile active, podman-compose 1.6.0
+also recreates `hosted-proxy` and `tunnel`, even with `--no-deps`. A profile can also come
+from `COMPOSE_PROFILES`, in the shell or in the environment file.
+
+1. Record the IDs of the running containers and of the new images:
+   `podman ps -a --filter name=^checkhen-demo_ --filter name=^checkhen-class_ --format '{{.Names}} {{.ID}}' | sort > /var/tmp/$(date +%F)-checkhen-before.txt`
+   `podman image inspect localhost/checkhen-demo_app:latest localhost/checkhen-demo_socket:latest --format '{{.Id}}' > /var/tmp/$(date +%F)-checkhen-images.txt`
+2. Confirm that no other container on the host depends on app or socket. This must print
+   nothing:
+   `podman ps -a --format '{{.Names}}' | grep -v -E '^checkhen-demo_(app|socket)_1$' | while read -r c; do podman inspect "$c" --format '{{.Name}} {{.Dependencies}}'; done | grep -F -f <(podman inspect checkhen-demo_app_1 checkhen-demo_socket_1 --format '{{.Id}}')`
+   If it prints a container, stop. The next command would fail to replace the containers
+   and still exit 0.
+3. Deploy:
+   `COMPOSE_PROFILES= podman-compose -p checkhen-demo --env-file .env.hosted up -d --no-deps --no-build --force-recreate app socket`
+4. Verify. Do not rely on the exit code.
+   - In a new listing, `checkhen-demo_app_1` and `checkhen-demo_socket_1` have new IDs,
+     and every other container has the same ID as in step 1.
+   - `podman inspect checkhen-demo_app_1 checkhen-demo_socket_1 --format '{{.Image}}'`
+     prints the image IDs from step 1, in the same order.
+   - `podman inspect checkhen-demo_app_1 checkhen-demo_socket_1 --format '{{.Name}} {{.State.Status}}'`
+     prints `running` for both.
+   - `podman inspect checkhen-demo_app_1 --format '{{.State.Health.Status}}'` prints
+     `healthy`. This can take up to 150 seconds.
+   - `curl -sS -o /dev/null -w '%{http_code}\n' https://checkhen.langd0n.com/api/ping` and
+     `curl -sS -o /dev/null -w '%{http_code}\n' 'https://checkhen.langd0n.com/socket.io/?EIO=4&transport=polling'`
+     each print 200.
+   - If a check fails, stop and report it.
 
 Before opening the tunnel, confirm in `.env.hosted`:
 
