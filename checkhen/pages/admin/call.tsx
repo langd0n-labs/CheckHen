@@ -14,6 +14,7 @@ import {
 import { notifications } from '@mantine/notifications';
 import { RollCall } from '@/components/RollCall';
 import { SessionScopePicker } from '@/components/SessionScopePicker';
+import { UnderstandingCheck } from '@/components/UnderstandingCheck';
 import { scopedFetch, selectedScope } from '@/lib/scoped-fetch';
 import { useCheckhenMode } from '@/lib/use-mode';
 
@@ -268,6 +269,7 @@ export default function ColdCall() {
           </Text>
         </Group>
       </Group>
+      {!rollCall && !student && <UnderstandingCheck compact />}
       {mode === 'hosted' && !rollCall && !student && (
         // Hosted mode has no network attendance; roll call checks students in.
         <Button variant="light" h={44} onClick={() => setRollCall(true)}>

@@ -33,3 +33,10 @@ it('leaves the demo to its own gate', () => {
   process.env.CHECKHEN_MODE = 'hosted';
   for (let i = 0; i < 100; i += 1) expect(allowStudentWrite('s1', 'send-chat', 1_000_000)).toBe(true);
 });
+
+it('limits answers like pace signals, separately for each student', () => {
+  for (let i = 0; i < 30; i += 1) expect(allowStudentWrite('s1', 'answer-check', 1_000_000)).toBe(true);
+  expect(allowStudentWrite('s1', 'answer-check', 1_000_000)).toBe(false);
+  expect(allowStudentWrite('s2', 'answer-check', 1_000_000)).toBe(true);
+  expect(allowStudentWrite('s1', 'answer-check', 1_060_000)).toBe(true);
+});

@@ -1,3 +1,4 @@
+import { courseStaffIds } from '@/lib/staff';
 import { primaryName } from '@/lib/name-label';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import {
@@ -49,7 +50,8 @@ async function loadReport(courseId: string, config: ColdCallConfig) {
         email: entry.user.email,
       }))
       .sort((a, b) => a.name.localeCompare(b.name) || a.userId.localeCompare(b.userId)),
-    config
+    config,
+    await courseStaffIds(courseId)
   );
 }
 

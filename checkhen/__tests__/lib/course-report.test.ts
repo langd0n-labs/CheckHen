@@ -308,3 +308,26 @@ it('exports the canonical name and nickname in separate escaped columns', () => 
   expect(row[header.indexOf('name')]).toBe('Alisha Moreno');
   expect(row[header.indexOf('nickname')]).toBe("'=Ace");
 });
+
+
+it('excludes rostered deployment instructors and course staff from check attendance and answers', () => {
+  const previous = process.env.ADMIN_EMAILS;
+  process.env.ADMIN_EMAILS = 'teacher@example.edu';
+  try {
+    const meeting: Meeting = { courseId: 'course', classId: 'm1', events: [
+      checkIn('m1', 'a'), checkIn('m1', 'teacher'), checkIn('m1', 'staff'),
+      event('m1', null, 'CHECK_OPENED', { checkId: 'k', kind: 'understanding', choices: ['got_it', 'another_example'], closesAt: null }),
+      event('m1', 'staff', 'CHECK_ANSWERED', { checkId: 'k', choice: 'got_it' }),
+      event('m1', 'a', 'CHECK_ANSWERED', { checkId: 'k', choice: 'got_it' }),
+    ] };
+    const report = courseReport([meeting], sessions.slice(0, 1), [
+      ...roster,
+      { userId: 'teacher', name: 'Teacher', email: 'teacher@example.edu' },
+      { userId: 'staff', name: 'Staff', email: 'staff@example.edu' },
+    ], DEFAULT_CONFIG, new Set(['staff']));
+    expect(report.checks[0]).toMatchObject({ present: 1, answered: 1, gotIt: 1 });
+  } finally {
+    if (previous === undefined) delete process.env.ADMIN_EMAILS;
+    else process.env.ADMIN_EMAILS = previous;
+  }
+});

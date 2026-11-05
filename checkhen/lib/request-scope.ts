@@ -28,7 +28,17 @@ export async function requireIdentity(req: NextApiRequest, res: NextApiResponse,
   if (!user) { res.status(401).json({ message: 'Unknown user' }); return null; }
   const admin = deploymentInstructor ||
     (typeof courseId === 'string' && !!courseId && await isCourseStaff(user.id, courseId));
-  if (adminOnly && !admin) { res.status(403).json({ message: 'Instructor access required' }); return null; }
+  if (adminOnly && !admin) {
+    const roster = await prisma.rosterEntry.findUnique({
+      where: { courseId_userId: { courseId: courseId as string, userId: user.id } },
+    });
+    res.status(403).json({
+      message: roster?.active ? 'Instructor access required. This browser is now signed in as a student; '
+        + 'sign in as the instructor again, and open student views in a private window.'
+        : 'Instructor access required',
+    });
+    return null;
+  }
   return { user, admin, deploymentInstructor };
 }
 

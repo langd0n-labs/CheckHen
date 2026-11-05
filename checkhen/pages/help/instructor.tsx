@@ -45,8 +45,13 @@ export default function InstructorHelp() {
                   likely to be drawn for a cold call in the same meeting.
                 </List.Item>
                 <List.Item>
-                  Pace: how many students chose Slow down or Got it. A notice appears when more than
-                  30% want to slow down. Reset clears the counts.
+                  Understanding check: at a natural pause, tap Check understanding. Students see
+                  &quot;Did that land?&quot; with Got it and Another example, and a countdown. A
+                  check closes itself after 3 minutes; choose No timer to close it yourself. You see
+                  how many answered, the split, and who chose what. A notice appears when at least
+                  25% of answers ask for another example (the share is a course setting). A label is
+                  optional. Every check is listed in the course record&apos;s Checks tab, which also
+                  shows how many recent lectures needed another example.
                 </List.Item>
                 <List.Item>
                   Chat: you see real names. Hide removes a message for students and the projector
@@ -174,8 +179,8 @@ export default function InstructorHelp() {
                 Students check themselves in by joining the session. Roll call on the cold-call
                 screen confirms each check-in (Present) or corrects it (Absent), and the course
                 record shows sessions a student only self-reported. Exam mode is not available.
-                Chat, hands, pace, cold calling, the course record, and projection work the same in
-                both modes.
+                Chat, hands, understanding checks, cold calling, the course record, and projection
+                work the same in both modes.
               </Text>
             </>
           ),

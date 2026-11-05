@@ -21,6 +21,8 @@ const POST_ROUTES = [
   'hide-chat',
   'unhide-chat',
   'mute-student',
+  'open-check',
+  'close-check',
   'projection-ticket',
   'rate-hand-raise',
   'reset-pace-signals',

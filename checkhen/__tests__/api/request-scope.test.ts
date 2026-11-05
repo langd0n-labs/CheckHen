@@ -49,3 +49,37 @@ it('requires an authenticated session', async () => {
   expect(result).toBeNull();
   expect(res._getStatusCode()).toBe(401);
 });
+it('tells a student browser on an instructor request that it is signed in as a student', async () => {
+  const { req, res } = createMocks({ method: 'GET', query: { courseId: 'course-a', classId: 'session-a' } });
+  expect(await requireScope(req as any, res as any, true)).toBeNull();
+  expect(res._getStatusCode()).toBe(403);
+  expect(res._getJSONData().message).toMatch(/signed in as a student/);
+  expect(prisma.courseStaff.findUnique).toHaveBeenCalledWith({
+    where: { courseId_userId: { courseId: 'course-a', userId: 'student' } },
+  });
+});
+it('keeps the plain refusal for an instructor request without a sign-in', async () => {
+  (getServerSession as jest.Mock).mockResolvedValue(null);
+  const { req, res } = createMocks({ method: 'GET', query: { courseId: 'course-a', classId: 'session-a' } });
+  expect(await requireScope(req as any, res as any, true)).toBeNull();
+  expect(res._getStatusCode()).toBe(401);
+  expect(res._getJSONData()).toEqual({ message: 'Unauthorized' });
+});
+
+it('allows course staff through the instructor scope rule for their own course', async () => {
+  (prisma.courseStaff.findUnique as jest.Mock).mockResolvedValueOnce({ userId: 'student' });
+  const { req, res } = createMocks({ method: 'GET', query: { courseId: 'course-a', classId: 'session-a' } });
+  const result = await requireScope(req as any, res as any, true);
+  expect(result).toMatchObject({ admin: true, deploymentInstructor: false,
+    scope: { courseId: 'course-a', classId: 'session-a' } });
+  expect(prisma.rosterEntry.findUnique).not.toHaveBeenCalled();
+});
+
+
+it.each([null, { active: false }])('uses the plain instructor refusal without an active roster entry: %p', async (roster) => {
+  (prisma.rosterEntry.findUnique as jest.Mock).mockResolvedValue(roster);
+  const { req, res } = createMocks({ method: 'GET', query: { courseId: 'course-a', classId: 'session-a' } });
+  expect(await requireScope(req as any, res as any, true)).toBeNull();
+  expect(res._getStatusCode()).toBe(403);
+  expect(res._getJSONData()).toEqual({ message: 'Instructor access required' });
+});

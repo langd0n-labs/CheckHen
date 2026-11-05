@@ -31,6 +31,7 @@ const payload = {
         score: 1,
         examFails: 1,
         examFailsExcused: 1,
+        checksAnswered: 2,
       },
     ],
     sessions: [
@@ -45,6 +46,8 @@ const payload = {
         absences: 1,
         volunteerAnswers: 2,
         examFails: 0,
+        checks: 2,
+        checksNeedingExample: 1,
       },
     ],
     absences: [
@@ -69,6 +72,21 @@ const payload = {
         reason: 'Nurse visit',
       },
     ],
+    checks: [
+      {
+        checkId: 'check-1',
+        classId: 'm1',
+        sessionName: 'Week 1',
+        openedAt: '2026-09-01T14:20:00Z',
+        label: 'Sampling',
+        present: 30,
+        answered: 24,
+        gotIt: 16,
+        anotherExample: 8,
+        needsExample: true,
+      },
+    ],
+    checkTrend: { lectures: 6, needingExample: 4, threshold: 0.25, window: 6 },
   },
 };
 
@@ -239,4 +257,16 @@ it('says when saved settings could not be used', async () => {
   view();
   expect(await screen.findByText('Saved settings could not be used')).toBeInTheDocument();
   expect(screen.getByText(/Those settings use their defaults/)).toBeInTheDocument();
+});
+
+it('leads with the understanding trend and lists each check', async () => {
+  view();
+  expect(
+    await screen.findByText('4 of your last 6 lectures with checks needed another example')
+  ).toBeInTheDocument();
+  expect(screen.getByText(/at least 25% of the answers/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('tab', { name: 'Checks' }));
+  const row = (await screen.findByText('Sampling')).closest('tr')!;
+  expect(within(row).getByText('24 of 30')).toBeInTheDocument();
+  expect(within(row).getByText('Needed another example')).toBeInTheDocument();
 });

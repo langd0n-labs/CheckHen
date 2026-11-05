@@ -9,6 +9,7 @@ import { isDemo } from './demo';
  */
 const PER_MINUTE: Record<string, number> = {
   'send-chat': 20,
+  'answer-check': 30,
   'toggle-vhr': 30,
   'send-pace-signal': 30,
   'check-in': 30,
