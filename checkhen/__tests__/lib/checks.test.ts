@@ -164,6 +164,20 @@ describe('checks in the course record', () => {
       config
     );
 
+  it('does not count a check with fewer than three answers', () => {
+    const keepAnswers = (meeting: Meeting, count: number): Meeting => {
+      let kept = 0;
+      return {
+        ...meeting,
+        events: meeting.events.filter(
+          (event) => event.kind !== 'CHECK_ANSWERED' || ++kept <= count
+        ),
+      };
+    };
+    const report = build([keepAnswers(lecture(1, 4), 2), keepAnswers(lecture(2, 4), 3)]);
+    expect(report.checks.map((row) => row.needsExample)).toEqual([false, true]);
+  });
+
   it('counts a lecture as needing another example at the threshold share of answers', () => {
     // 25% is one of four answers: lecture 2 counts, lecture 1 does not.
     const report = build([lecture(1, 0), lecture(2, 1), lecture(3, 2)]);

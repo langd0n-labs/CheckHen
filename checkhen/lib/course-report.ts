@@ -2,7 +2,7 @@
 import { isInstructor } from './instructor';
 import { anotherExampleShare } from './checks';
 import { grades, type ColdCallConfig, type Meeting } from './cold-call';
-import { effectiveEvents, foldEvents } from './events';
+import { effectiveEvents, foldEvents, MIN_ANSWERS_FOR_NOTICE } from './events';
 
 export type SessionMeta = { classId: string; name: string; startedAt: Date };
 export type RosterStudent = { userId: string; name: string; nickname?: string | null; email: string };
@@ -221,7 +221,9 @@ export function courseReport(
         answered: answers.length,
         gotIt: answers.filter((answer) => answer.choice === 'got_it').length,
         anotherExample: answers.filter((answer) => answer.choice === 'another_example').length,
-        needsExample: answers.length > 0 && anotherExampleShare(counted) >= config.check_threshold,
+        needsExample:
+          answers.length >= MIN_ANSWERS_FOR_NOTICE &&
+          anotherExampleShare(counted) >= config.check_threshold,
       };
       checkRows.push(row);
       return row;
