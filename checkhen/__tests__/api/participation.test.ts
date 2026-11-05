@@ -548,7 +548,7 @@ describe('instructor chat', () => {
   it('sends without check-in and ignores caller identity fields', async () => {
     expect((await invoke(sendInstructorChat, 'POST', { message: 'Hello', anonymousName: 'Fake', fromInstructor: false }))._getStatusCode()).toBe(200);
     expect(appendEvent).toHaveBeenCalledWith(prisma, expect.objectContaining({
-      kind: 'CHAT_MESSAGE', payload: { message: 'Hello', anonymousName: 'Instructor', fromInstructor: true },
+      kind: 'CHAT_MESSAGE', userId: null, actorId: 'student', payload: { message: 'Hello', anonymousName: 'Instructor', fromInstructor: true },
     }));
   });
   it('ignores a student attempt to impersonate an instructor', async () => {

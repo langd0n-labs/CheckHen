@@ -66,7 +66,7 @@ type ChatMessage = {
   id: string;
   hidden: boolean;
   hideEventId: string | null;
-  userId: string;
+  userId: string | null;
   message: string;
   anonymousName: string | null;
   createdAt: string;
@@ -126,6 +126,7 @@ export default function AdminDashboard() {
   const [dashboardReady, setDashboardReady] = useState(false);
   const [handRaises, setHandRaises] = useState<HandRaise[]>([]);
   const [chatDraft, setChatDraft] = useState('');
+  const chatInputRef = useRef<HTMLInputElement>(null);
   const [sendingChat, setSendingChat] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
@@ -382,13 +383,17 @@ export default function AdminDashboard() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: chatDraft }),
       });
-      if (!response.ok) throw new Error('Could not send message');
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(typeof data?.message === 'string' && data.message ? data.message : 'Could not send message');
+      }
       setChatDraft('');
       await fetchAllChatMessages();
-    } catch {
-      notifications.show({ title: 'Error', message: 'Could not send message', color: 'red' });
+    } catch (error) {
+      notifications.show({ title: 'Error', message: error instanceof Error ? error.message : 'Could not send message', color: 'red' });
     } finally {
       setSendingChat(false);
+      chatInputRef.current?.focus();
     }
   };
 
@@ -1050,10 +1055,10 @@ export default function AdminDashboard() {
                           <Text
                             size="24px"
                             fw={600}
-                            style={{ cursor: 'pointer', overflowWrap: 'anywhere', minWidth: 0 }}
-                            onClick={() => setProfileEmail(msg.user.email)}
+                            style={{ cursor: msg.userId ? 'pointer' : 'default', overflowWrap: 'anywhere', minWidth: 0 }}
+                            onClick={() => { if (msg.userId) setProfileEmail(msg.user.email); }}
                           >
-                            {instructorLabel(msg.user)}
+                            {msg.userId ? instructorLabel(msg.user) : 'Instructor'}
                           </Text>
                           <Badge size="xs" variant="light" color="gray">
                             as {msg.anonymousName || 'Anonymous'}
@@ -1101,11 +1106,11 @@ export default function AdminDashboard() {
                             Hide
                           </Button>
                         )}
-                        {!msg.fromInstructor && <Button
+                        {msg.userId && !msg.fromInstructor && <Button
                           size="xs"
                           variant="subtle"
                           color="red"
-                          onClick={() => muteStudent(msg.userId)}
+                          onClick={() => msg.userId && muteStudent(msg.userId)}
                         >
                           Mute student
                         </Button>}
@@ -1117,9 +1122,9 @@ export default function AdminDashboard() {
             </DashboardChat>
             <form onSubmit={(event) => { event.preventDefault(); void sendInstructorChat(); }}>
               <Group mt="sm" align="end">
-                <TextInput label="Message as Instructor" value={chatDraft}
+                <TextInput ref={chatInputRef} label="Message as Instructor" value={chatDraft}
                   onChange={(event) => setChatDraft(event.currentTarget.value)} maxLength={1000}
-                  disabled={!currentClassId || sendingChat} style={{ flex: 1 }} />
+                  disabled={!currentClassId} readOnly={sendingChat} style={{ flex: 1 }} />
                 <Button type="submit" loading={sendingChat}
                   disabled={!currentClassId || !chatDraft.trim()}>Send</Button>
               </Group>

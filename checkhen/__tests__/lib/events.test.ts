@@ -215,7 +215,7 @@ it('raises the projection generation once for each effective revocation', () => 
 });
 
 it('preserves instructor status through hiding and restoring without marking student messages', () => {
-  const messages = [event('01', 'CHAT_MESSAGE', { message: 'Hello', anonymousName: 'Instructor', fromInstructor: true })];
+  const messages = [{ ...event('01', 'CHAT_MESSAGE', { message: 'Hello', anonymousName: 'Instructor', fromInstructor: true }), userId: null } as ParticipationEvent];
   expect(foldEvents(messages, scope).messages[0].fromInstructor).toBe(true);
   messages.push(event('02', 'CHAT_HIDDEN', { messageId: '01' }, '01'));
   expect(foldEvents(messages, scope).messages).toEqual([]);
@@ -223,4 +223,10 @@ it('preserves instructor status through hiding and restoring without marking stu
   messages.push(event('03', 'UNDO', {}, '02'));
   expect(foldEvents(messages, scope).messages[0].fromInstructor).toBe(true);
   expect(foldEvents([event('04', 'CHAT_MESSAGE', { message: 'Student', anonymousName: 'Swift Panda' })], scope).messages[0]).not.toHaveProperty('fromInstructor');
+});
+
+it('ignores authorless chat without the instructor flag, including hidden messages', () => {
+  const message = { ...event('01', 'CHAT_MESSAGE', { message: 'No author', anonymousName: 'Unknown' }), userId: null };
+  expect(foldEvents([message], scope).messages).toEqual([]);
+  expect(foldEvents([message, event('02', 'CHAT_HIDDEN', { messageId: '01' }, '01')], scope).instructorMessages).toEqual([]);
 });

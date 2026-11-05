@@ -321,7 +321,7 @@ export function participationHandler(action: string, adminOnly = false) {
         message,
         anonymousName: action === 'send-instructor-chat' ? 'Instructor' : checkIn!.anonymousName,
         ...(action === 'send-instructor-chat' ? { fromInstructor: true } : {}),
-      });
+      }, action === 'send-instructor-chat' ? null : user.id);
       return json({
         id: event.id,
         createdAt: event.createdAt,
@@ -460,7 +460,7 @@ export function participationHandler(action: string, adminOnly = false) {
       );
       if (!adminOnly) return json(studentChat(messages, user.id));
       const users = await prisma.user.findMany({
-        where: { id: { in: messages.map((m) => m.userId) } },
+        where: { id: { in: messages.flatMap((m) => m.userId ? [m.userId] : []) } },
       });
       return json(instructorChat(messages, users));
     }
