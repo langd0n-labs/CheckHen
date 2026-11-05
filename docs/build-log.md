@@ -1309,11 +1309,11 @@ from `COMPOSE_PROFILES`, in the shell or in the environment file.
 1. Record the IDs of the running containers and of the new images:
    `podman ps -a --filter name=^checkhen-demo_ --filter name=^checkhen-class_ --format '{{.Names}} {{.ID}}' | sort > /var/tmp/$(date +%F)-checkhen-before.txt`
    `podman image inspect localhost/checkhen-demo_app:latest localhost/checkhen-demo_socket:latest --format '{{.Id}}' > /var/tmp/$(date +%F)-checkhen-images.txt`
-2. Confirm that no other container depends on app or socket. This must print 0 for each
-   container:
-   `podman ps -a --filter name=^checkhen-demo_ --format '{{.Names}}' | grep -v -E '_(app|socket)_1$' | while read -r c; do podman inspect "$c" --format '{{.Name}} {{len .Dependencies}}'; done`
-   If a value is not 0, stop. The next command would fail to replace the containers and
-   still exit 0.
+2. Confirm that no other container on the host depends on app or socket. This must print
+   nothing:
+   `podman ps -a --format '{{.Names}}' | grep -v -E '^checkhen-demo_(app|socket)_1$' | while read -r c; do podman inspect "$c" --format '{{.Name}} {{.Dependencies}}'; done | grep -F -f <(podman inspect checkhen-demo_app_1 checkhen-demo_socket_1 --format '{{.Id}}')`
+   If it prints a container, stop. The next command would fail to replace the containers
+   and still exit 0.
 3. Deploy:
    `COMPOSE_PROFILES= podman-compose -p checkhen-demo --env-file .env.hosted up -d --no-deps --no-build --force-recreate app socket`
 4. Verify. Do not rely on the exit code.
