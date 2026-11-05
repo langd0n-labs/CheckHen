@@ -388,7 +388,8 @@ export default function AdminDashboard() {
         throw new Error(typeof data?.message === 'string' && data.message ? data.message : 'Could not send message');
       }
       setChatDraft('');
-      await fetchAllChatMessages();
+      // The message is sent. A failed reload must not look like a failed send.
+      void fetchAllChatMessages().catch(() => undefined);
     } catch (error) {
       notifications.show({ title: 'Error', message: error instanceof Error ? error.message : 'Could not send message', color: 'red' });
     } finally {
@@ -1060,9 +1061,11 @@ export default function AdminDashboard() {
                           >
                             {msg.userId ? instructorLabel(msg.user) : 'Instructor'}
                           </Text>
-                          <Badge size="xs" variant="light" color="gray">
-                            as {msg.anonymousName || 'Anonymous'}
-                          </Badge>
+                          {!msg.fromInstructor && (
+                            <Badge size="xs" variant="light" color="gray">
+                              as {msg.anonymousName || 'Anonymous'}
+                            </Badge>
+                          )}
                           {msg.hidden && (
                             <Badge size="xs" color="orange">
                               Hidden
@@ -1121,10 +1124,12 @@ export default function AdminDashboard() {
               </Stack>
             </DashboardChat>
             <form onSubmit={(event) => { event.preventDefault(); void sendInstructorChat(); }}>
-              <Group mt="sm" align="end">
+              <Group mt="sm" align="end" wrap="nowrap">
                 <TextInput ref={chatInputRef} label="Message as Instructor" value={chatDraft}
                   onChange={(event) => setChatDraft(event.currentTarget.value)} maxLength={1000}
-                  disabled={!currentClassId} readOnly={sendingChat} style={{ flex: 1 }} />
+                  disabled={!currentClassId} readOnly={sendingChat}
+                  placeholder={currentClassId ? undefined : 'No active class'}
+                  style={{ flex: 1, minWidth: 0 }} />
                 <Button type="submit" loading={sendingChat}
                   disabled={!currentClassId || !chatDraft.trim()}>Send</Button>
               </Group>
