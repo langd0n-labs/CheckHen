@@ -1,0 +1,21 @@
+# The public tunnel for the hosted deployments. Its own Compose project, so an update or a
+# teardown of a deployment does not stop it. docs/build-log.md, "Hosted demo runbook", says
+# how to start it.
+services:
+  tunnel:
+    # Publishes the hosted proxies through a Cloudflare Tunnel. The token is the podman
+    # secret checkhen_demo_tunnel_token, read as a file, so it stays out of the
+    # container environment, `podman inspect`, and `podman-compose config`.
+    # docs/build-log.md, "Hosted demo runbook", says how to create the secret.
+    # Pinned by digest (the linux/amd64 image for 2026.10.3), so the tag cannot move.
+    image: docker.io/cloudflare/cloudflared:2026.10.3@sha256:c3f24df7c5e68c1467afc5486c155689f247eb02246b3a124fc5f42458728672
+    # Host networking: without an explicit address, metrics bind to every interface.
+    command: >-
+      tunnel --no-autoupdate --metrics 127.0.0.1:20241
+      run --token-file /run/secrets/checkhen_demo_tunnel_token
+    network_mode: host
+    restart: on-failure
+    secrets: [checkhen_demo_tunnel_token]
+secrets:
+  checkhen_demo_tunnel_token:
+    external: true
