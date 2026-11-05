@@ -30,7 +30,7 @@ import {
 import type { DeviceBinding } from './portal-binding';
 import { prisma } from './prisma';
 import { isInstructor, requireScope } from './request-scope';
-import { courseStaffIds } from './staff';
+import { courseStaffIds, isCourseStaff } from './staff';
 import { allowStudentWrite } from './write-limits';
 
 const writes = new Set([
@@ -71,6 +71,19 @@ export function participationHandler(action: string, adminOnly = false) {
     const context = await requireScope(req, res, adminOnly);
     if (!context) return;
     const { scope, user, selected } = context;
+    if (action === 'send-chat') {
+      const staff = await isCourseStaff(user.id, scope.courseId);
+      const roster = context.deploymentInstructor && !staff
+        ? await prisma.rosterEntry.findUnique({
+            where: { courseId_userId: { courseId: scope.courseId, userId: user.id } },
+          })
+        : null;
+      if (staff || (context.deploymentInstructor && !roster?.active)) {
+        return res.status(403).json({
+          message: 'Instructors cannot post anonymous messages in this course',
+        });
+      }
+    }
     if (action === 'answer-check' && context.admin) {
       return res.status(403).json({ message: 'Only students can answer a check' });
     }
