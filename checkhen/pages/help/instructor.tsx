@@ -49,7 +49,8 @@ export default function InstructorHelp() {
                   &quot;Did that land?&quot; with Got it and Another example, and a countdown. A
                   check closes itself after 3 minutes; choose No timer to close it yourself. You see
                   how many answered, the split, and who chose what. A notice appears when at least
-                  25% of answers ask for another example (the share is a course setting). A label is
+                  3 students have answered and at least 25% of answers ask for another example (the
+                  share is a course setting). A label is
                   optional. Every check is listed in the course record&apos;s Checks tab, which also
                   shows how many recent lectures needed another example.
                 </List.Item>

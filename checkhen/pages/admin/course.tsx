@@ -21,6 +21,7 @@ import { notifications } from '@mantine/notifications';
 import { CourseStaff } from '@/components/Admin/CourseStaff';
 import type { ColdCallConfig } from '@/lib/cold-call';
 import type { CourseReport } from '@/lib/course-report';
+import { MIN_ANSWERS_FOR_NOTICE } from '@/lib/events';
 import { selectedScope } from '@/lib/scoped-fetch';
 
 type Payload = {
@@ -196,9 +197,9 @@ export default function CourseRecord() {
             report.checkTrend.lectures === 1 ? 'lecture' : 'lectures'
           } with checks needed another example`}
         >
-          A lecture counts when at least {Math.round(report.checkTrend.threshold * 100)}% of the
-          answers to one of its understanding checks asked for another example. The Checks tab has
-          each one.
+          A lecture counts when one of its understanding checks had at least {MIN_ANSWERS_FOR_NOTICE} answers, and at
+          least {Math.round(report.checkTrend.threshold * 100)}% of the answers asked for another
+          example. The Checks tab has each one.
         </Alert>
       )}
 

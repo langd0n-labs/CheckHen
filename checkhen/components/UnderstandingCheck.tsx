@@ -12,6 +12,7 @@ import {
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
+import { MIN_ANSWERS_FOR_NOTICE } from '@/lib/events';
 import { scopedFetch } from '@/lib/scoped-fetch';
 
 /** Plain words for each understanding-check choice. */
@@ -35,7 +36,6 @@ type InstructorCheck = {
   number: number;
 };
 
-const MIN_ANSWERS_FOR_NOTICE = 3;
 
 /** Whole seconds left on a timer, given the server's clock offset. */
 export function secondsLeft(closesAt: string | null, offset: number): number | null {

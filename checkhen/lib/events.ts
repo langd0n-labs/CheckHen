@@ -91,6 +91,9 @@ export type Check = {
 /** Understanding-check choices, in the order students see them. */
 export const UNDERSTANDING_CHOICES = ['got_it', 'another_example'];
 
+/** A check needs this many answers before its share can call for another example. */
+export const MIN_ANSWERS_FOR_NOTICE = 3;
+
 /** A check takes answers until its timer runs out or it is closed. */
 export function checkOpenAt(check: Check, at: Date): boolean {
   return !check.closedAt && (!check.closesAt || at.getTime() < check.closesAt.getTime());
