@@ -226,7 +226,12 @@ export default function HomePage() {
     setSendingMessage(false);
 
     if (!response.ok) {
-      notifications.show({ title: 'Error', message: 'Could not send message', color: 'red' });
+      const data = response.status === 403 ? await response.json().catch(() => null) : null;
+      notifications.show({
+        title: 'Error',
+        message: typeof data?.message === 'string' ? data.message : 'Could not send message',
+        color: 'red',
+      });
       return;
     }
 

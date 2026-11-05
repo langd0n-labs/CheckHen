@@ -97,19 +97,19 @@ integration('route → store → attendance fold', () => {
   });
 
   it.each([
-    ['deployment instructor without roster', true, false, null, 403],
-    ['deployment instructor with active roster', true, false, true, 200],
-    ['deployment instructor with inactive roster', true, false, false, 403],
-    ['course staff without roster', false, true, null, 403],
-    ['course staff with roster', false, true, true, 403],
-    ['deployment instructor also on course staff', true, true, true, 403],
-    ['student who instructs another course', false, false, true, 200],
-    ['student', false, false, true, 200],
-  ])('anonymous chat: %s', async (label, deploymentInstructor, staff, activeRoster, status) => {
+    ['deployment instructor without roster', true, false, null, 403, false],
+    ['deployment instructor with active roster', true, false, true, 200, false],
+    ['deployment instructor with inactive roster', true, false, false, 403, false],
+    ['course staff without roster', false, true, null, 403, false],
+    ['course staff with roster', false, true, true, 403, false],
+    ['deployment instructor also on course staff', true, true, true, 403, false],
+    ['student who instructs another course', false, false, true, 200, true],
+    ['student', false, false, true, 200, false],
+  ])('anonymous chat: %s', async (_label, deploymentInstructor, staff, activeRoster, status, otherCourseStaff) => {
     const rosterKey = { courseId_userId: { courseId: scope.courseId, userId: user.id } };
     if (activeRoster === null) await prisma.rosterEntry.delete({ where: rosterKey });
     else await prisma.rosterEntry.update({ where: rosterKey, data: { active: activeRoster } });
-    if (staff || label === 'student who instructs another course') {
+    if (staff || otherCourseStaff) {
       const courseId = staff ? scope.courseId : (await prisma.course.create({ data: { name: 'Other course' } })).id;
       await prisma.courseStaff.create({ data: { courseId, userId: user.id } });
     }
