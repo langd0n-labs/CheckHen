@@ -1,3 +1,4 @@
+beforeEach(() => { process.env.NEXTAUTH_URL = 'https://checkhen.test'; });
 import { createMocks } from 'node-mocks-http';
 import { currentDemoCourse } from '@/lib/demo';
 import {
@@ -115,7 +116,7 @@ describe('the route', () => {
     delete process.env.CHECKHEN_MODE;
   });
   const invoke = async (method: 'GET' | 'POST', body?: Record<string, unknown>) => {
-    const { req, res } = createMocks({ method, body, query: scope });
+    const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method, body, query: scope });
     await chatterRoute(req as any, res as any);
     return res;
   };

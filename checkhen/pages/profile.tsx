@@ -34,7 +34,7 @@ export default function ProfilePage() {
   const theme = useMantineTheme();
 
   const [profilePicture, setProfilePicture] = useState<string | null>(null);
-  const [foodAllergies, setFoodAllergies] = useState('');
+  const [canonicalName, setCanonicalName] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState('');
   const [namePronunciation, setNamePronunciation] = useState('');
   const [pronounsSelection, setPronounsSelection] = useState('');
@@ -60,7 +60,7 @@ export default function ProfilePage() {
       .then((r) => r.json())
       .then((data) => {
         setProfilePicture(data.profilePicture ?? null);
-        setFoodAllergies(data.foodAllergies ?? '');
+        setCanonicalName(data.name ?? null);
         setDisplayName(data.displayName ?? '');
         setNamePronunciation(data.namePronunciation ?? '');
         setBio(data.bio ?? '');
@@ -114,7 +114,6 @@ export default function ProfilePage() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        foodAllergies: foodAllergies || null,
         displayName: displayName || null,
         namePronunciation: namePronunciation || null,
         pronouns: effectivePronouns || null,
@@ -233,10 +232,10 @@ export default function ProfilePage() {
             </div>
           </Group>
 
-          {/* Display Name */}
+          {canonicalName && <TextInput label="Name from Google sign-in" value={canonicalName} readOnly />}
           <TextInput
-            label="Display Name"
-            description="Your preferred name to show instructors (leave blank to use your email)"
+            label="Nickname"
+            description="Optional nickname shown beside your name to instructors. Classmates and projection see anonymous labels only."
             placeholder={email.split('@')[0]}
             value={displayName}
             maxLength={80}
@@ -294,19 +293,6 @@ export default function ProfilePage() {
               {bio.length} / {BIO_LIMIT}
             </Text>
           </Stack>
-
-          {/* Food Allergies */}
-          <Textarea
-            label="Food Allergies"
-            description="Let your instructor know about any food allergies (e.g. peanuts, dairy)"
-            placeholder="None"
-            value={foodAllergies}
-            maxLength={200}
-            onChange={(e) => setFoodAllergies(e.currentTarget.value)}
-            autosize
-            minRows={2}
-            maxRows={5}
-          />
 
           <Button
             leftSection={<Save size={16} />}

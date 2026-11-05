@@ -1,3 +1,4 @@
+beforeEach(() => { process.env.NEXTAUTH_URL = 'https://checkhen.test'; });
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { getServerSession } from 'next-auth';
@@ -12,6 +13,7 @@ jest.mock('@/lib/prisma', () => ({
     user: { findUnique: jest.fn() },
     class: { findFirst: jest.fn() },
     rosterEntry: { findUnique: jest.fn() },
+    courseStaff: { findUnique: jest.fn().mockResolvedValue(null) },
   },
 }));
 
@@ -39,13 +41,14 @@ const instructorMethod = (name: string) =>
     'projection-ticket',
     'rate-hand-raise',
     'reset-pace-signals',
+    'revoke-projection',
     'start-new-class',
   ].some((action) => name === `admin/${action}.ts`)
     ? 'POST'
     : 'GET';
 
 async function invoke(route: Route, method: 'GET' | 'POST' | 'OPTIONS') {
-  const { req, res } = createMocks({
+  const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' },
     method,
     query: { courseId: 'course-1', classId: 'session-1' },
     body: { courseId: 'course-1', classId: 'session-1' },

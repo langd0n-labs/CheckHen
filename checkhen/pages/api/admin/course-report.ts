@@ -1,3 +1,4 @@
+import { primaryName } from '@/lib/name-label';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import {
   configProblem,
@@ -43,7 +44,8 @@ async function loadReport(courseId: string, config: ColdCallConfig) {
     roster
       .map((entry) => ({
         userId: entry.userId,
-        name: entry.user.displayName || entry.user.email.split('@')[0],
+        name: primaryName(entry.user),
+        nickname: entry.user.displayName,
         email: entry.user.email,
       }))
       .sort((a, b) => a.name.localeCompare(b.name) || a.userId.localeCompare(b.userId)),

@@ -297,3 +297,14 @@ it('marks attendance that only the student reported', () => {
     'sessions_attended,sessions_self_reported'
   );
 });
+
+it('exports the canonical name and nickname in separate escaped columns', () => {
+  const report = courseReport([], [], [
+    { userId: 'named-student', name: 'Alisha Moreno', nickname: '=Ace', email: 'student@example.edu' },
+  ], DEFAULT_CONFIG);
+  const lines = studentsCsv(report, DEFAULT_CONFIG, new Date('2026-10-29T15:00:00Z')).trim().split('\r\n');
+  const header = lines[0].split(',');
+  const row = lines[1].split(',');
+  expect(row[header.indexOf('name')]).toBe('Alisha Moreno');
+  expect(row[header.indexOf('nickname')]).toBe("'=Ace");
+});

@@ -78,9 +78,15 @@ export default function DemoSignIn() {
   return (
     <Box component="main" px="md" py="xl" maw={960} mx="auto">
       <Title order={1}>Try the CheckHen demo</Title>
-      <Text size="lg" mt="xs" mb="lg">
+      <Text size="lg" mt="xs" mb="sm">
         Choose who to be. The class, its students, and everything they did are made up; the
         instructor can reset the demo to its starting data.
+      </Text>
+      <Text mb="lg">
+        To see a class from both sides, sign in as the instructor here and as a student in a
+        private window or another browser, then put the windows side by side. A browser&apos;s
+        ordinary windows share one sign-in, and its private windows share another, so each
+        additional student needs another browser or browser profile.
       </Text>
       <Title order={2} fz={20} mb="sm">
         Instructor

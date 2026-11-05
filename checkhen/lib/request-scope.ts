@@ -1,9 +1,11 @@
+import { guardWriteOrigin } from './write-origin';
 import { getServerSession } from 'next-auth';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { authOptions } from '../pages/api/auth/[...nextauth]';
 import { demoGate, type GateOptions } from './demo-guard';
 import { isInstructor } from './instructor';
 import { prisma } from './prisma';
+import { isCourseStaff } from './staff';
 
 export { isInstructor };
 
@@ -11,11 +13,21 @@ export async function requireIdentity(req: NextApiRequest, res: NextApiResponse,
   gate: GateOptions = {}) {
   const session = await getServerSession(req, res, authOptions);
   if (!session?.user?.email) { res.status(401).json({ message: 'Unauthorized' }); return null; }
+  if (!guardWriteOrigin(req, res)) return null;
   // After sign-in: an anonymous request is refused without using any demo counter.
   if (!await demoGate(req, res, gate)) return null;
-  const admin = isInstructor(session.user.email);
-  // A browser holds one sign-in: signing in as a student in another tab replaces the
-  // instructor's, so say so rather than only refusing.
+  // A deployment instructor (ADMIN_EMAILS) instructs every course; course staff
+  // instruct only the course the request names. Every route reads that course the
+  // same way, query first, then body.
+  const deploymentInstructor = isInstructor(session.user.email);
+  const courseId = req.query.courseId ?? req.body?.courseId;
+  if (adminOnly && !deploymentInstructor && (typeof courseId !== 'string' || !courseId)) {
+    res.status(403).json({ message: 'Instructor access required' }); return null;
+  }
+  const user = await prisma.user.findUnique({ where: { email: session.user.email } });
+  if (!user) { res.status(401).json({ message: 'Unknown user' }); return null; }
+  const admin = deploymentInstructor ||
+    (typeof courseId === 'string' && !!courseId && await isCourseStaff(user.id, courseId));
   if (adminOnly && !admin) {
     res.status(403).json({
       message: 'Instructor access required. This browser is now signed in as a student; '
@@ -23,9 +35,7 @@ export async function requireIdentity(req: NextApiRequest, res: NextApiResponse,
     });
     return null;
   }
-  const user = await prisma.user.findUnique({ where: { email: session.user.email } });
-  if (!user) { res.status(401).json({ message: 'Unknown user' }); return null; }
-  return { user, admin };
+  return { user, admin, deploymentInstructor };
 }
 
 export async function requireScope(req: NextApiRequest, res: NextApiResponse, adminOnly = false) {

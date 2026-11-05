@@ -1,3 +1,4 @@
+beforeEach(() => { process.env.NEXTAUTH_URL = 'https://checkhen.test'; });
 import { createMocks } from 'node-mocks-http';
 import { appendEvent } from '@/lib/event-store';
 import { prisma } from '@/lib/prisma';
@@ -26,7 +27,7 @@ const stored: Record<
 };
 
 const post = async (body: Record<string, unknown>) => {
-  const { req, res } = createMocks({ method: 'POST', query: scope, body });
+  const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: 'POST', query: scope, body });
   await handler(req as any, res as any);
   return res;
 };

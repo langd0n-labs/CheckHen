@@ -1,10 +1,11 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { purposeKey } from '@/lib/keys';
 import { expireSessions } from '@/lib/session-expiry';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).json({ message: 'Method Not Allowed' });
-  const secret = process.env.AUTH_SECRET;
+  const secret = purposeKey('session-expiry');
   const raw = typeof req.body === 'string' ? req.body : JSON.stringify(req.body ?? null);
   const signature = req.headers['x-checkhen-signature'];
   if (!secret || typeof signature !== 'string') return res.status(403).end();

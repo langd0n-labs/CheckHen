@@ -4,7 +4,7 @@ import { RollCall } from '@/components/RollCall';
 import { theme } from '../../theme';
 
 const roster = [
-  { userId: 'a', name: 'Ada', pronunciation: 'AY-da', photo: null, present: false },
+  { userId: 'a', name: 'Ada', nickname: 'Ace', pronunciation: 'AY-da', photo: null, present: false },
   { userId: 'b', name: 'Ben', pronunciation: null, photo: null, present: false },
 ];
 
@@ -26,6 +26,8 @@ it('steps through the roster, marking each student, and finishes', async () => {
     </MantineProvider>
   );
   expect(await screen.findByText('Student 1 of 2')).toBeInTheDocument();
+  expect(screen.getByText('Ace')).toBeInTheDocument();
+  expect(screen.getAllByText('Ada').length).toBeGreaterThan(0);
   expect(screen.getByText('AY-da')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Present' }));
   expect(await screen.findByText('Student 2 of 2')).toBeInTheDocument();

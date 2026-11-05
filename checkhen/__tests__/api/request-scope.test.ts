@@ -1,3 +1,4 @@
+beforeEach(() => { process.env.NEXTAUTH_URL = 'https://checkhen.test'; });
 import { createMocks } from 'node-mocks-http';
 import { requireScope } from '@/lib/request-scope';
 import { prisma } from '@/lib/prisma';
@@ -9,6 +10,7 @@ jest.mock('@/lib/prisma', () => ({ prisma: {
   user: { findUnique: jest.fn() },
   class: { findFirst: jest.fn() },
   rosterEntry: { findUnique: jest.fn() },
+  courseStaff: { findUnique: jest.fn().mockResolvedValue(null) },
 } }));
 beforeEach(() => {
   jest.clearAllMocks();
@@ -20,7 +22,7 @@ beforeEach(() => {
   (prisma.rosterEntry.findUnique as jest.Mock).mockResolvedValue({ active: true });
 });
 const invoke = async (courseId: string, classId: string) => {
-  const { req, res } = createMocks({ method: 'GET', query: { courseId, classId } });
+  const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: 'GET', query: { courseId, classId } });
   const result = await requireScope(req as any, res as any);
   return { result, res };
 };
@@ -52,7 +54,9 @@ it('tells a student browser on an instructor request that it is signed in as a s
   expect(await requireScope(req as any, res as any, true)).toBeNull();
   expect(res._getStatusCode()).toBe(403);
   expect(res._getJSONData().message).toMatch(/signed in as a student/);
-  expect(prisma.user.findUnique).not.toHaveBeenCalled();
+  expect(prisma.courseStaff.findUnique).toHaveBeenCalledWith({
+    where: { courseId_userId: { courseId: 'course-a', userId: 'student' } },
+  });
 });
 it('keeps the plain refusal for an instructor request without a sign-in', async () => {
   (getServerSession as jest.Mock).mockResolvedValue(null);
@@ -60,4 +64,13 @@ it('keeps the plain refusal for an instructor request without a sign-in', async 
   expect(await requireScope(req as any, res as any, true)).toBeNull();
   expect(res._getStatusCode()).toBe(401);
   expect(res._getJSONData()).toEqual({ message: 'Unauthorized' });
+});
+
+it('allows course staff through the instructor scope rule for their own course', async () => {
+  (prisma.courseStaff.findUnique as jest.Mock).mockResolvedValueOnce({ userId: 'student' });
+  const { req, res } = createMocks({ method: 'GET', query: { courseId: 'course-a', classId: 'session-a' } });
+  const result = await requireScope(req as any, res as any, true);
+  expect(result).toMatchObject({ admin: true, deploymentInstructor: false,
+    scope: { courseId: 'course-a', classId: 'session-a' } });
+  expect(prisma.rosterEntry.findUnique).not.toHaveBeenCalled();
 });

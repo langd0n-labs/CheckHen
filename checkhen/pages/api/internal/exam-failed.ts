@@ -12,14 +12,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   const secret = process.env.PORTAL_CONTROL_SECRET;
   const signature = req.headers['x-checkhen-signature'];
+  // Refuse an unsigned call before reading its body.
+  if (!secret || typeof signature !== 'string') {
+    return res.status(403).end();
+  }
   const chunks: Buffer[] = [];
   for await (const chunk of req) {
     chunks.push(Buffer.from(chunk));
   }
   const raw = Buffer.concat(chunks);
-  if (!secret || typeof signature !== 'string') {
-    return res.status(403).end();
-  }
   const expected = Buffer.from(createHmac('sha256', secret).update(raw).digest('hex'));
   const actual = Buffer.from(signature);
   if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {

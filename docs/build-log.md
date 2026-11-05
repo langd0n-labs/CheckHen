@@ -69,6 +69,14 @@ Branch: build/m0-m2. Scope: M0 through M5, then M7 and M8.
 - 2026-10-10, operator: the public items already in the pushed history stay; the
   pushed history is not rewritten or force-pushed again. New code names no site
   network: the VPN subnet becomes the `AP_RESERVED_SUBNETS` setting. Relayed by AICP.
+- 2026-10-11, operator: the canonical repository is `langd0n-labs/CheckHen`. The
+  earlier repository is now `langd0n-labs/CheckHen-fork`; its history came into `main`
+  through #48 and #49. Relayed by AICP.
+- 2026-11-05, operator: the tunnel moves to its own Compose project, `checkhen-tunnel`,
+  so updating or tearing down the demo stack does not stop the class hostname.
+- 2026-10-12, operator: the public demo moves to `checkhen.langd0n.com`, served by the
+  existing demo tunnel. `checkhen-demo.rfkill.dev` redirects there with a 301 that
+  keeps the path and query. `AP_HOSTNAME` stays `checkhen.rfkill.dev`. Relayed by AICP.
 - 2026-10-06, operator: the call screen (I3) is the instructor's private phone
   view and is not designed for projection; the brief projects only I5 and I6.
   A projected cold-call view, if one is ever built, shows who is called and
@@ -1287,13 +1295,56 @@ The tunnel stays off until M1 and M2 are fixed and AICP confirms.
 
 1. Create the tunnel secret once, from Secrets Manager:
    `agent-credential run --project fishjump -- podman secret create --env=true checkhen_demo_tunnel_token CHECKHEN_DEMO_TUNNEL_TOKEN`
-2. Start: `podman-compose -p checkhen-demo --env-file .env.hosted --profile hosted --profile tunnel up -d --build`.
-   After a rebuild, add `--force-recreate`: podman-compose does not replace a running
-   container when only its image changed.
-3. A fresh demo database: `podman-compose -p checkhen-demo --env-file .env.hosted --profile hosted down -v`,
+2. Start: `podman-compose -p checkhen-demo --env-file .env.hosted --profile hosted up -d --build`.
+   podman-compose does not replace a running container when only its image changed.
+   After a rebuild, update the containers as "Update app and socket" below says.
+3. Confirm the list under "Before opening the tunnel" below, except its sign-in check,
+   which needs the tunnel. Then start the tunnel from the repository root: `podman-compose -p checkhen-tunnel -f docker-compose.tunnel.yml up -d`.
+   It serves the demo and class hostnames, so stopping it stops both.
+4. A fresh demo database: `podman-compose -p checkhen-demo --env-file .env.hosted --profile hosted down -v`,
    then start. The first visit to `/demo` seeds it.
    Do this too when the database reaches `DEMO_MAX_DATABASE_MB` and writes return
    507: the event log is append-only, so nothing else frees space.
+
+Move a tunnel that runs in the demo project to `checkhen-tunnel` once. The two containers
+use the same metrics address, so they cannot run together. Both hostnames drop until the
+new tunnel connects.
+
+1. `podman stop checkhen-demo_tunnel_1`
+2. Start the tunnel as step 3 above says.
+3. Verify. `curl -s http://127.0.0.1:20241/ready` shows `readyConnections` above 0, and the
+   demo and class hostnames answer.
+4. If all checks pass, `podman rm checkhen-demo_tunnel_1`. Otherwise run
+   `podman rm -f checkhen-tunnel_tunnel_1`, then `podman start checkhen-demo_tunnel_1`.
+
+Update app and socket after a rebuild. Do not pass `--profile`, and do not use the
+full-stack command with `--force-recreate`. With a profile active, podman-compose 1.6.0
+also recreates `hosted-proxy`, even with `--no-deps`. A profile can also come
+from `COMPOSE_PROFILES`, in the shell or in the environment file.
+
+1. Record the IDs of the running containers and of the new images:
+   `podman ps -a --filter name=^checkhen-demo_ --filter name=^checkhen-class_ --filter name=^checkhen-tunnel_ --format '{{.Names}} {{.ID}}' | sort > /var/tmp/$(date +%F)-checkhen-before.txt`
+   `podman image inspect localhost/checkhen-demo_app:latest localhost/checkhen-demo_socket:latest --format '{{.Id}}' > /var/tmp/$(date +%F)-checkhen-images.txt`
+2. Confirm that no other container on the host depends on app or socket. This must print
+   nothing:
+   `podman ps -a --format '{{.Names}}' | grep -v -E '^checkhen-demo_(app|socket)_1$' | while read -r c; do podman inspect "$c" --format '{{.Name}} {{.Dependencies}}'; done | grep -F -f <(podman inspect checkhen-demo_app_1 checkhen-demo_socket_1 --format '{{.Id}}')`
+   If it prints a container, stop. The next command would fail to replace the containers
+   and still exit 0.
+3. Deploy:
+   `COMPOSE_PROFILES= podman-compose -p checkhen-demo --env-file .env.hosted up -d --no-deps --no-build --force-recreate app socket`
+4. Verify. Do not rely on the exit code.
+   - In a new listing, `checkhen-demo_app_1` and `checkhen-demo_socket_1` have new IDs,
+     and every other container has the same ID as in step 1.
+   - `podman inspect checkhen-demo_app_1 checkhen-demo_socket_1 --format '{{.Image}}'`
+     prints the image IDs from step 1, in the same order.
+   - `podman inspect checkhen-demo_app_1 checkhen-demo_socket_1 --format '{{.Name}} {{.State.Status}}'`
+     prints `running` for both.
+   - `podman inspect checkhen-demo_app_1 --format '{{.State.Health.Status}}'` prints
+     `healthy`. This can take up to 150 seconds.
+   - `curl -sS -o /dev/null -w '%{http_code}\n' https://checkhen.langd0n.com/api/ping` and
+     `curl -sS -o /dev/null -w '%{http_code}\n' 'https://checkhen.langd0n.com/socket.io/?EIO=4&transport=polling'`
+     each print 200.
+   - If a check fails, stop and report it.
 
 Before opening the tunnel, confirm in `.env.hosted`:
 
@@ -1858,3 +1909,17 @@ operator's approval relayed by AICP.
   forged Host header 403; another hostname through the same edge 530. The deck sends
   `Referrer-Policy: no-referrer` and `nosniff`. 130 rapid requests from one address
   got 75 refusals (429), and access returned within 12 s.
+
+## Public demo moved to checkhen.langd0n.com
+
+Moved 2026-10-13, with the demo running `main` at 3f76d97.
+
+- `.env.hosted` sets `NEXTAUTH_URL=https://checkhen.langd0n.com`; the stack was
+  recreated without a rebuild, and the database was kept.
+- Through the public hostname: instructor and student persona sign-in each redirect
+  back to `checkhen.langd0n.com`; the socket server allows the origin
+  `https://checkhen.langd0n.com` and refuses `https://checkhen-demo.rfkill.dev`; a
+  student's chat message reached the instructor's chat list (then hidden).
+- `https://checkhen-demo.rfkill.dev/<path>?<query>` answers 301 to the same path and
+  query on `checkhen.langd0n.com`, so old links, including the instructor dashboard,
+  still arrive.

@@ -1,3 +1,4 @@
+beforeEach(() => { process.env.NEXTAUTH_URL = 'https://checkhen.test'; });
 import { createHmac } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { createMocks } from 'node-mocks-http';
@@ -43,7 +44,7 @@ beforeEach(() => {
 });
 
 const invoke = async (action: string, body: Record<string, unknown> = {}) => {
-  const { req, res } = createMocks({ method: 'POST', query: scope, body: { action, ...body } });
+  const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: 'POST', query: scope, body: { action, ...body } });
   await examRoute(req as any, res as any);
   return res;
 };
@@ -191,4 +192,14 @@ it('releases the network on stop even when the log shows no exam', async () => {
   expect(res._getStatusCode()).toBe(200);
   expect(releaseExamNetwork).toHaveBeenCalledWith(scope);
   expect(appendEvent).not.toHaveBeenCalled();
+});
+
+it('keeps a trusted name primary and the nickname separate in instructor exam status', async () => {
+  (prisma.user.findMany as jest.Mock).mockResolvedValue([
+    { id: 'student', name: 'Alisha Moreno', displayName: 'Ace', email: 'student@example.edu' },
+  ]);
+  const res = await invoke('status');
+  expect(res._getJSONData().students).toEqual([
+    { userId: 'student', name: 'Alisha Moreno', nickname: 'Ace' },
+  ]);
 });

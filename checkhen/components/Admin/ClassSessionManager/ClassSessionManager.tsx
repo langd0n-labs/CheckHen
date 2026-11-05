@@ -298,7 +298,7 @@ export default function ClassSessionManager({
   };
 
   const endClassEarly = async () => {
-    const response = await fetch('/api/admin/end-class-early', { method: 'POST' });
+    const response = await fetch('/api/admin/end-class-early', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
     if (!response.ok) {
       displayNotification('Error ending class', true);
       return;

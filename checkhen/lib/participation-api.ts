@@ -1,3 +1,4 @@
+import { instructorLabel, primaryName } from '@/lib/name-label';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { generateUniqueAnonymousName } from './anonymousNames';
 import { instructorChat, studentChat } from './chat-view';
@@ -14,6 +15,7 @@ import { courseConfig } from './cold-call';
 import { isDemo } from './demo';
 import { simulateCheckAnswers } from './demo-checks';
 import { appendEvent, ConflictError, readState } from './event-store';
+import { EventBudgetError } from './event-budget';
 import type { EventKind } from './events';
 import { examAgent, releaseExamNetwork } from './exam-control';
 import { checkhenMode } from './mode';
@@ -28,6 +30,8 @@ import {
 import type { DeviceBinding } from './portal-binding';
 import { prisma } from './prisma';
 import { isInstructor, requireScope } from './request-scope';
+import { courseStaffIds } from './staff';
+import { allowStudentWrite } from './write-limits';
 
 const writes = new Set([
   'check-in',
@@ -46,16 +50,33 @@ const writes = new Set([
   'open-check',
   'close-check',
   'answer-check',
+  'revoke-projection',
 ]);
 
 export function participationHandler(action: string, adminOnly = false) {
   return async function handler(req: NextApiRequest, res: NextApiResponse) {
+    try {
+      return await participate(req, res);
+    } catch (error) {
+      if (!(error instanceof EventBudgetError)) throw error;
+      return res.status(429).json({ message: error.message });
+    }
+  };
+
+  async function participate(req: NextApiRequest, res: NextApiResponse) {
     if (req.method !== (writes.has(action) ? 'POST' : 'GET')) {
       return res.status(405).json({ message: 'Method Not Allowed' });
     }
     const context = await requireScope(req, res, adminOnly);
     if (!context) return;
     const { scope, user, selected } = context;
+    if (action === 'answer-check' && context.admin) {
+      return res.status(403).json({ message: 'Only students can answer a check' });
+    }
+    if (!adminOnly && writes.has(action) && !allowStudentWrite(user.id, action)) {
+      res.setHeader('Retry-After', '60');
+      return res.status(429).json({ message: 'Too many requests. Wait a minute, then try again.' });
+    }
     const state = await readState(prisma, scope);
     const active =
       !state.endedAt && selected.createdAt.getTime() + selected.duration * 60000 > Date.now();
@@ -169,7 +190,16 @@ export function participationHandler(action: string, adminOnly = false) {
       const signalType = req.body?.signalType;
       if (!['slow_down', 'ready_to_move_on'].includes(signalType))
         return res.status(400).json({ message: 'Invalid signal type' });
-      await append('PACE_SIGNAL', { signalType });
+      // The counts keep each student's latest signal for five minutes. A repeat of the
+      // current signal only extends that, so it is written at most once a minute.
+      const current = pace.find((entry) => entry.userId === user.id);
+      if (
+        !current ||
+        current.signalType !== signalType ||
+        Date.now() - current.createdAt.getTime() >= 60_000
+      ) {
+        await append('PACE_SIGNAL', { signalType });
+      }
       return res.json({ message: 'Pace signal recorded', signalType });
     }
     if (action === 'open-check' || action === 'close-check' || action === 'answer-check') {
@@ -240,8 +270,10 @@ export function participationHandler(action: string, adminOnly = false) {
           },
         },
       });
+      const staff = await courseStaffIds(scope.courseId);
       const studentIds = new Set(
-        students.filter((student) => !isInstructor(student.email)).map((student) => student.id)
+        students.filter((student) => !isInstructor(student.email) && !staff.has(student.id))
+          .map((student) => student.id)
       );
       // As in the course record: students in the room when it opened, plus any who
       // answered after arriving. Leaving during the check does not shrink it.
@@ -268,7 +300,7 @@ export function participationHandler(action: string, adminOnly = false) {
             const student = students.find((candidate) => candidate.id === entry.userId);
             return {
               userId: entry.userId,
-              name: student?.displayName || student?.email.split('@')[0] || 'Student',
+              name: student ? instructorLabel(student) : 'Student',
               choice: entry.choice,
             };
           }),
@@ -335,6 +367,10 @@ export function participationHandler(action: string, adminOnly = false) {
       if (!state.mutedUsers?.includes(targetId)) await append('STUDENT_MUTED', {}, targetId);
       return res.json({ message: 'Student muted' });
     }
+    if (action === 'revoke-projection') {
+      await append('PROJECTION_REVOKED', {}, null);
+      return res.json({ message: 'Projection links revoked' });
+    }
     if (action === 'reset-pace-signals') {
       await append('PACE_RESET', {}, null);
       return res.json({ message: 'Pace signals reset' });
@@ -391,7 +427,7 @@ export function participationHandler(action: string, adminOnly = false) {
     }
     // How many students want a slower pace is for the instructor only.
     if (action === 'fetch-pace-signals')
-      return isInstructor(user.email)
+      return context.admin
         ? res.json({ message: 'Pace signals fetched', ...counts })
         : res.status(403).json({ message: 'Instructor access required' });
     if (action === 'startup') {
@@ -425,22 +461,26 @@ export function participationHandler(action: string, adminOnly = false) {
       });
       return json(instructorChat(messages, users));
     }
+    // Food allergies are no longer shown; the column keeps only values stored before.
     const users = await prisma.user.findMany({
       where: { id: { in: [...state.attendance, ...state.hands].map((entry) => entry.userId) } },
+      omit: { foodAllergies: true },
     });
     if (action === 'fetch-check-ins') {
+      const staff = await courseStaffIds(scope.courseId);
       return json(
         state.attendance
           .filter((entry) => entry.isPresent)
           .flatMap((entry) => {
             const student = users.find((candidate) => candidate.id === entry.userId);
-            if (!student || isInstructor(student.email)) return [];
+            if (!student || isInstructor(student.email) || staff.has(student.id)) return [];
             return [
               {
                 ...entry,
                 joinTime: entry.createdAt,
                 email: student.email,
-                name: student.email.split('@')[0],
+                name: primaryName(student),
+                nickname: student.displayName,
                 handRaiseCount: state.hands.filter((hand) => hand.userId === student.id).length,
                 user: student,
               },
@@ -457,7 +497,8 @@ export function participationHandler(action: string, adminOnly = false) {
             return {
               id: entry.id,
               email: student?.email,
-              name: student?.displayName || student?.email.split('@')[0],
+              name: student ? primaryName(student) : entry.userId,
+              nickname: student?.displayName ?? null,
               isAck: entry.isAcknowledged,
               isAcknowledged: entry.isAcknowledged,
               handRaiseCount: state.hands.filter((hand) => hand.userId === entry.userId).length,
@@ -466,5 +507,5 @@ export function participationHandler(action: string, adminOnly = false) {
       );
     }
     return res.status(404).json({ message: 'Unknown action' });
-  };
+  }
 }

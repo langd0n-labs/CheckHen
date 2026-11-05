@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { purposeKey } from '@/lib/keys';
 import { verifyProjectionTicket } from '@/lib/projection-auth';
 import { projectionChat } from '@/lib/chat-view';
 import { readState } from '@/lib/event-store';
@@ -6,7 +7,10 @@ import { prisma } from '@/lib/prisma';
 
 // Every open projection window and deck polls this; one read per session serves them all.
 const CACHE_MS = 500;
-const cache = new Map<string, { at: number; messages: unknown }>();
+const cache = new Map<
+  string,
+  { at: number; messages: unknown; generation: number; ended: boolean }
+>();
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return res.status(405).end();
@@ -16,8 +20,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.setHeader('Vary', 'Origin');
   }
   const ticket = req.query.ticket;
-  const secret = process.env.AUTH_SECRET;
-  const claim = typeof ticket === 'string' && secret ? verifyProjectionTicket(ticket, secret) : null;
+  const claim =
+    typeof ticket === 'string' ? verifyProjectionTicket(ticket, purposeKey('projection-ticket')) : null;
   if (!claim) return res.status(403).json({ message: 'Projection access expired' });
   const scope = { courseId: claim.courseId, classId: claim.classId };
   const key = `${scope.courseId}:${scope.classId}`;
@@ -25,10 +29,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   let entry = cache.get(key);
   if (!entry || now - entry.at >= CACHE_MS) {
     const state = await readState(prisma, scope);
-    entry = { at: now, messages: projectionChat(state.messages.slice(-100)) };
+    entry = {
+      at: now,
+      messages: projectionChat(state.messages.slice(-100)),
+      generation: state.projectionGeneration,
+      ended: !!state.endedAt,
+    };
     if (cache.size > 1000) cache.clear();
     cache.set(key, entry);
   }
+  // An ended session or revoked links refuse every ticket minted before.
+  if (entry.ended || claim.generation !== entry.generation)
+    return res.status(403).json({ message: 'Projection access expired' });
   res.setHeader('Cache-Control', 'no-store');
   return res.json({ messages: entry.messages });
 }

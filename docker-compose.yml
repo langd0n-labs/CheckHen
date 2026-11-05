@@ -24,6 +24,8 @@ services:
       CHECKHEN_MODE: ${CHECKHEN_MODE:-classroom}
       CHECKHEN_DEMO: ${CHECKHEN_DEMO:-0}
       DEMO_MAX_DATABASE_MB: ${DEMO_MAX_DATABASE_MB:-512}
+      # Events one session holds before students' writes are refused; unset means 20000.
+      CHECKHEN_SESSION_EVENT_BUDGET: ${CHECKHEN_SESSION_EVENT_BUDGET:-}
       PORTAL_AGENT_URL: ${PORTAL_AGENT_URL:-}
       PORTAL_CONTROL_SECRET: ${PORTAL_CONTROL_SECRET:-}
       AP_SUBNET: ${AP_SUBNET:-172.16.77.0/24}
@@ -155,31 +157,17 @@ services:
       HOSTED_FORWARDED_PROTO: ${HOSTED_FORWARDED_PROTO:-https}
       APP_PORT: ${APP_PORT:-3000}
       SOCKET_PORT: ${SOCKET_PORT:-6060}
+      # Per-client limits, sized for a public demo. A class behind one shared
+      # address needs them raised in its environment file.
+      PROXY_API_RATE: ${PROXY_API_RATE:-20}
+      PROXY_API_BURST: ${PROXY_API_BURST:-40}
+      PROXY_SOCKET_RATE: ${PROXY_SOCKET_RATE:-5}
+      PROXY_SOCKET_BURST: ${PROXY_SOCKET_BURST:-20}
+      PROXY_CLIENT_CONN: ${PROXY_CLIENT_CONN:-20}
     depends_on:
       app:
         condition: service_healthy
       socket:
         condition: service_started
-  tunnel:
-    # Publishes the hosted proxy through a Cloudflare Tunnel. The token is the podman
-    # secret checkhen_demo_tunnel_token, read as a file, so it stays out of the
-    # container environment, `podman inspect`, and `podman-compose config`.
-    # docs/build-log.md, "Hosted demo runbook", says how to create the secret.
-    profiles: [tunnel]
-    # Pinned by digest (the multi-arch list for 2026.10.0), so the tag cannot move.
-    image: docker.io/cloudflare/cloudflared:2026.10.0@sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07
-    # Host networking: without an explicit address, metrics bind to every interface.
-    command: >-
-      tunnel --no-autoupdate --metrics 127.0.0.1:20241
-      run --token-file /run/secrets/checkhen_demo_tunnel_token
-    network_mode: host
-    restart: on-failure
-    secrets: [checkhen_demo_tunnel_token]
-    depends_on:
-      hosted-proxy:
-        condition: service_started
 volumes:
   pgdata:
-secrets:
-  checkhen_demo_tunnel_token:
-    external: true

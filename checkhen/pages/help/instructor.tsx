@@ -2,7 +2,7 @@ import type { GetServerSideProps } from 'next';
 import { getServerSession } from 'next-auth';
 import { Alert, Text } from '@mantine/core';
 import { HelpLayout, HelpList as List } from '@/components/HelpLayout';
-import { isInstructor } from '@/lib/request-scope';
+import { instructsAnyCourse } from '@/lib/staff';
 import { authOptions } from '../api/auth/[...nextauth]';
 
 /** Instructor help describes grading and draw rules, so only instructors may read it. */
@@ -13,7 +13,7 @@ export const getServerSideProps: GetServerSideProps = async ({ req, res }) => {
       redirect: { destination: '/api/auth/signin?callbackUrl=/help/instructor', permanent: false },
     };
   }
-  return isInstructor(session.user.email) ? { props: {} } : { notFound: true };
+  return (await instructsAnyCourse(session.user.email)) ? { props: {} } : { notFound: true };
 };
 
 /** Help for instructors: the dashboard, cold calling, and exam mode. */
@@ -37,7 +37,7 @@ export default function InstructorHelp() {
               <List>
                 <List.Item>
                   Present students: everyone checked in. Open a student to see their profile,
-                  including food allergies and bio, which students never see about each other.
+                  including their bio, which students never see about each other.
                 </List.Item>
                 <List.Item>
                   Hands raised: in the order raised. Acknowledge calls on that student. An

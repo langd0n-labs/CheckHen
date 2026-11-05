@@ -1,10 +1,13 @@
+import { primaryName } from '@/lib/name-label';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { isInstructor, requireIdentity } from '@/lib/request-scope';
 import { prisma } from '@/lib/prisma';
 import { readState } from '@/lib/event-store';
+import { courseStaffIds } from '@/lib/staff';
 
 type StudentSummary = {
   email: string;
+  name: string;
   displayName: string | null;
   anonymousName: string | null;
   checkInTime: string;
@@ -28,6 +31,7 @@ type PaceTimelineBucket = {
 };
 
 type LeaveEvent = {
+  name: string;
   displayName: string | null;
   anonymousName: string | null;
   checkInTime: string;
@@ -113,10 +117,15 @@ export default async function handler(
   const participation = async (classIds: string[]) => {
     const states = await Promise.all(classIds.map(classId => readState(prisma, { courseId, classId })));
     const entries = states.flatMap(state => state.attendance);
-    const users = await prisma.user.findMany({ where: { id: { in: entries.map(entry => entry.userId) } } });
+    const users = await prisma.user.findMany({
+      where: { id: { in: entries.map(entry => entry.userId) } },
+      omit: { foodAllergies: true },
+    });
+    const staff = await courseStaffIds(courseId);
     const checkIns = entries.flatMap(entry => {
       const user = users.find(candidate => candidate.id === entry.userId);
-      return user && !isInstructor(user.email) ? [{ ...entry, updatedAt: null, user }] : [];
+      return user && !isInstructor(user.email) && !staff.has(user.id)
+        ? [{ ...entry, updatedAt: null, user }] : [];
     });
     return {
       checkIns,
@@ -195,6 +204,7 @@ export default async function handler(
     // Aggregate per student across all sessions
     const studentMap: Record<string, {
       email: string;
+      name: string;
       displayName: string | null;
       anonymousName: string | null;
       firstCheckIn: string;
@@ -212,6 +222,7 @@ export default async function handler(
       if (!studentMap[uid]) {
         studentMap[uid] = {
           email: ci.user.email,
+          name: primaryName(ci.user),
           displayName: ci.user.displayName ?? null,
           anonymousName: ci.anonymousName,
           firstCheckIn: ci.createdAt.toISOString(),
@@ -259,6 +270,7 @@ export default async function handler(
 
       return {
         email: s.email,
+        name: s.name,
         displayName: s.displayName,
         anonymousName: s.anonymousName,
         checkInTime: s.firstCheckIn,
@@ -344,6 +356,7 @@ export default async function handler(
 
     return {
       email: checkIn.user.email,
+      name: primaryName(checkIn.user),
       displayName: checkIn.user.displayName ?? null,
       anonymousName: checkIn.anonymousName,
       checkInTime: checkIn.createdAt.toISOString(),
@@ -381,6 +394,7 @@ export default async function handler(
       ? Math.round((ci.checkOutTime.getTime() - ci.createdAt.getTime()) / 60000)
       : null;
     return {
+      name: primaryName(ci.user),
       displayName: ci.user.displayName ?? null,
       anonymousName: ci.anonymousName,
       checkInTime: ci.createdAt.toISOString(),

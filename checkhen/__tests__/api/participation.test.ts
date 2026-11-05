@@ -1,3 +1,9 @@
+import { EventBudgetError } from '@/lib/event-budget';
+import { courseStaffIds } from '@/lib/staff';
+import { resetWriteLimits } from '@/lib/write-limits';
+import answerCheckRoute from '@/pages/api/student/answer-check';
+import fetchCheckRoute from '@/pages/api/admin/fetch-check';
+beforeEach(() => { process.env.NEXTAUTH_URL = 'https://checkhen.test'; });
 import { createMocks } from 'node-mocks-http';
 import { generateUniqueAnonymousName } from '@/lib/anonymousNames';
 import { appendEvent, readState } from '@/lib/event-store';
@@ -16,6 +22,7 @@ import endClass from '@/pages/api/admin/end-class-early';
 import fetchCheckIns from '@/pages/api/admin/fetch-check-ins';
 import hideChat from '@/pages/api/admin/hide-chat';
 import muteStudent from '@/pages/api/admin/mute-student';
+import revokeProjection from '@/pages/api/admin/revoke-projection';
 import checkIn from '@/pages/api/student/check-in';
 import checkOut from '@/pages/api/student/check-out';
 import examStatus from '@/pages/api/student/exam-status';
@@ -28,9 +35,12 @@ import fetchPace from '@/pages/api/student/fetch-pace-signals';
 import startup from '@/pages/api/student/startup';
 
 jest.mock('@/lib/request-scope', () => ({ requireScope: jest.fn(), isInstructor: jest.fn() }));
-jest.mock('@/lib/event-store', () => ({ appendEvent: jest.fn(), readState: jest.fn() }));
+jest.mock('@/lib/event-store', () => ({
+  appendEvent: jest.fn(), readState: jest.fn(),
+  ConflictError: jest.requireActual('@/lib/event-store').ConflictError,
+}));
 jest.mock('@/lib/prisma', () => ({
-  prisma: { user: { findUnique: jest.fn(), findMany: jest.fn() } },
+  prisma: { course: { findUnique: jest.fn().mockResolvedValue(null) }, user: { findUnique: jest.fn(), findMany: jest.fn() } },
 }));
 jest.mock('@/lib/anonymousNames', () => ({ generateUniqueAnonymousName: jest.fn() }));
 jest.mock('@/lib/portal-binding', () => ({
@@ -44,6 +54,7 @@ jest.mock('@/lib/portal-binding', () => ({
   revokeSessionDevices: jest.fn(),
 }));
 jest.mock('@/lib/exam-control', () => ({ examAgent: jest.fn(), releaseExamNetwork: jest.fn() }));
+jest.mock('@/lib/staff', () => ({ courseStaffIds: jest.fn().mockResolvedValue(new Set()) }));
 
 const user = { id: 'student', email: 'student@bu.edu' };
 const selected = {
@@ -74,12 +85,13 @@ const invoke = async (
   method: 'GET' | 'POST',
   body: Record<string, unknown> = {}
 ) => {
-  const { req, res } = createMocks({ method, body, query: scope });
+  const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method, body, query: scope });
   await handler(req as any, res as any);
   return res;
 };
 beforeEach(() => {
   jest.clearAllMocks();
+  resetWriteLimits();
   (bindDevice as jest.Mock).mockResolvedValue(null);
   (revokeDevice as jest.Mock).mockResolvedValue(undefined);
   (requireScope as jest.Mock).mockResolvedValue({ scope, user, selected, admin: false });
@@ -241,7 +253,7 @@ describe('event-backed check-in', () => {
     const { req, res } = createMocks({
       method: 'POST',
       query: scope,
-      headers: { 'x-real-ip': '172.16.77.21' },
+      headers: { origin: 'https://checkhen.test', 'content-type': 'application/json', 'x-real-ip': '172.16.77.21' },
     });
     await checkOut(req as any, res as any);
     expect(res._getStatusCode()).toBe(200);
@@ -326,6 +338,14 @@ describe('event-backed chat and pace', () => {
     );
     (readState as jest.Mock).mockResolvedValue({ ...checkedIn(), mutedUsers: [user.id] });
     expect((await invoke(sendChat, 'POST', { message: 'Question?' }))._getStatusCode()).toBe(403);
+  });
+  it('records a revocation of the projection links for the whole session', async () => {
+    (readState as jest.Mock).mockResolvedValue(checkedIn());
+    expect((await invoke(revokeProjection, 'POST', {}))._getStatusCode()).toBe(200);
+    expect(appendEvent).toHaveBeenCalledWith(
+      prisma,
+      expect.objectContaining({ kind: 'PROJECTION_REVOKED', userId: null })
+    );
   });
   it('does not expose stable user IDs in student chat responses', async () => {
     const message = {
@@ -444,7 +464,7 @@ describe('pace totals', () => {
     (readState as jest.Mock).mockResolvedValue(checkedIn());
     const student = await invoke(fetchPace, 'GET');
     expect(student._getStatusCode()).toBe(403);
-    (isInstructor as jest.Mock).mockReturnValue(true);
+    (requireScope as jest.Mock).mockResolvedValue({ scope, user, selected, admin: true });
     const instructor = await invoke(fetchPace, 'GET');
     expect(instructor._getStatusCode()).toBe(200);
     expect(instructor._getJSONData()).toMatchObject({ slowDown: 0, readyToMove: 0 });
@@ -454,5 +474,54 @@ describe('pace totals', () => {
     const res = await invoke(startup, 'GET');
     expect(res._getStatusCode()).toBe(200);
     expect(res._getJSONData()).not.toHaveProperty('paceSignals');
+  });
+});
+
+describe('understanding check protections', () => {
+  const body = { checkId: 'check-1', choice: 'got_it' };
+
+  it.each(['instructor', 'course staff'])('refuses an answer from %s', async () => {
+    (requireScope as jest.Mock).mockResolvedValue({ scope, user, selected, admin: true });
+    expect((await invoke(answerCheckRoute, 'POST', body))._getStatusCode()).toBe(403);
+    expect(appendEvent).not.toHaveBeenCalled();
+  });
+
+  it('applies the student answer write limit before writing', async () => {
+    (readState as jest.Mock).mockResolvedValue(checkedIn());
+    for (let i = 0; i < 30; i += 1) {
+      expect((await invoke(answerCheckRoute, 'POST', body))._getStatusCode()).toBe(200);
+    }
+    const refused = await invoke(answerCheckRoute, 'POST', body);
+    expect(refused._getStatusCode()).toBe(429);
+    expect(refused.getHeader('Retry-After')).toBe('60');
+    expect(appendEvent).toHaveBeenCalledTimes(30);
+    expect(appendEvent).toHaveBeenCalledWith(prisma, expect.objectContaining({
+      actorId: user.id, userId: user.id, kind: 'CHECK_ANSWERED',
+    }));
+  });
+
+  it('reports a session event budget refusal for an answer', async () => {
+    (readState as jest.Mock).mockResolvedValue(checkedIn());
+    (appendEvent as jest.Mock).mockRejectedValueOnce(new EventBudgetError('Session activity limit'));
+    const refused = await invoke(answerCheckRoute, 'POST', body);
+    expect(refused._getStatusCode()).toBe(429);
+    expect(refused._getJSONData()).toEqual({ message: 'Session activity limit' });
+  });
+
+  it('uses trusted names and nicknames and excludes staff from the present count', async () => {
+    (prisma.user.findMany as jest.Mock).mockResolvedValue([
+      { ...user, name: 'Trusted Student', displayName: 'Nickname' },
+      { id: 'staff', email: 'staff@bu.edu', name: 'Course Staff' },
+    ]);
+    (courseStaffIds as jest.Mock).mockResolvedValueOnce(new Set(['staff']));
+    (readState as jest.Mock).mockResolvedValue({ ...checkedIn(), checks: [{
+      checkId: 'check-1', choices: ['got_it', 'another_example'],
+      openedAt: new Date(), closesAt: null, closedAt: null,
+      present: [user.id, 'staff'], answers: [{ userId: user.id, choice: 'got_it' }],
+    }] });
+    const response = await invoke(fetchCheckRoute, 'GET');
+    expect(response._getJSONData().check).toMatchObject({
+      present: 1, answers: [{ name: 'Trusted Student (Nickname)' }],
+    });
   });
 });

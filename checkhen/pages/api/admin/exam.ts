@@ -113,8 +113,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         network,
         students: state.attendance.map((entry) => ({
           userId: entry.userId,
+          nickname: users.find((candidate) => candidate.id === entry.userId)?.displayName ?? null,
           name:
-            users.find((candidate) => candidate.id === entry.userId)?.displayName ||
+            users.find((candidate) => candidate.id === entry.userId)?.name ||
             users.find((candidate) => candidate.id === entry.userId)?.email ||
             entry.anonymousName,
         })),

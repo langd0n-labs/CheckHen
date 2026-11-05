@@ -7,5 +7,5 @@ module.exports = nextJest({ dir: './' })({
     '^@/pages/(.*)$': '<rootDir>/pages/$1',
     '^@/lib/(.*)$': '<rootDir>/lib/$1',
   },
-  testMatch: ['**/participation-store.integration.test.ts'],
+  testMatch: ['**/participation-store.integration.test.ts', '**/course-staff.integration.test.ts'],
 });

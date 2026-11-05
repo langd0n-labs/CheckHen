@@ -24,6 +24,7 @@ export type EventKind =
   | 'CHECK_OPENED'
   | 'CHECK_ANSWERED'
   | 'CHECK_CLOSED'
+  | 'PROJECTION_REVOKED'
   | 'UNDO';
 
 export type ParticipationEvent = {
@@ -173,6 +174,8 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
   // Understanding checks (later clicker questions), keyed by check ID.
   const checks = new Map<string, Check>();
   let endedAt: Date | null = null;
+  // Each revocation of the projection links refuses every ticket minted before it.
+  let projectionGeneration = 0;
   const byId = new Map(
     events
       .filter((e) => e.courseId === scope.courseId && e.classId === scope.classId)
@@ -338,6 +341,8 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
     } else if (event.kind === 'CHECK_CLOSED') {
       const check = checks.get(String(payload.checkId));
       if (check && checkOpenAt(check, createdAt)) check.closedAt = createdAt;
+    } else if (event.kind === 'PROJECTION_REVOKED') {
+      projectionGeneration += 1;
     } else if (event.kind === 'SESSION_ENDED') {
       endedAt = createdAt;
       for (const check of Array.from(checks.values())) {
@@ -370,5 +375,6 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
     ),
     checks: Array.from(checks.values()),
     endedAt,
+    projectionGeneration,
   };
 }

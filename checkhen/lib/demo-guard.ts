@@ -66,20 +66,17 @@ function ipv6Prefix(address: string, groups: number): string {
 }
 
 /**
- * Cloudflare sets cf-connecting-ip; a direct loopback request has only its socket.
- * The origin binds 127.0.0.1, so only the tunnel and local requests reach it. One
- * client usually holds an IPv6 /64; for resets, a whole /48 counts as one client.
+ * The proxy sets x-checkhen-client to the client address it trusts (Cloudflare's
+ * CF-Connecting-IP only from the tunnel), and overwrites any value a client sent. A
+ * direct loopback request has only its socket. One client usually holds an IPv6 /64;
+ * for resets, a whole /48 counts as one client.
  */
 export function clientKey(req: NextApiRequest, prefixGroups = 4): string {
   const header = (name: string) => {
     const value = req.headers[name];
     return (Array.isArray(value) ? value[0] : value)?.split(',')[0].trim();
   };
-  const address =
-    header('cf-connecting-ip') ||
-    header('x-forwarded-for') ||
-    req.socket?.remoteAddress ||
-    'unknown';
+  const address = header('x-checkhen-client') || req.socket?.remoteAddress || 'unknown';
   return isIPv6(address) && !address.includes('.') ? ipv6Prefix(address, prefixGroups) : address;
 }
 

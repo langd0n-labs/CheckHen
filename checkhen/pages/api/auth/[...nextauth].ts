@@ -5,6 +5,7 @@ import { DEMO_DOMAIN, isDemo } from '@/lib/demo';
 import { demoDatabaseRefusal } from '@/lib/demo-guard';
 import { isInstructor } from '@/lib/instructor';
 import { prisma } from '@/lib/prisma';
+import { instructsAnyCourse } from '@/lib/staff';
 
 /**
  * Demo mode signs in as a seeded persona instead of Google. It accepts only demo
@@ -20,7 +21,7 @@ const demoProvider = CredentialsProvider({
       return null;
     }
     const user = await prisma.user.findUnique({ where: { email } });
-    return user ? { id: user.id, email: user.email, name: user.displayName } : null;
+    return user ? { id: user.id, email: user.email, name: user.name } : null;
   },
 });
 
@@ -60,9 +61,10 @@ export const authOptions = {
       // On first sign-in seed profile picture from Google; on subsequent sign-ins preserve any custom upload
       await prisma.user.upsert({
         where: { email: user.email },
-        update: {},
+        update: { name: typeof profile?.name === 'string' ? profile.name.trim() || null : null },
         create: {
           email: user.email,
+          name: typeof profile?.name === 'string' ? profile.name.trim() || null : null,
           profilePicture: user.image ?? undefined,
           isAdmin: isInstructor(user.email),
         },
@@ -72,7 +74,9 @@ export const authOptions = {
     async jwt({ token, user }: any) {
       // Embed isAdmin into the JWT at sign-in so it's available on every request
       if (user?.email) {
-        token.isAdmin = isInstructor(user.email);
+        // Deployment instructors and course staff get the instructor screens; each
+        // route still checks the course a request names.
+        token.isAdmin = await instructsAnyCourse(user.email);
       }
       return token;
     },

@@ -11,4 +11,4 @@ RUN cd examples/slidev-chat && npx slidev build demo-lecture.md --base /deck/ --
 FROM docker.io/library/nginx:stable-alpine
 COPY network/hosted/default.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=deck /deck /usr/share/nginx/deck
-ENV NGINX_ENVSUBST_FILTER="^(HOSTED_BIND_ADDRESS|HOSTED_PORT|APP_PORT|SOCKET_PORT|HOSTED_FORWARDED_PROTO)$"
+ENV NGINX_ENVSUBST_FILTER="^(HOSTED_BIND_ADDRESS|HOSTED_PORT|APP_PORT|SOCKET_PORT|HOSTED_FORWARDED_PROTO|PROXY_API_RATE|PROXY_API_BURST|PROXY_SOCKET_RATE|PROXY_SOCKET_BURST|PROXY_CLIENT_CONN)$"

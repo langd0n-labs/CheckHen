@@ -10,4 +10,8 @@ try {
 } catch {
   stored = ''
 }
+// VITE_CHECKHEN_COLLAPSE_WITHOUT_TICKET=1 removes the panel when the deck opens without a
+// ticket, instead of showing how to get one.
+export const collapseWithoutTicket = import.meta.env.VITE_CHECKHEN_COLLAPSE_WITHOUT_TICKET === '1'
+
 export const chatTicket = new URLSearchParams(window.location.search).get('ticket') || stored

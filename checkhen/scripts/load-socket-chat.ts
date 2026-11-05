@@ -12,6 +12,7 @@
 import { createHmac, randomUUID } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 import { io, type Socket } from 'socket.io-client';
+import { purposeKey } from '../lib/keys';
 
 const databaseUrl = process.env.DATABASE_URL || '';
 if (new URL(databaseUrl || 'postgresql://localhost/invalid').pathname !== '/checkhen_test') {
@@ -36,9 +37,10 @@ const percentile = (values: number[], p: number) => {
 };
 const ticket = (courseId: string, classId: string, userId: string) => {
   const payload = Buffer.from(
-    JSON.stringify({ courseId, classId, userId, admin: false, expires: Date.now() + 120_000 })
+    JSON.stringify({ typ: 'socket', courseId, classId, userId, admin: false, expires: Date.now() + 120_000 })
   ).toString('base64url');
-  return `${payload}.${createHmac('sha256', secret).update(payload).digest('base64url')}`;
+  const key = purposeKey('socket-ticket', secret)!;
+  return `${payload}.${createHmac('sha256', key).update(payload).digest('base64url')}`;
 };
 const connected = (socket: Socket) =>
   new Promise<void>((resolve, reject) => {

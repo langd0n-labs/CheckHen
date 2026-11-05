@@ -4,6 +4,7 @@ import { createMocks } from 'node-mocks-http';
 import portalExpired from '@/pages/api/internal/portal-expired';
 import expireSessionsRoute from '@/pages/api/internal/expire-sessions';
 import { appendEvent, readState } from '@/lib/event-store';
+import { purposeKey } from '@/lib/keys';
 import { expireSessions } from '@/lib/session-expiry';
 
 jest.mock('@/lib/prisma', () => ({ prisma: {} }));
@@ -60,10 +61,12 @@ describe('portal expiry callback', () => {
 });
 
 describe('session expiry callback', () => {
+  const expirySign = (raw: string) =>
+    createHmac('sha256', purposeKey('session-expiry', secret)!).update(raw).digest('hex');
   const invoke = async (body: unknown, signature?: string) => {
     const raw = typeof body === 'string' ? body : JSON.stringify(body ?? null);
     const { req, res } = createMocks({ method: 'POST', body: body as any,
-      headers: { 'x-checkhen-signature': signature ?? sign(raw) } });
+      headers: { 'x-checkhen-signature': signature ?? expirySign(raw) } });
     await expireSessionsRoute(req as any, res as any);
     return res;
   };
@@ -74,6 +77,11 @@ describe('session expiry callback', () => {
   });
   it('rejects malformed signed bodies', async () => {
     expect((await invoke({ nope: true }))._getStatusCode()).toBe(400);
+  });
+  it('refuses a body signed with AUTH_SECRET itself', async () => {
+    const raw = JSON.stringify({ timestamp: Date.now() });
+    expect((await invoke({ timestamp: JSON.parse(raw).timestamp }, sign(raw)))._getStatusCode()).toBe(403);
+    expect(expireSessions).not.toHaveBeenCalled();
   });
   it('runs expiry after authentication', async () => {
     const res = await invoke({ timestamp: Date.now() });

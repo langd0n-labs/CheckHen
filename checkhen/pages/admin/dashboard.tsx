@@ -1,14 +1,19 @@
+import { instructorLabel } from '@/lib/name-label';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import {
+  AlertCircle,
   ArrowLeft,
+  CheckCircle,
   GraduationCap,
   Hand,
   Info,
   Plus,
+  RefreshCw,
   ThumbsDown,
   ThumbsUp,
+  TrendingDown,
   User,
   Users,
 } from 'lucide-react';
@@ -36,6 +41,8 @@ import {
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
+import DashboardChat, { newestFirst } from '@/components/Admin/DashboardChat';
+import chatClasses from '@/components/Admin/DashboardChat.module.css';
 import ClassSessionManager from '@/components/Admin/ClassSessionManager/ClassSessionManager';
 import { StudentProfileModal } from '@/components/Admin/StudentProfileModal';
 import { UnderstandingCheck } from '@/components/UnderstandingCheck';
@@ -50,6 +57,7 @@ type UserInfo = {
 };
 
 type HandRaise = {
+  nickname?: string | null;
   id: string;
   name: string;
   email: string;
@@ -67,6 +75,7 @@ type ChatMessage = {
   createdAt: string;
   user: {
     email: string;
+    name?: string | null;
     displayName: string | null;
     namePronunciation: string | null;
     pronouns: string | null;
@@ -81,7 +90,7 @@ type AttendanceRecord = {
   user: {
     email: string;
     profilePicture: string | null;
-    foodAllergies: string | null;
+    name?: string | null;
     displayName: string | null;
     namePronunciation: string | null;
     pronouns: string | null;
@@ -103,14 +112,13 @@ type ExamStatus = {
     // The access point's connection checks; unhealthy means fails are not being recorded.
     monitor?: { healthy: boolean; error: string | null };
   };
-  students: { userId: string; name: string }[];
+  students: { userId: string; name: string; nickname?: string | null }[];
 };
 
 export default function AdminDashboard() {
   const router = useRouter();
   const theme = useMantineTheme();
   const ws = useRef<Socket | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const openModalRef = useRef<(() => void) | null>(null);
 
   // State variables
@@ -166,7 +174,7 @@ export default function AdminDashboard() {
     ) {
       return;
     }
-    const response = await fetch('/api/demo/reset', { method: 'POST' });
+    const response = await fetch('/api/demo/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
     if (!response.ok) {
       notifications.show({ message: 'Could not reset the demo', color: 'red' });
       return;
@@ -175,6 +183,7 @@ export default function AdminDashboard() {
     selectScope({ courseId, classId: liveClassId });
     window.location.reload();
   };
+  const [paceSignals, setPaceSignals] = useState({ slowDown: 0, readyToMove: 0 });
   // Bumped when the socket says the understanding check changed.
   const [checkSignal, setCheckSignal] = useState(0);
   // Phones stack the three panels and scroll the page; wider screens use columns.
@@ -217,15 +226,6 @@ export default function AdminDashboard() {
     document.addEventListener('mouseup', onUp);
   };
 
-  // Auto-scroll to bottom on new messages
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
   // Fetch user info
   const fetchUser = async () => {
     const response = await fetch('/api/get-user-info');
@@ -249,8 +249,10 @@ export default function AdminDashboard() {
     if (response.ok) setExam(await response.json());
   };
 
-  const studentName = (userId: string) =>
-    exam?.students.find((item) => item.userId === userId)?.name || userId;
+  const studentName = (userId: string) => {
+    const student = exam?.students.find((item) => item.userId === userId);
+    return student ? `${student.name}${student.nickname ? ` (${student.nickname})` : ''}` : userId;
+  };
   // Fails from ended or earlier exams stay listed and excusable.
   const earlierFails = (exam?.fails ?? []).filter(
     (fail) => !(exam?.exam?.active && fail.examId === exam.exam.id)
@@ -412,7 +414,7 @@ export default function AdminDashboard() {
   };
 
   const projectionTicket = async (): Promise<string | null> => {
-    const response = await fetch('/api/admin/projection-ticket', { method: 'POST' });
+    const response = await fetch('/api/admin/projection-ticket', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
     if (!response.ok) {
       notifications.show({ title: 'Error', message: 'Could not open projection', color: 'red' });
       return null;
@@ -469,17 +471,60 @@ export default function AdminDashboard() {
     });
   };
 
+  // Every open projection window and deck stops showing chat; new links still work.
+  const revokeProjectionLinks = async () => {
+    if (!window.confirm('Stop every open projection window and deck from showing chat?')) return;
+    const response = await fetch('/api/admin/revoke-projection', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    notifications.show(
+      response.ok
+        ? { title: 'Projection links revoked', message: 'Open the projection again to show chat.' }
+        : { title: 'Error', message: 'Could not revoke projection links', color: 'red' }
+    );
+  };
+
+  // Fetch pace signals
+  const fetchPaceSignals = async () => {
+    const response = await fetch('/api/student/fetch-pace-signals');
+    if (response.ok) {
+      const data = await response.json();
+      setPaceSignals({
+        slowDown: data.slowDown || 0,
+        readyToMove: data.readyToMove || 0,
+      });
+    }
+  };
+
+  // Reset pace signals
+  const resetPaceSignals = async () => {
+    const response = await fetch('/api/admin/reset-pace-signals', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    if (!response.ok) {
+      notifications.show({ title: 'Error', message: 'Could not reset pace signals', color: 'red' });
+      return;
+    }
+    setPaceSignals({ slowDown: 0, readyToMove: 0 });
+    ws.current?.emit('pace-signals-reset', { classId: currentClassId });
+  };
+
+  const shouldShowPaceAlert =
+    attendance.length > 0 && paceSignals.slowDown / attendance.length > 0.3;
+
   // Initial setup
   useEffect(() => {
     fetchUser();
     fetchCheckInsData();
     fetchHandRaiseData();
     fetchAllChatMessages();
+    fetchPaceSignals();
 
     const _interval = setInterval(() => {
       fetchCheckInsData();
       fetchHandRaiseData();
       fetchAllChatMessages();
+      fetchPaceSignals();
     }, 10000);
 
     return () => clearInterval(_interval);
@@ -503,6 +548,7 @@ export default function AdminDashboard() {
     const classId = currentClassId;
     ws.current = getSocket(classId);
 
+    ws.current?.on('pace-signal-update', fetchPaceSignals);
     ws.current?.on('user-hand-update', () => {
       fetchHandRaiseData();
     });
@@ -517,6 +563,7 @@ export default function AdminDashboard() {
     ws.current?.on('exam-status-update', fetchExam);
 
     return () => {
+      ws.current?.off('pace-signal-update');
       ws.current?.off('user-hand-update');
       ws.current?.off('fetch-messages');
       ws.current?.off('check-update', checkChanged);
@@ -655,6 +702,51 @@ export default function AdminDashboard() {
                     </Text>
                   </div>
                 </Group>
+
+                {/* Pace Signals */}
+                <Group gap="md">
+                  <Group gap="xs">
+                    <TrendingDown size={20} color={theme.colors.warning[5]} />
+                    <div>
+                      <Text size="xs" c="dimmed">
+                        Slow Down
+                      </Text>
+                      <Text size="lg" fw={700}>
+                        {paceSignals.slowDown}
+                      </Text>
+                    </div>
+                  </Group>
+
+                  <Group gap="xs">
+                    <CheckCircle size={20} color={theme.colors.successGreen[5]} />
+                    <div>
+                      <Text size="xs" c="dimmed">
+                        Got it
+                      </Text>
+                      <Text size="lg" fw={700}>
+                        {paceSignals.readyToMove}
+                      </Text>
+                    </div>
+                  </Group>
+
+                  <Button
+                    variant="light"
+                    size="xs"
+                    leftSection={<RefreshCw size={14} />}
+                    onClick={resetPaceSignals}
+                  >
+                    Reset
+                  </Button>
+                </Group>
+
+                {/* Alert if >30% want to slow down */}
+                {shouldShowPaceAlert && (
+                  <Alert icon={<AlertCircle size={16} />} color="warning" variant="light">
+                    <Text size="sm" fw={600}>
+                      Class pace concern
+                    </Text>
+                  </Alert>
+                )}
               </Group>
               <Divider />
               <UnderstandingCheck refreshSignal={checkSignal} />
@@ -887,7 +979,7 @@ export default function AdminDashboard() {
                             style={{ cursor: 'pointer', textDecoration: 'underline' }}
                             onClick={() => setProfileEmail(raise.email)}
                           >
-                            {raise.name}
+                            {raise.name}{raise.nickname && <Text span c="dimmed"> ({raise.nickname})</Text>}
                           </Text>
                           <Text size="xs" c="dimmed">
                             {new Date(raise.raisedAt).toLocaleTimeString()}
@@ -982,6 +1074,15 @@ export default function AdminDashboard() {
                   >
                     Copy Slidev token
                   </Button>
+                  <Button
+                    size="xs"
+                    variant="subtle"
+                    color="red"
+                    onClick={revokeProjectionLinks}
+                    disabled={!currentClassId}
+                  >
+                    Revoke projection links
+                  </Button>
                   <Anchor component={Link} href="/help/projection" size="xs">
                     What the room sees
                   </Anchor>
@@ -992,24 +1093,30 @@ export default function AdminDashboard() {
               </Text>
             </Paper>
 
-            <ScrollArea style={narrow ? { height: '60vh' } : { flex: 1 }} p="md">
+            <DashboardChat key={currentClassId} narrow={narrow}>
               <Stack gap="sm">
                 {messages.length === 0 ? (
                   <Text size="sm" c="dimmed" ta="center" mt="xl">
                     No messages yet
                   </Text>
                 ) : (
-                  messages.map((msg) => (
-                    <Paper key={msg.id} p="sm" radius="md" bg={theme.colors.gray[0]}>
+                  newestFirst(messages).map((msg) => (
+                    <Paper
+                      data-message-id={msg.id}
+                      key={msg.id}
+                      p="sm"
+                      radius="md"
+                      bg={theme.colors.gray[0]}
+                    >
                       <Group justify="space-between" mb={4}>
-                        <Group gap="xs">
+                        <Group gap="xs" style={{ minWidth: 0, maxWidth: '100%' }}>
                           <Text
-                            size="sm"
+                            size="24px"
                             fw={600}
-                            style={{ cursor: 'pointer' }}
+                            style={{ cursor: 'pointer', overflowWrap: 'anywhere', minWidth: 0 }}
                             onClick={() => setProfileEmail(msg.user.email)}
                           >
-                            {msg.user.displayName || msg.user.email.split('@')[0]}
+                            {instructorLabel(msg.user)}
                           </Text>
                           <Badge size="xs" variant="light" color="gray">
                             as {msg.anonymousName || 'Anonymous'}
@@ -1036,7 +1143,7 @@ export default function AdminDashboard() {
                           </Badge>
                         )}
                       </Group>
-                      <Text size="sm">{msg.message}</Text>
+                      <Text className={chatClasses.message}>{msg.message}</Text>
                       <Group gap="xs" mt="xs">
                         {msg.hidden ? (
                           <Button
@@ -1069,9 +1176,8 @@ export default function AdminDashboard() {
                     </Paper>
                   ))
                 )}
-                <div ref={messagesEndRef} />
               </Stack>
-            </ScrollArea>
+            </DashboardChat>
           </Box>
 
           {/* Right drag handle */}
@@ -1148,7 +1254,7 @@ export default function AdminDashboard() {
                         <Avatar src={record.user.profilePicture} size={36} radius="50%" />
                         <Box style={{ flex: 1, minWidth: 0 }}>
                           <Text size="sm" fw={600} truncate>
-                            {record.user.displayName || record.user.email.split('@')[0]}
+                            {instructorLabel(record.user)}
                           </Text>
                           <Group justify="space-between" mt={2}>
                             <Badge size="xs" variant="light">
@@ -1167,11 +1273,6 @@ export default function AdminDashboard() {
                             {record.user.namePronunciation && (
                               <Badge size="xs" color="cyan" variant="light">
                                 {record.user.namePronunciation}
-                              </Badge>
-                            )}
-                            {record.user.foodAllergies && (
-                              <Badge size="xs" color="orange" variant="light">
-                                Allergy: {record.user.foodAllergies}
                               </Badge>
                             )}
                           </Group>

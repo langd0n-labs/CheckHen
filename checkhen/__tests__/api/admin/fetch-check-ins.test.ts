@@ -1,3 +1,4 @@
+beforeEach(() => { process.env.NEXTAUTH_URL = 'https://checkhen.test'; });
 import { createMocks } from 'node-mocks-http';
 import { readState } from '@/lib/event-store';
 import { prisma } from '@/lib/prisma';
@@ -7,6 +8,7 @@ import handler from '@/pages/api/admin/fetch-check-ins';
 jest.mock('@/lib/request-scope', () => ({ requireScope: jest.fn(), isInstructor: jest.fn() }));
 jest.mock('@/lib/event-store', () => ({ readState: jest.fn() }));
 jest.mock('@/lib/prisma', () => ({ prisma: { user: { findMany: jest.fn() } } }));
+jest.mock('@/lib/staff', () => ({ courseStaffIds: jest.fn().mockResolvedValue(new Set()) }));
 const admin = { id: 'admin', email: 'prof@bu.edu' };
 const selected = { id: 'session-a', courseId: 'course-a', createdAt: new Date(), duration: 60 };
 const scope = { courseId: 'course-a', classId: 'session-a' };
@@ -42,7 +44,7 @@ const state = {
 const invoke = async (method: 'GET' | 'POST' = 'GET', currentState = state, users = [student, secondStudent]) => {
   (readState as jest.Mock).mockResolvedValue(currentState);
   (prisma.user.findMany as jest.Mock).mockResolvedValue(users);
-  const { req, res } = createMocks({ method, query: scope });
+  const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method, query: scope });
   await handler(req as any, res as any);
   return res;
 };
@@ -94,7 +96,13 @@ describe('GET /api/admin/fetch-check-ins', () => {
     for (const key of ['id', 'email', 'name', 'anonymousName', 'joinTime', 'handRaiseCount', 'userId', 'user']) {
       expect(entry).toHaveProperty(key);
     }
-    expect(entry.name).toBe('jsmith');
+    expect(entry.name).toBe('jsmith@bu.edu');
+  });
+  it('asks the database to leave out food allergies', async () => {
+    await invoke();
+    expect(prisma.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ omit: { foodAllergies: true } })
+    );
   });
   it('excludes instructor attendance from the result', async () => {
     (isInstructor as jest.Mock).mockImplementation((email: string) => email === student.email);

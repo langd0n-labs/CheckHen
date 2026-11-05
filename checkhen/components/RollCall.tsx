@@ -6,6 +6,7 @@ import { scopedFetch } from '@/lib/scoped-fetch';
 type RosterStudent = {
   userId: string;
   name: string;
+  nickname?: string | null;
   pronunciation: string | null;
   photo: string | null;
   present: boolean;
@@ -101,6 +102,7 @@ export function RollCall({ onDone }: { onDone: () => void }) {
           <Text fz="clamp(26px, 5dvh, 36px)" fw={800} lh={1.1}>
             {student.name}
           </Text>
+          {student.nickname && <Text c="dimmed">{student.nickname}</Text>}
           {student.pronunciation && <Text fz={20}>{student.pronunciation}</Text>}
           {student.present && student.selfReported && (
             <Text c="dimmed">Checked in on their own</Text>
@@ -131,7 +133,7 @@ export function RollCall({ onDone }: { onDone: () => void }) {
             aria-label={`Change the mark for ${entry.name}`}
           >
             <Group justify="space-between" wrap="nowrap">
-              <Text fw={position === index ? 700 : 400}>{entry.name}</Text>
+              <Text fw={position === index ? 700 : 400}>{entry.name}{entry.nickname && <Text span c="dimmed"> ({entry.nickname})</Text>}</Text>
               <Badge
                 color={
                   entry.present

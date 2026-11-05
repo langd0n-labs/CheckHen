@@ -1,7 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { AlertTriangle, GraduationCap, Hand, HelpCircle, LogOut, Send, User } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle,
+  GraduationCap,
+  Hand,
+  HelpCircle,
+  LayoutDashboard,
+  LogOut,
+  Send,
+  TrendingDown,
+  User,
+} from 'lucide-react';
 import { signIn, signOut, useSession } from 'next-auth/react';
 import { Socket } from 'socket.io-client';
 import {
@@ -25,7 +36,8 @@ import {
 import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { StudentCheck } from '@/components/StudentCheck';
-import { scopedFetch as fetch, selectedScope } from '@/lib/scoped-fetch';
+import { takesACourse } from '@/lib/course-roles';
+import { scopedFetch as fetch, selectedScope, selectScope } from '@/lib/scoped-fetch';
 import { getSocket } from '@/lib/socket';
 
 type UserInfo = {
@@ -89,11 +101,21 @@ export default function HomePage() {
     scrollToBottom();
   }, [messages]);
 
-  // Redirect admins to dashboard (isAdmin is embedded in the session token — no extra fetch)
+  // Send an instructor to the dashboard, unless they also take a course here; then the
+  // header links to the courses they instruct.
+  const [alsoInstructs, setAlsoInstructs] = useState(false);
   useEffect(() => {
-    if (status !== 'authenticated' || router.query.preview === 'true') return;
-    if (isAdmin) router.push('/admin/dashboard');
+    if (status !== 'authenticated' || router.query.preview === 'true' || !isAdmin) return;
+    void takesACourse().then((takes) => {
+      if (!takes) router.push('/admin/dashboard');
+      else setAlsoInstructs(true);
+    });
   }, [status, isAdmin, router]);
+  // The dashboard starts with no course selected, not the course this person takes.
+  const openDashboard = () => {
+    selectScope({});
+    router.push('/admin/dashboard');
+  };
 
   // Fetches the current user's information from the backend
   const fetchUser = async () => {
@@ -106,7 +128,7 @@ export default function HomePage() {
   const checkIfCheckedIn = async () => {
     const response = await fetch('/api/student/fetch-check-in');
     if (response.ok)
-      setUplinkUnavailable(!(await fetch('/api/student/re-bind', { method: 'POST' })).ok);
+      setUplinkUnavailable(!(await fetch('/api/student/re-bind', { method: 'POST', headers: { 'Content-Type': 'application/json' } })).ok);
     setIsCheckedIn(response.ok);
     setCheckInResolved(true);
     return response.ok;
@@ -131,6 +153,7 @@ export default function HomePage() {
   const toggleHandRaise = async () => {
     const response = await fetch('/api/student/toggle-vhr', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
     });
 
     if (!response.ok) {
@@ -227,6 +250,31 @@ export default function HomePage() {
     );
   };
 
+  // Send pace signal
+  const sendPaceSignal = async (signalType: 'slow_down' | 'ready_to_move_on') => {
+    const response = await fetch('/api/student/send-pace-signal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ signalType }),
+    });
+
+    if (!response.ok) {
+      notifications.show({ title: 'Error', message: 'Could not send pace signal', color: 'red' });
+      return;
+    }
+
+    ws.current?.emit('pace-signal-sent', {
+      classId: currentClassId,
+      signalType,
+    });
+    // Students never see the room's totals; confirm only that this one was sent.
+    notifications.show({
+      message: 'Sent to your instructor',
+      color: 'successGreen',
+      autoClose: 2000,
+    });
+  };
+
   // Initial setup: one startup request instead of 5+ serial fetches
   useEffect(() => {
     if (status !== 'authenticated') return;
@@ -237,7 +285,7 @@ export default function HomePage() {
       .then((r) => r.json())
       .then((d) => {
         if (d.isCheckedIn) {
-          fetch('/api/student/re-bind', { method: 'POST' })
+          fetch('/api/student/re-bind', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
             .then((response) => setUplinkUnavailable(!response.ok))
             .catch(() => setUplinkUnavailable(true));
           setIsCheckedIn(true);
@@ -272,7 +320,7 @@ export default function HomePage() {
     if (!isCheckedIn) return;
 
     const _dataInterval = setInterval(() => {
-      fetch('/api/student/re-bind', { method: 'POST' })
+      fetch('/api/student/re-bind', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
         .then((response) => setUplinkUnavailable(!response.ok))
         .catch(() => setUplinkUnavailable(true));
       fetchAllChatMessages();
@@ -292,7 +340,7 @@ export default function HomePage() {
       const scope = selectedScope();
       if (scope.courseId && scope.classId) {
         const query = new URLSearchParams({ courseId: scope.courseId, classId: scope.classId });
-        navigator.sendBeacon('/api/student/check-out?' + query);
+        navigator.sendBeacon('/api/student/check-out?' + query, new Blob(['{}'], { type: 'application/json' }));
       }
     };
 
@@ -344,13 +392,13 @@ export default function HomePage() {
 
   // Sign out after marking the student as not present
   const handleSignOut = async () => {
-    await fetch('/api/student/check-out', { method: 'POST' });
+    await fetch('/api/student/check-out', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
     signOut({ callbackUrl: '/' });
   };
 
   // Leave the current class without signing out (logo click)
   const handleLeaveClass = async () => {
-    await fetch('/api/student/check-out', { method: 'POST' });
+    await fetch('/api/student/check-out', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
     router.push('/join');
   };
 
@@ -496,6 +544,17 @@ export default function HomePage() {
                 >
                   <HelpCircle size={20} />
                 </ActionIcon>
+                {alsoInstructs && (
+                  <ActionIcon
+                    variant="subtle"
+                    color="gray"
+                    size={44}
+                    aria-label="Courses you instruct"
+                    onClick={openDashboard}
+                  >
+                    <LayoutDashboard size={20} />
+                  </ActionIcon>
+                )}
                 <ActionIcon
                   variant="subtle"
                   color="gray"
@@ -527,6 +586,17 @@ export default function HomePage() {
                 >
                   Help
                 </Button>
+                {alsoInstructs && (
+                  <Button
+                    variant="subtle"
+                    color="gray"
+                    size="sm"
+                    leftSection={<LayoutDashboard size={16} />}
+                    onClick={openDashboard}
+                  >
+                    Courses you instruct
+                  </Button>
+                )}
                 <Button
                   variant="subtle"
                   color="gray"
@@ -598,8 +668,7 @@ export default function HomePage() {
         style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}
       >
         {isPhone ? (
-          // Phones: the hand button, and a check only while one is open, so the chat keeps most
-          // of the screen.
+          // Phones: compact hand and pace controls, plus a check while one is open.
           <Stack gap="xs" p="xs" style={{ borderBottom: `1px solid ${theme.colors.gray[3]}` }}>
             <Button
               size="md"
@@ -611,6 +680,26 @@ export default function HomePage() {
             >
               {handRaised ? 'Lower Hand' : 'Raise Hand'}
             </Button>
+            <Group grow gap="xs">
+              <Button
+                variant="light"
+                color="warning"
+                leftSection={<TrendingDown size={18} />}
+                onClick={() => sendPaceSignal('slow_down')}
+                disabled={!currentClassName}
+              >
+                Slow down
+              </Button>
+              <Button
+                variant="light"
+                color="successGreen"
+                leftSection={<CheckCircle size={18} />}
+                onClick={() => sendPaceSignal('ready_to_move_on')}
+                disabled={!currentClassName}
+              >
+                Got it
+              </Button>
+            </Group>
             <StudentCheck enabled={isCheckedIn && !!currentClassName} refreshSignal={checkSignal} />
           </Stack>
         ) : (
@@ -639,6 +728,37 @@ export default function HomePage() {
                   >
                     {handRaised ? 'Lower Hand' : 'Raise Hand'}
                   </Button>
+                </Stack>
+              </Card>
+
+              {/* Pace Signals */}
+              <Card padding="md">
+                <Stack gap="sm">
+                  <Title order={5}>Class Pace Feedback</Title>
+                  <Text size="sm" c="dimmed">
+                    Let your instructor know how you&apos;re doing. Only your instructor sees these.
+                  </Text>
+
+                  <Group grow>
+                    <Button
+                      variant="light"
+                      color="warning"
+                      leftSection={<TrendingDown size={18} />}
+                      onClick={() => sendPaceSignal('slow_down')}
+                      disabled={!currentClassName}
+                    >
+                      Slow Down
+                    </Button>
+                    <Button
+                      variant="light"
+                      color="successGreen"
+                      leftSection={<CheckCircle size={18} />}
+                      onClick={() => sendPaceSignal('ready_to_move_on')}
+                      disabled={!currentClassName}
+                    >
+                      Got it
+                    </Button>
+                  </Group>
                 </Stack>
               </Card>
 

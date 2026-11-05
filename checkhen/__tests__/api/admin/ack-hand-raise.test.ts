@@ -1,3 +1,4 @@
+beforeEach(() => { process.env.NEXTAUTH_URL = 'https://checkhen.test'; });
 import { createMocks } from 'node-mocks-http';
 import { appendEvent, readState } from '@/lib/event-store';
 import { prisma } from '@/lib/prisma';
@@ -19,7 +20,7 @@ const state = {
 };
 const invoke = async (method: 'GET' | 'POST' = 'POST', currentState = state) => {
   (readState as jest.Mock).mockResolvedValue(currentState);
-  const { req, res } = createMocks({ method, body: { email: 'student@bu.edu' }, query: scope });
+  const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method, body: { email: 'student@bu.edu' }, query: scope });
   await handler(req as any, res as any);
   return res;
 };
@@ -60,7 +61,7 @@ describe('POST /api/admin/ack-hand-raise', () => {
     );
   });
   it('returns 404 when email is missing', async () => {
-    const { req, res } = createMocks({ method: 'POST', body: {}, query: scope });
+    const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: 'POST', body: {}, query: scope });
     (readState as jest.Mock).mockResolvedValue(state);
     (prisma.user.findUnique as jest.Mock).mockResolvedValue(null);
     await handler(req as any, res as any);

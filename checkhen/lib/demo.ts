@@ -267,6 +267,7 @@ export async function seedDemo(db: Db, now = new Date()) {
   const users = new Map<string, string>();
   for (const persona of personas) {
     const profile = {
+      name: persona.name,
       displayName: persona.name,
       profilePicture: avatar(persona),
       pronouns: persona.pronouns,
