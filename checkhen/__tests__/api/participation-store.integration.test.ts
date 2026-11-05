@@ -96,6 +96,43 @@ integration('route → store → attendance fold', () => {
     await prisma.$disconnect();
   });
 
+  it.each([
+    ['deployment instructor without roster', true, false, null, 403, false],
+    ['deployment instructor with active roster', true, false, true, 200, false],
+    ['deployment instructor with inactive roster', true, false, false, 403, false],
+    ['course staff without roster', false, true, null, 403, false],
+    ['course staff with roster', false, true, true, 403, false],
+    ['deployment instructor also on course staff', true, true, true, 403, false],
+    ['student who instructs another course', false, false, true, 200, true],
+    ['student', false, false, true, 200, false],
+  ])('anonymous chat: %s', async (_label, deploymentInstructor, staff, activeRoster, status, otherCourseStaff) => {
+    const rosterKey = { courseId_userId: { courseId: scope.courseId, userId: user.id } };
+    if (activeRoster === null) await prisma.rosterEntry.delete({ where: rosterKey });
+    else await prisma.rosterEntry.update({ where: rosterKey, data: { active: activeRoster } });
+    if (staff || otherCourseStaff) {
+      const courseId = staff ? scope.courseId : (await prisma.course.create({ data: { name: 'Other course' } })).id;
+      await prisma.courseStaff.create({ data: { courseId, userId: user.id } });
+    }
+    (requireScope as jest.Mock).mockResolvedValue({ user, selected, scope, admin: deploymentInstructor || staff, deploymentInstructor });
+    // Refusals take precedence over a missing check-in; allowed users have one.
+    if (status === 200) await invoke(checkIn, '172.16.77.20');
+    const before = await readEvents(prisma, scope);
+    const { req, res } = createMocks({
+      method: 'POST', query: scope, body: { message: 'Question' },
+      headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' },
+    });
+    await sendChat(req as any, res as any);
+    expect(res._getStatusCode()).toBe(status);
+    const after = await readEvents(prisma, scope);
+    if (status === 403) {
+      expect(res._getJSONData().message).toBe('Instructors cannot post anonymous messages in this course');
+      expect(after).toEqual(before);
+    } else {
+      expect(after).toHaveLength(before.length + 1);
+      expect(after.at(-1)?.kind).toBe('CHAT_MESSAGE');
+    }
+  });
+
   it('tracks two devices, a primary IP change, and checkout from each', async () => {
     await invoke(checkIn, '172.16.77.20');
     await invoke(checkIn, '172.16.77.21');
