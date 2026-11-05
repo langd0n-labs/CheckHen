@@ -1298,8 +1298,8 @@ The tunnel stays off until M1 and M2 are fixed and AICP confirms.
 2. Start: `podman-compose -p checkhen-demo --env-file .env.hosted --profile hosted up -d --build`.
    podman-compose does not replace a running container when only its image changed.
    After a rebuild, update the containers as "Update app and socket" below says.
-3. Confirm the list under "Before opening the tunnel" below. Then start the tunnel from
-   the repository root: `podman-compose -p checkhen-tunnel -f docker-compose.tunnel.yml up -d`.
+3. Confirm the list under "Before opening the tunnel" below, except its sign-in check,
+   which needs the tunnel. Then start the tunnel from the repository root: `podman-compose -p checkhen-tunnel -f docker-compose.tunnel.yml up -d`.
    It serves the demo and class hostnames, so stopping it stops both.
 4. A fresh demo database: `podman-compose -p checkhen-demo --env-file .env.hosted --profile hosted down -v`,
    then start. The first visit to `/demo` seeds it.
@@ -1314,7 +1314,7 @@ new tunnel connects.
 2. Start the tunnel as step 3 above says.
 3. Verify. `curl -s http://127.0.0.1:20241/ready` shows `readyConnections` above 0, and the
    demo and class hostnames answer.
-4. If a check passes, `podman rm checkhen-demo_tunnel_1`. If a check fails, run
+4. If all checks pass, `podman rm checkhen-demo_tunnel_1`. Otherwise run
    `podman rm -f checkhen-tunnel_tunnel_1`, then `podman start checkhen-demo_tunnel_1`.
 
 Update app and socket after a rebuild. Do not pass `--profile`, and do not use the
