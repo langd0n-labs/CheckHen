@@ -254,7 +254,7 @@ it('keeps dashboard moderation and author profiles usable through newest-first c
   });
   const makeMessage = (id: string, hour: number) => ({
     id,
-    userId: `user-${id}`,
+    userId: `user-${id}` as string | null,
     hidden: false,
     hideEventId: null,
     message: `Message ${id}`,
@@ -338,5 +338,16 @@ it('keeps dashboard moderation and author profiles usable through newest-first c
       { url: '/api/admin/mute-student', body: { userId: 'user-new' } },
     ])
   );
+  const input = screen.getByRole('textbox', { name: 'Message as Instructor' });
+  fireEvent.change(input, { target: { value: 'Hello class' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  await waitFor(() => expect(input).toHaveValue(''));
+  expect(posts).toContainEqual({ url: '/api/admin/send-chat', body: { message: 'Hello class' } });
+  await waitFor(() => expect(input).toHaveFocus());
+  messages = [{ ...makeMessage('teacher', 15), userId: null, fromInstructor: true, anonymousName: 'Instructor' } as typeof messages[number]];
+  await act(async () => { handlers['fetch-messages'](); });
+  const teacher = within(region.querySelector('[data-message-id="teacher"]') as HTMLElement);
+  expect(teacher.queryByRole('button', { name: 'Mute student' })).not.toBeInTheDocument();
+  expect(teacher.getByRole('button', { name: 'Hide' })).toBeInTheDocument();
   view.unmount();
 });

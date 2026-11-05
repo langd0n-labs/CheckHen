@@ -38,3 +38,17 @@ it('strips all identity fields even when an input contains trusted and custom na
     for (const secret of [author.name, author.displayName, author.email]) expect(serialized).not.toContain(secret);
   }
 });
+
+it('carries the instructor label without author identity in public views', () => {
+  const instructor = { ...message, fromInstructor: true as const, anonymousName: 'Instructor', userId: null };
+  for (const result of [projectionChat([instructor])[0], studentChat([instructor], 'student')[0]]) {
+    expect(result).toMatchObject({ anonymousName: 'Instructor', fromInstructor: true });
+    expect(result).not.toHaveProperty('userId');
+    expect(result).not.toHaveProperty('user');
+    expect(JSON.stringify(result)).not.toContain('teacher');
+  }
+  expect(instructorChat([instructor], [author])[0]).toMatchObject({ userId: null, fromInstructor: true, user: { name: 'Instructor' } });
+  expect(studentChat([instructor], 'teacher')[0].isOwn).toBe(false);
+  expect(studentChat([{ ...instructor, userId: 'teacher' }], 'teacher')[0].isOwn).toBe(false);
+  expect(studentChat([message], 'student')[0]).not.toHaveProperty('fromInstructor');
+});

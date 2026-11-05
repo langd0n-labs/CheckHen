@@ -131,10 +131,11 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
     string,
     {
       id: string;
-      userId: string;
+      userId: string | null;
       classId: string;
       message: string;
       anonymousName: string;
+      fromInstructor?: true;
       createdAt: Date;
     }
   >();
@@ -142,10 +143,11 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
     string,
     {
       id: string;
-      userId: string;
+      userId: string | null;
       classId: string;
       message: string;
       anonymousName: string;
+      fromInstructor?: true;
       createdAt: Date;
       hidden: true;
       hideEventId: string;
@@ -257,7 +259,7 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
       pace.set(userId, { id, userId, classId, signalType: String(payload.signalType), createdAt });
     } else if (event.kind === 'PACE_RESET') {
       pace.clear();
-    } else if (event.kind === 'CHAT_MESSAGE' && userId) {
+    } else if (event.kind === 'CHAT_MESSAGE' && (userId || payload.fromInstructor === true)) {
       messages.set(id, {
         id: event.id,
         userId,
@@ -265,15 +267,18 @@ export function foldEvents(events: ParticipationEvent[], scope: EventScope) {
         createdAt,
         message: String(payload.message),
         anonymousName: String(payload.anonymousName),
+        ...(payload.fromInstructor === true ? { fromInstructor: true as const } : {}),
       });
     } else if (event.kind === 'CHAT_HIDDEN') {
       const target = byId.get(event.supersedesId!)!;
+      if (!target.userId && target.payload.fromInstructor !== true) continue;
       hiddenMessages.set(id, {
         id: target.id,
-        userId: target.userId!,
+        userId: target.userId,
         classId: target.classId,
         message: String(target.payload.message),
         anonymousName: String(target.payload.anonymousName),
+        ...(target.payload.fromInstructor === true ? { fromInstructor: true as const } : {}),
         createdAt: target.createdAt,
         hidden: true,
         hideEventId: event.id,

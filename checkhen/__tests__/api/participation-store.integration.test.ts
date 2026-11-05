@@ -34,6 +34,8 @@ import checkOut from '@/pages/api/student/check-out';
 import fetchStudentCheck from '@/pages/api/student/fetch-check';
 import reBind from '@/pages/api/student/re-bind';
 import sendChat from '@/pages/api/student/send-chat';
+import sendInstructorChat from '@/pages/api/admin/send-chat';
+import { studentChat, projectionChat } from '@/lib/chat-view';
 
 jest.mock('@/lib/request-scope', () => ({
   requireScope: jest.fn(),
@@ -1320,6 +1322,49 @@ integration('route → store → attendance fold', () => {
     } finally {
       delete process.env.CHECKHEN_DEMO;
       delete process.env.CHECKHEN_MODE;
+    }
+  });
+
+  it('stores a deployment instructor without roster or check-in at the event budget, and hides and restores the message', async () => {
+    const instructor = await prisma.user.create({ data: { email: `instructor-${randomUUID()}@example.edu` } });
+    expect(await prisma.rosterEntry.count({ where: { courseId: scope.courseId, userId: instructor.id } })).toBe(0);
+    (requireScope as jest.Mock).mockResolvedValue({ user: instructor, selected, scope, admin: true, deploymentInstructor: true });
+    const request = async (handler: typeof checkIn, body: Record<string, unknown>) => {
+      const { req, res } = createMocks({ headers: { origin: 'https://checkhen.test', 'content-type': 'application/json' }, method: 'POST', query: scope, body });
+      await handler(req as any, res as any);
+      expect(res._getStatusCode()).toBe(200);
+    };
+    const previousBudget = process.env.CHECKHEN_SESSION_EVENT_BUDGET;
+    try {
+      process.env.CHECKHEN_SESSION_EVENT_BUDGET = '1';
+      await appendEvent(prisma, { ...scope, userId: user.id, actorId: user.id, kind: 'CHAT_MESSAGE', payload: { message: 'Student question', anonymousName: 'Swift Panda' } });
+      expect(await prisma.participationEvent.count({ where: scope })).toBe(1);
+      await request(sendInstructorChat, { message: 'Hello class', fromInstructor: false, anonymousName: 'Fake' });
+      const stored = await prisma.participationEvent.findFirstOrThrow({ where: { ...scope, actorId: instructor.id, kind: 'CHAT_MESSAGE' } });
+      expect(stored).toMatchObject({ userId: null, actorId: instructor.id });
+      const state = await readState(prisma, scope);
+      expect(state.attendance).toEqual([]);
+      const message = state.messages.find(entry => entry.id === stored.id)!;
+      expect(message).toMatchObject({ userId: null, anonymousName: 'Instructor', fromInstructor: true });
+      for (const payload of [studentChat([message], instructor.id), projectionChat([message])]) {
+        expect(payload[0]).toMatchObject({ anonymousName: 'Instructor', fromInstructor: true });
+        expect(payload[0]).not.toHaveProperty('userId');
+        expect(JSON.stringify(payload)).not.toContain(instructor.email);
+        expect(JSON.stringify(payload)).not.toContain(instructor.id);
+      }
+      expect(studentChat([message], instructor.id)[0].isOwn).toBe(false);
+      await request(hideChat, { messageId: message.id });
+      expect((await readState(prisma, scope)).messages.map(entry => entry.id)).not.toContain(message.id);
+      expect((await readState(prisma, scope)).instructorMessages.find(entry => entry.id === message.id)).toMatchObject({ userId: null, hidden: true, fromInstructor: true });
+      await request(unhideChat, { messageId: message.id });
+      expect((await readState(prisma, scope)).messages.find(entry => entry.id === message.id)).toMatchObject({ userId: null, fromInstructor: true });
+      const { req, res } = createMocks({ method: 'GET', query: scope });
+      await fetchAllChat(req as any, res as any);
+      expect(res._getStatusCode()).toBe(200);
+      expect(JSON.parse(res._getJSONData().message).find((entry: { id: string }) => entry.id === message.id)).toMatchObject({ userId: null, user: { name: 'Instructor' } });
+    } finally {
+      if (previousBudget === undefined) delete process.env.CHECKHEN_SESSION_EVENT_BUDGET;
+      else process.env.CHECKHEN_SESSION_EVENT_BUDGET = previousBudget;
     }
   });
 

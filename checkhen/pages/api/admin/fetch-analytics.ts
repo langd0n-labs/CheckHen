@@ -131,7 +131,7 @@ export default async function handler(
       checkIns,
       handRaises: states.flatMap(state => state.hands),
       paceSignals: states.flatMap(state => state.pace),
-      messages: states.flatMap(state => state.messages),
+      messages: states.flatMap(state => state.messages.filter(message => !message.fromInstructor)),
     };
   };
 

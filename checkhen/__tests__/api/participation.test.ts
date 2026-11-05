@@ -1,3 +1,4 @@
+import sendInstructorChat from '@/pages/api/admin/send-chat';
 import { EventBudgetError } from '@/lib/event-budget';
 import { courseStaffIds, isCourseStaff } from '@/lib/staff';
 import { resetWriteLimits } from '@/lib/write-limits';
@@ -537,5 +538,36 @@ describe('understanding check protections', () => {
     expect(response._getJSONData().check).toMatchObject({
       present: 1, answers: [{ name: 'Trusted Student (Nickname)' }],
     });
+  });
+});
+
+describe('instructor chat', () => {
+  it('requires POST and admin scope', async () => {
+    expect((await invoke(sendInstructorChat, 'GET'))._getStatusCode()).toBe(405);
+    (requireScope as jest.Mock).mockImplementation(async (_req, res, adminOnly) => {
+      expect(adminOnly).toBe(true);
+      res.status(403).json({ message: 'Instructor access required' });
+      return null;
+    });
+    expect((await invoke(sendInstructorChat, 'POST', { message: 'Hello' }))._getStatusCode()).toBe(403);
+  });
+  it('requires an active class', async () => {
+    (readState as jest.Mock).mockResolvedValue({ ...empty(), endedAt: new Date() });
+    expect((await invoke(sendInstructorChat, 'POST', { message: 'Hi' }))._getJSONData()).toEqual({ message: 'No active class' });
+  });
+  it.each([null, 1, '', ' ', 'x'.repeat(1001)])('validates %s', async (message) => {
+    expect((await invoke(sendInstructorChat, 'POST', { message }))._getStatusCode()).toBe(400);
+    expect(appendEvent).not.toHaveBeenCalled();
+  });
+  it('sends without check-in and ignores caller identity fields', async () => {
+    expect((await invoke(sendInstructorChat, 'POST', { message: 'Hello', anonymousName: 'Fake', fromInstructor: false }))._getStatusCode()).toBe(200);
+    expect(appendEvent).toHaveBeenCalledWith(prisma, expect.objectContaining({
+      kind: 'CHAT_MESSAGE', userId: null, actorId: 'student', payload: { message: 'Hello', anonymousName: 'Instructor', fromInstructor: true },
+    }));
+  });
+  it('ignores a student attempt to impersonate an instructor', async () => {
+    (readState as jest.Mock).mockResolvedValue(checkedIn());
+    await invoke(sendChat, 'POST', { message: 'Hello', fromInstructor: true, anonymousName: 'Instructor' });
+    expect(appendEvent).toHaveBeenCalledWith(prisma, expect.objectContaining({ payload: { message: 'Hello', anonymousName: 'Swift Panda' } }));
   });
 });
