@@ -74,3 +74,12 @@ it('allows course staff through the instructor scope rule for their own course',
     scope: { courseId: 'course-a', classId: 'session-a' } });
   expect(prisma.rosterEntry.findUnique).not.toHaveBeenCalled();
 });
+
+
+it.each([null, { active: false }])('uses the plain instructor refusal without an active roster entry: %p', async (roster) => {
+  (prisma.rosterEntry.findUnique as jest.Mock).mockResolvedValue(roster);
+  const { req, res } = createMocks({ method: 'GET', query: { courseId: 'course-a', classId: 'session-a' } });
+  expect(await requireScope(req as any, res as any, true)).toBeNull();
+  expect(res._getStatusCode()).toBe(403);
+  expect(res._getJSONData()).toEqual({ message: 'Instructor access required' });
+});

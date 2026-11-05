@@ -68,17 +68,24 @@ export function UnderstandingCheck({
   // Phones keep a full-size touch target; wider screens match the row's inputs.
   const phone = useMediaQuery('(max-width: 48em)') ?? false;
   const offset = useRef(0);
+  const requestSequence = useRef(0);
+  const [refreshFailed, setRefreshFailed] = useState(false);
   const [, setTick] = useState(0);
 
   const refresh = useCallback(async () => {
-    const response = await scopedFetch('/api/admin/fetch-check').catch(() => null);
-    if (!response?.ok) {
-      return;
+    const sequence = ++requestSequence.current;
+    try {
+      const response = await scopedFetch('/api/admin/fetch-check');
+      if (!response.ok) throw new Error('Refresh failed');
+      const data = await response.json();
+      if (sequence !== requestSequence.current) return;
+      offset.current = new Date(data.now).getTime() - Date.now();
+      setThreshold(data.threshold);
+      setCheck(data.check);
+      setRefreshFailed(false);
+    } catch {
+      if (sequence === requestSequence.current) setRefreshFailed(true);
     }
-    const data = await response.json();
-    offset.current = new Date(data.now).getTime() - Date.now();
-    setThreshold(data.threshold);
-    setCheck(data.check);
   }, []);
 
   useEffect(() => {
@@ -161,12 +168,12 @@ export function UnderstandingCheck({
         );
       })}
       {needsExample && (
-        <Alert color="yellow" p="xs">
+        <Alert color="warning" p="xs">
           {Math.round(share * 100)}% asked for another example.
         </Alert>
       )}
       {check.answers.length > 0 && (
-        <UnstyledButton onClick={() => setShowNames((value) => !value)} aria-expanded={showNames}>
+        <UnstyledButton mih={44} onClick={() => setShowNames((value) => !value)} aria-expanded={showNames}>
           <Text size="sm" c="buBlue.7">
             {showNames ? 'Hide who answered' : 'Show who answered'}
           </Text>
@@ -190,6 +197,7 @@ export function UnderstandingCheck({
   if (check?.open) {
     return (
       <Stack gap="xs">
+        {refreshFailed && <Text role="status" size="sm" c="dimmed">Could not refresh. Retrying automatically.</Text>}
         <Group justify="space-between" wrap="nowrap">
           <Text fw={600}>
             Check {check.number}
@@ -219,14 +227,18 @@ export function UnderstandingCheck({
   if (compact) {
     // The phone screen: one tap opens a 3-minute check; the dashboard has the options.
     return (
-      <Button variant="light" onClick={start} loading={busy} h={44}>
-        Check understanding
-      </Button>
+      <Stack gap="xs">
+        {refreshFailed && <Text role="status" size="sm" c="dimmed">Could not refresh. Retrying automatically.</Text>}
+        <Button variant="light" onClick={start} loading={busy} h={44}>
+          Check understanding
+        </Button>
+      </Stack>
     );
   }
 
   return (
     <Stack gap="xs">
+      {refreshFailed && <Text role="status" size="sm" c="dimmed">Could not refresh. Retrying automatically.</Text>}
       <Text fw={600}>Understanding check</Text>
       <Group gap="xs" align="center" wrap="wrap">
         <TextInput

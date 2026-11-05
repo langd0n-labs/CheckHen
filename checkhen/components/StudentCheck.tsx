@@ -27,21 +27,30 @@ export function StudentCheck({
   const [check, setCheck] = useState<OpenCheck | null>(null);
   const [busy, setBusy] = useState(false);
   const offset = useRef(0);
+  const requestSequence = useRef(0);
+  const [refreshFailed, setRefreshFailed] = useState(false);
   const [, setTick] = useState(0);
 
   const refresh = useCallback(async () => {
-    const response = await scopedFetch('/api/student/fetch-check').catch(() => null);
-    if (!response?.ok) {
-      return;
+    const sequence = ++requestSequence.current;
+    try {
+      const response = await scopedFetch('/api/student/fetch-check');
+      if (!response.ok) throw new Error('Refresh failed');
+      const data = await response.json();
+      if (sequence !== requestSequence.current) return;
+      offset.current = new Date(data.now).getTime() - Date.now();
+      setCheck(data.check);
+      setRefreshFailed(false);
+    } catch {
+      if (sequence === requestSequence.current) setRefreshFailed(true);
     }
-    const data = await response.json();
-    offset.current = new Date(data.now).getTime() - Date.now();
-    setCheck(data.check);
   }, []);
 
   // A slow poll backs up the socket, which can miss an event while reconnecting.
   useEffect(() => {
     if (!enabled) {
+      ++requestSequence.current;
+      setRefreshFailed(false);
       setCheck(null);
       return;
     }
@@ -66,7 +75,7 @@ export function StudentCheck({
   }, [left]);
 
   if (!check) {
-    return null;
+    return refreshFailed ? <Text role="status" size="sm" c="dimmed">Could not refresh. Retrying automatically.</Text> : null;
   }
 
   const answer = async (choice: string) => {
@@ -95,11 +104,12 @@ export function StudentCheck({
   return (
     <Card padding="md" withBorder role="region" aria-label="Understanding check">
       <Stack gap="xs">
+        {refreshFailed && <Text role="status" size="sm" c="dimmed">Could not refresh. Retrying automatically.</Text>}
         <Group justify="space-between" wrap="nowrap">
           <Text fw={600}>Did that land?</Text>
           {left !== null && (
             <Text fw={700} aria-live="off">
-              {clock(left)}
+              {clock(left)} left
             </Text>
           )}
         </Group>

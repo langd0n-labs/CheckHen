@@ -3,14 +3,12 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import {
   AlertTriangle,
-  CheckCircle,
   GraduationCap,
   Hand,
   HelpCircle,
   LayoutDashboard,
   LogOut,
   Send,
-  TrendingDown,
   User,
 } from 'lucide-react';
 import { signIn, signOut, useSession } from 'next-auth/react';
@@ -248,31 +246,6 @@ export default function HomePage() {
         ? { domains: result.exam.domains, failed: !!result.fail, excused: !!result.fail?.excused }
         : null
     );
-  };
-
-  // Send pace signal
-  const sendPaceSignal = async (signalType: 'slow_down' | 'ready_to_move_on') => {
-    const response = await fetch('/api/student/send-pace-signal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ signalType }),
-    });
-
-    if (!response.ok) {
-      notifications.show({ title: 'Error', message: 'Could not send pace signal', color: 'red' });
-      return;
-    }
-
-    ws.current?.emit('pace-signal-sent', {
-      classId: currentClassId,
-      signalType,
-    });
-    // Students never see the room's totals; confirm only that this one was sent.
-    notifications.show({
-      message: 'Sent to your instructor',
-      color: 'successGreen',
-      autoClose: 2000,
-    });
   };
 
   // Initial setup: one startup request instead of 5+ serial fetches
@@ -668,7 +641,7 @@ export default function HomePage() {
         style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}
       >
         {isPhone ? (
-          // Phones: compact hand and pace controls, plus a check while one is open.
+          // Phones: compact hand controls, plus a check while one is open.
           <Stack gap="xs" p="xs" style={{ borderBottom: `1px solid ${theme.colors.gray[3]}` }}>
             <Button
               size="md"
@@ -680,26 +653,6 @@ export default function HomePage() {
             >
               {handRaised ? 'Lower Hand' : 'Raise Hand'}
             </Button>
-            <Group grow gap="xs">
-              <Button
-                variant="light"
-                color="warning"
-                leftSection={<TrendingDown size={18} />}
-                onClick={() => sendPaceSignal('slow_down')}
-                disabled={!currentClassName}
-              >
-                Slow down
-              </Button>
-              <Button
-                variant="light"
-                color="successGreen"
-                leftSection={<CheckCircle size={18} />}
-                onClick={() => sendPaceSignal('ready_to_move_on')}
-                disabled={!currentClassName}
-              >
-                Got it
-              </Button>
-            </Group>
             <StudentCheck enabled={isCheckedIn && !!currentClassName} refreshSignal={checkSignal} />
           </Stack>
         ) : (
@@ -728,37 +681,6 @@ export default function HomePage() {
                   >
                     {handRaised ? 'Lower Hand' : 'Raise Hand'}
                   </Button>
-                </Stack>
-              </Card>
-
-              {/* Pace Signals */}
-              <Card padding="md">
-                <Stack gap="sm">
-                  <Title order={5}>Class Pace Feedback</Title>
-                  <Text size="sm" c="dimmed">
-                    Let your instructor know how you&apos;re doing. Only your instructor sees these.
-                  </Text>
-
-                  <Group grow>
-                    <Button
-                      variant="light"
-                      color="warning"
-                      leftSection={<TrendingDown size={18} />}
-                      onClick={() => sendPaceSignal('slow_down')}
-                      disabled={!currentClassName}
-                    >
-                      Slow Down
-                    </Button>
-                    <Button
-                      variant="light"
-                      color="successGreen"
-                      leftSection={<CheckCircle size={18} />}
-                      onClick={() => sendPaceSignal('ready_to_move_on')}
-                      disabled={!currentClassName}
-                    >
-                      Got it
-                    </Button>
-                  </Group>
                 </Stack>
               </Card>
 

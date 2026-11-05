@@ -10,7 +10,7 @@ import {
   type EventScope,
 } from './events';
 
-/** Operator decision 2026-10-09: a check closes itself after 3 minutes unless set otherwise. */
+/** A check closes itself after 3 minutes unless set otherwise. */
 export const DEFAULT_CHECK_MINUTES = 3;
 export const MAX_CHECK_MINUTES = 30;
 

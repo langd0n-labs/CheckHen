@@ -41,7 +41,7 @@ export async function simulateCheckAnswers(
         } catch {
           // The check closed or the student left: the answer is simply not given.
         }
-      }, delay);
+      }, delay).unref();
     }
   } catch {
     // A demo nicety; the check itself is already open.

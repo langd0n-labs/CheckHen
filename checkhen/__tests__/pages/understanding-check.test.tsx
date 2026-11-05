@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MantineProvider } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
 import { StudentCheck } from '@/components/StudentCheck';
@@ -56,7 +56,7 @@ describe('the student card', () => {
     view(<StudentCheck enabled />);
     expect(await screen.findByText('Did that land?')).toBeInTheDocument();
     expect(screen.getByText('Sampling')).toBeInTheDocument();
-    expect(screen.getByText(/^[23]:\d\d$/)).toBeInTheDocument();
+    expect(screen.getByText(/^[23]:\d\d left$/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Another example' }));
     await screen.findByText(/Sent to your instructor/);
     expect(posted).toEqual([
@@ -133,5 +133,53 @@ describe("the instructor's check", () => {
     view(<UnderstandingCheck />);
     expect(await screen.findByText('1 of 12 answered')).toBeInTheDocument();
     expect(screen.queryByText(/asked for another example/)).not.toBeInTheDocument();
+  });
+});
+
+
+describe.each(['student', 'instructor'])('%s refresh reliability', (audience) => {
+  const data = (label: string) => ({
+    now: new Date().toISOString(), threshold: 0.25,
+    check: {
+      checkId: 'k', label, choices: ['got_it', 'another_example'],
+      closesAt: null, answer: null, openedAt: now, closedAt: null,
+      open: true, present: 5, answered: 0, counts: {}, answers: [], number: 1,
+    },
+  });
+  const component = (signal: number) => audience === 'student'
+    ? <StudentCheck enabled refreshSignal={signal} />
+    : <UnderstandingCheck refreshSignal={signal} />;
+  const wrapped = (signal: number) => <MantineProvider theme={theme}>{component(signal)}</MantineProvider>;
+
+  it.each(['network', 'http', 'json'])('keeps data after a %s failure and clears the status after recovery', async (failure) => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => data('Current') });
+    const { rerender } = render(wrapped(0));
+    await screen.findByText(/Current/);
+    if (failure === 'network') (global.fetch as jest.Mock).mockRejectedValueOnce(new Error('offline'));
+    if (failure === 'http') (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: false });
+    if (failure === 'json') (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true, json: async () => { throw new Error('invalid JSON'); } });
+    rerender(wrapped(1));
+    expect(await screen.findByRole('status')).toHaveTextContent('Could not refresh');
+    expect(screen.getByText(/Current/)).toBeInTheDocument();
+    rerender(wrapped(2));
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+  });
+
+  it.each([false, true])('ignores an older response (failure: %s) after a newer refresh', async (fails) => {
+    let resolveOld!: (value: unknown) => void;
+    const oldJson = new Promise((resolve) => { resolveOld = resolve; });
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce({ ok: true, json: () => oldJson })
+      .mockResolvedValue({ ok: true, json: async () => data('Newest') });
+    const { rerender } = render(wrapped(0));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+    rerender(wrapped(1));
+    await screen.findByText(/Newest/);
+    await act(async () => {
+      resolveOld(fails ? Promise.reject(new Error('old failure')) : data('Old'));
+    });
+    expect(screen.getByText(/Newest/)).toBeInTheDocument();
+    expect(screen.queryByText(/Old/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 });

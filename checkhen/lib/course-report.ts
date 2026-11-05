@@ -1,4 +1,5 @@
 /** I4 course record: attendance, participation, grade, and exam events from the event log. */
+import { isInstructor } from './instructor';
 import { anotherExampleShare } from './checks';
 import { grades, type ColdCallConfig, type Meeting } from './cold-call';
 import { effectiveEvents, foldEvents } from './events';
@@ -98,7 +99,8 @@ export function courseReport(
   meetings: Meeting[],
   sessions: SessionMeta[],
   roster: RosterStudent[],
-  config: ColdCallConfig
+  config: ColdCallConfig,
+  staffIds: ReadonlySet<string> = new Set()
 ): CourseReport {
   const graded = new Map(
     grades(
@@ -120,6 +122,9 @@ export function courseReport(
 
   // The record covers students active on the roster; inactive students' events are left out.
   const active = new Set(roster.map((student) => student.userId));
+  const checkStudents = new Set(roster
+    .filter((student) => !isInstructor(student.email) && !staffIds.has(student.userId))
+    .map((student) => student.userId));
   meetings.forEach((meeting, index) => {
     const session = sessions[index];
     const effective = effectiveEvents(meeting.events, meeting).filter(
@@ -197,7 +202,7 @@ export function courseReport(
     }
     // Checks come from the fold, which applies their open and close rules.
     const sessionChecks = foldEvents(meeting.events, meeting).checks.map((check) => {
-      const answers = check.answers.filter((answer) => active.has(answer.userId));
+      const answers = check.answers.filter((answer) => checkStudents.has(answer.userId));
       const counted = { ...check, answers };
       for (const answer of answers) {
         checksAnswered.set(answer.userId, (checksAnswered.get(answer.userId) ?? 0) + 1);
@@ -210,7 +215,7 @@ export function courseReport(
         label: check.label,
         // Students in the room when it opened, plus any who answered after arriving.
         present: new Set([
-          ...check.present.filter((userId) => active.has(userId)),
+          ...check.present.filter((userId) => checkStudents.has(userId)),
           ...answers.map((answer) => answer.userId),
         ]).size,
         answered: answers.length,

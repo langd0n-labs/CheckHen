@@ -3,17 +3,13 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import {
-  AlertCircle,
   ArrowLeft,
-  CheckCircle,
   GraduationCap,
   Hand,
   Info,
   Plus,
-  RefreshCw,
   ThumbsDown,
   ThumbsUp,
-  TrendingDown,
   User,
   Users,
 } from 'lucide-react';
@@ -183,7 +179,6 @@ export default function AdminDashboard() {
     selectScope({ courseId, classId: liveClassId });
     window.location.reload();
   };
-  const [paceSignals, setPaceSignals] = useState({ slowDown: 0, readyToMove: 0 });
   // Bumped when the socket says the understanding check changed.
   const [checkSignal, setCheckSignal] = useState(0);
   // Phones stack the three panels and scroll the page; wider screens use columns.
@@ -482,49 +477,17 @@ export default function AdminDashboard() {
     );
   };
 
-  // Fetch pace signals
-  const fetchPaceSignals = async () => {
-    const response = await fetch('/api/student/fetch-pace-signals');
-    if (response.ok) {
-      const data = await response.json();
-      setPaceSignals({
-        slowDown: data.slowDown || 0,
-        readyToMove: data.readyToMove || 0,
-      });
-    }
-  };
-
-  // Reset pace signals
-  const resetPaceSignals = async () => {
-    const response = await fetch('/api/admin/reset-pace-signals', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    });
-
-    if (!response.ok) {
-      notifications.show({ title: 'Error', message: 'Could not reset pace signals', color: 'red' });
-      return;
-    }
-    setPaceSignals({ slowDown: 0, readyToMove: 0 });
-    ws.current?.emit('pace-signals-reset', { classId: currentClassId });
-  };
-
-  const shouldShowPaceAlert =
-    attendance.length > 0 && paceSignals.slowDown / attendance.length > 0.3;
-
   // Initial setup
   useEffect(() => {
     fetchUser();
     fetchCheckInsData();
     fetchHandRaiseData();
     fetchAllChatMessages();
-    fetchPaceSignals();
 
     const _interval = setInterval(() => {
       fetchCheckInsData();
       fetchHandRaiseData();
       fetchAllChatMessages();
-      fetchPaceSignals();
     }, 10000);
 
     return () => clearInterval(_interval);
@@ -548,7 +511,6 @@ export default function AdminDashboard() {
     const classId = currentClassId;
     ws.current = getSocket(classId);
 
-    ws.current?.on('pace-signal-update', fetchPaceSignals);
     ws.current?.on('user-hand-update', () => {
       fetchHandRaiseData();
     });
@@ -563,7 +525,6 @@ export default function AdminDashboard() {
     ws.current?.on('exam-status-update', fetchExam);
 
     return () => {
-      ws.current?.off('pace-signal-update');
       ws.current?.off('user-hand-update');
       ws.current?.off('fetch-messages');
       ws.current?.off('check-update', checkChanged);
@@ -702,51 +663,6 @@ export default function AdminDashboard() {
                     </Text>
                   </div>
                 </Group>
-
-                {/* Pace Signals */}
-                <Group gap="md">
-                  <Group gap="xs">
-                    <TrendingDown size={20} color={theme.colors.warning[5]} />
-                    <div>
-                      <Text size="xs" c="dimmed">
-                        Slow Down
-                      </Text>
-                      <Text size="lg" fw={700}>
-                        {paceSignals.slowDown}
-                      </Text>
-                    </div>
-                  </Group>
-
-                  <Group gap="xs">
-                    <CheckCircle size={20} color={theme.colors.successGreen[5]} />
-                    <div>
-                      <Text size="xs" c="dimmed">
-                        Got it
-                      </Text>
-                      <Text size="lg" fw={700}>
-                        {paceSignals.readyToMove}
-                      </Text>
-                    </div>
-                  </Group>
-
-                  <Button
-                    variant="light"
-                    size="xs"
-                    leftSection={<RefreshCw size={14} />}
-                    onClick={resetPaceSignals}
-                  >
-                    Reset
-                  </Button>
-                </Group>
-
-                {/* Alert if >30% want to slow down */}
-                {shouldShowPaceAlert && (
-                  <Alert icon={<AlertCircle size={16} />} color="warning" variant="light">
-                    <Text size="sm" fw={600}>
-                      Class pace concern
-                    </Text>
-                  </Alert>
-                )}
               </Group>
               <Divider />
               <UnderstandingCheck refreshSignal={checkSignal} />
