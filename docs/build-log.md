@@ -1321,8 +1321,10 @@ from `COMPOSE_PROFILES`, in the shell or in the environment file.
      and every other container has the same ID as in step 1.
    - `podman inspect checkhen-demo_app_1 checkhen-demo_socket_1 --format '{{.Image}}'`
      prints the image IDs from step 1, in the same order.
-   - `podman inspect checkhen-demo_app_1 checkhen-demo_socket_1 --format '{{.Name}} {{.State.Status}} {{.State.Health.Status}}'`
-     prints `running` for both and `healthy` for app. App health can take up to 150 seconds.
+   - `podman inspect checkhen-demo_app_1 checkhen-demo_socket_1 --format '{{.Name}} {{.State.Status}}'`
+     prints `running` for both.
+   - `podman inspect checkhen-demo_app_1 --format '{{.State.Health.Status}}'` prints
+     `healthy`. This can take up to 150 seconds.
    - `curl -sS -o /dev/null -w '%{http_code}\n' https://checkhen.langd0n.com/api/ping` and
      `curl -sS -o /dev/null -w '%{http_code}\n' 'https://checkhen.langd0n.com/socket.io/?EIO=4&transport=polling'`
      each print 200.
