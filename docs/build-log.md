@@ -1303,21 +1303,24 @@ The tunnel stays off until M1 and M2 are fixed and AICP confirms.
 
 Update app and socket after a rebuild. Do not pass `--profile`, and do not use the
 full-stack command with `--force-recreate`. With a profile active, podman-compose 1.6.0
-also recreates `hosted-proxy` and `tunnel`, even with `--no-deps`.
+also recreates `hosted-proxy` and `tunnel`, even with `--no-deps`. A profile can also come
+from `COMPOSE_PROFILES`, in the shell or in the environment file.
 
-1. Record the IDs of the containers that must not change:
-   `podman ps -a --filter name=^checkhen-demo_ --filter name=^checkhen-class_ --format '{{.Names}} {{.ID}}' | sort > /var/tmp/YYYY-MM-DD-checkhen-before.txt`
-2. Confirm that app and socket have no dependents. This must print 0 for each container:
-   `for c in checkhen-demo_hosted-proxy_1 checkhen-demo_tunnel_1 checkhen-demo_socket_1; do podman inspect "$c" --format '{{.Name}} {{len .Dependencies}}'; done`
+1. Record the IDs of the running containers and of the new images:
+   `podman ps -a --filter name=^checkhen-demo_ --filter name=^checkhen-class_ --format '{{.Names}} {{.ID}}' | sort > /var/tmp/$(date +%F)-checkhen-before.txt`
+   `podman image inspect localhost/checkhen-demo_app:latest localhost/checkhen-demo_socket:latest --format '{{.Id}}' > /var/tmp/$(date +%F)-checkhen-images.txt`
+2. Confirm that no other container depends on app or socket. This must print 0 for each
+   container:
+   `podman ps -a --filter name=^checkhen-demo_ --format '{{.Names}}' | grep -v -E '_(app|socket)_1$' | while read -r c; do podman inspect "$c" --format '{{.Name}} {{len .Dependencies}}'; done`
    If a value is not 0, stop. The next command would fail to replace the containers and
    still exit 0.
 3. Deploy:
-   `podman-compose -p checkhen-demo --env-file .env.hosted up -d --no-deps --no-build --force-recreate app socket`
+   `COMPOSE_PROFILES= podman-compose -p checkhen-demo --env-file .env.hosted up -d --no-deps --no-build --force-recreate app socket`
 4. Verify. Do not rely on the exit code.
-   - In a new listing, every container other than `checkhen-demo_app_1` and
-     `checkhen-demo_socket_1` has the same ID as in step 1.
-   - `podman inspect checkhen-demo_app_1 --format '{{.Image}}'` and the same for socket
-     print the IDs of the new images.
+   - In a new listing, `checkhen-demo_app_1` and `checkhen-demo_socket_1` have new IDs,
+     and every other container has the same ID as in step 1.
+   - `podman inspect checkhen-demo_app_1 checkhen-demo_socket_1 --format '{{.Image}}'`
+     prints the image IDs from step 1, in the same order.
    - If either check fails, stop and report it.
 
 Before opening the tunnel, confirm in `.env.hosted`:
