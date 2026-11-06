@@ -5,7 +5,6 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-image=localhost/checkhen-dev:latest
 [[ $# -gt 0 ]] || { sed -n '2,4p' "$0" >&2; exit 2; }
 
 want=$(sed -n 's/^FROM \(node:[^ ]*\).*/\1/p' "$root/checkhen/Dockerfile" | head -1)
@@ -13,13 +12,16 @@ grep -q "^FROM docker.io/library/$want\$" "$root/containers/dev.Containerfile" |
   echo "containers/dev.Containerfile must use the same image as checkhen/Dockerfile: $want" >&2
   exit 2
 }
-podman build -q -t "$image" -f "$root/containers/dev.Containerfile" "$root/containers" >/dev/null
+image=$(podman build -q -f "$root/containers/dev.Containerfile" "$root/containers")
 
 # node_modules stays in volumes, one set for each checkout. The host work tree stays clean.
 # label=disable: a :Z mount would relabel the checkout, and wt/ under it holds the deployed stacks.
 id=$(printf '%s' "$root" | sha256sum | cut -c1-12)
+# The main checkout holds the deployed stacks and their env files under wt/. Hide them.
+hide_worktrees=()
+[[ -d "$root/wt" ]] && hide_worktrees=(--tmpfs /src/wt)
 exec podman run --rm --network=host --security-opt label=disable \
-  -v "$root:/src" \
+  -v "$root:/src" "${hide_worktrees[@]}" \
   -v "checkhen-dev-cache:/cache" \
   -v "checkhen-app-modules-$id:/src/checkhen/node_modules" \
   -v "checkhen-socket-modules-$id:/src/socket-server/node_modules" \
