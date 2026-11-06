@@ -44,14 +44,14 @@ async function main() {
   });
   const a = await db.class.create({ data: { courseId: courseA.id, name: 'A', duration: 60 } });
   const b = await db.class.create({ data: { courseId: courseB.id, name: 'B', duration: 60 } });
-  const ticket = (courseId: string, classId: string) => {
+  const ticket = (courseId: string, classId: string, admin = false) => {
     const payload = Buffer.from(
       JSON.stringify({
         typ: 'socket',
         courseId,
         classId,
         userId: user.id,
-        admin: false,
+        admin,
         expires: Date.now() + 60000,
       })
     ).toString('base64url');
@@ -78,6 +78,15 @@ async function main() {
     projectionPayload +
     '.' +
     createHmac('sha256', projectionKey).update(projectionPayload).digest('base64url');
+  const instructor = io(url, {
+    transports: ['websocket'],
+    auth: { ticket: ticket(courseA.id, a.id, true) },
+  });
+  const late = io(url, {
+    autoConnect: false,
+    transports: ['websocket'],
+    auth: { ticket: ticket(courseA.id, a.id) },
+  });
   const projection = io(url, { transports: ['websocket'], auth: { ticket: projectionTicket } });
   const connected = (socket: ReturnType<typeof io>) =>
     new Promise<void>((resolve, reject) => {
@@ -90,6 +99,7 @@ async function main() {
       connected(second),
       connected(twin),
       connected(projection),
+      connected(instructor),
     ]);
     first.emit('exam-heartbeat', { userId: 'forged', courseId: courseB.id, classId: b.id });
     projection.emit('exam-heartbeat');
@@ -145,6 +155,53 @@ async function main() {
     assert.equal(bEvents, 0);
     assert.equal(projectionEvents, 0);
     assert.equal(resetEvents, 0);
+    const jumps: Record<string, unknown[]> = {
+      student: [],
+      twin: [],
+      dashboard: [],
+      projection: [],
+      other: [],
+      late: [],
+    };
+    for (const [name, client] of Object.entries({
+      student: first,
+      twin,
+      dashboard: instructor,
+      projection,
+      other: second,
+      late,
+    })) {
+      client.on('chat-jump', (event) => jumps[name].push(event));
+    }
+    first.emit('chat-jump', { messageId: 'target', admin: true });
+    projection.emit('chat-jump', { messageId: 'target' });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.deepEqual(Object.values(jumps).flat(), []);
+    const eventCount = await db.participationEvent.count({
+      where: { courseId: courseA.id, classId: a.id },
+    });
+    instructor.emit('chat-jump', {
+      classId: b.id,
+      courseId: courseB.id,
+      userId: 'forged',
+      messageId: 'target',
+    });
+    for (let retry = 0; retry < 30 && jumps.student.length === 0; retry += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    for (const name of ['student', 'twin', 'dashboard', 'projection']) {
+      assert.deepEqual(jumps[name], [{ classId: a.id, messageId: 'target' }]);
+    }
+    assert.deepEqual(jumps.other, []);
+    const lateConnected = connected(late);
+    late.connect();
+    await lateConnected;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.deepEqual(jumps.late, []);
+    assert.equal(
+      await db.participationEvent.count({ where: { courseId: courseA.id, classId: a.id } }),
+      eventCount
+    );
     const message = await db.participationEvent.create({
       data: {
         courseId: courseA.id,
@@ -224,6 +281,8 @@ async function main() {
       'PASS: persisted socket events, signed scoped exam heartbeat, anonymous projection hide latency, forged relay rejection, roster isolation, and per-purpose ticket keys'
     );
   } finally {
+    instructor.disconnect();
+    late.disconnect();
     first.disconnect();
     second.disconnect();
     twin.disconnect();

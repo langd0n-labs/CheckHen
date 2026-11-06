@@ -1,12 +1,26 @@
-import { Component, createRef, ReactNode } from 'react';
+import { Component, createRef, ReactNode, RefObject } from 'react';
 import classes from './DashboardChat.module.css';
 
 // Take the reading-position snapshot before React prepends message elements.
-export default class DashboardChat extends Component<{ children: ReactNode; narrow: boolean }> {
+export default class DashboardChat extends Component<{
+  children: ReactNode;
+  narrow: boolean;
+  viewportRef?: RefObject<HTMLDivElement | null>;
+}> {
   viewport = createRef<HTMLDivElement>();
+
+  componentDidMount() {
+    if (this.props.viewportRef) {
+      this.props.viewportRef.current = this.viewport.current;
+    }
+  }
 
   getSnapshotBeforeUpdate() {
     const viewport = this.viewport.current!;
+    const highlighted = viewport.querySelector<HTMLElement>('[data-chat-highlight="true"]');
+    if (highlighted) {
+      return { node: highlighted, top: highlighted.getBoundingClientRect().top };
+    }
     if (viewport.scrollTop <= 1) {
       return null;
     }
