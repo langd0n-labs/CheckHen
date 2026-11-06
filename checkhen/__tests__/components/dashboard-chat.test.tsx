@@ -92,3 +92,28 @@ it('resets the viewport when the course/session scope changes', () => {
   view.rerender(<Chat scope="two" messages={[older]} />);
   expect(screen.getByRole('region').scrollTop).toBe(0);
 });
+
+it('keeps a highlighted message at its visible offset when arrivals push it away from the top', () => {
+  mockLayout();
+  const view = render(
+    <DashboardChat narrow={false}>
+      <div key="target" data-message-id="target" data-chat-highlight="true">
+        Target
+      </div>
+    </DashboardChat>
+  );
+  const target = screen.getByText('Target');
+  expect(target.getBoundingClientRect().top).toBe(0);
+  view.rerender(
+    <DashboardChat narrow={false}>
+      <div key="new" data-message-id="new">
+        Arrival
+      </div>
+      <div key="target" data-message-id="target" data-chat-highlight="true">
+        Target
+      </div>
+    </DashboardChat>
+  );
+  expect(target.getBoundingClientRect().top).toBe(0);
+  expect(screen.getByRole('region').scrollTop).toBe(100);
+});

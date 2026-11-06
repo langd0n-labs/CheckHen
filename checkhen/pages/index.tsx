@@ -33,10 +33,12 @@ import {
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
+import jumpClasses from '@/components/ChatJump.module.css';
 import { StudentCheck } from '@/components/StudentCheck';
 import { takesACourse } from '@/lib/course-roles';
 import { scopedFetch as fetch, selectedScope, selectScope } from '@/lib/scoped-fetch';
 import { getSocket } from '@/lib/socket';
+import { useChatJump } from '@/lib/use-chat-jump';
 
 type UserInfo = {
   id: string;
@@ -65,6 +67,8 @@ export default function HomePage() {
   const [user, setUser] = useState<UserInfo>();
   const [handRaised, setHandRaised] = useState(false);
   const [currentClassId, setCurrentClassId] = useState<string | null>(null);
+  const chatViewport = useRef<HTMLDivElement>(null);
+  const { highlightedId, active: jumpActive, jump } = useChatJump(currentClassId, chatViewport);
   const [currentClassName, setCurrentClassName] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isCheckedIn, setIsCheckedIn] = useState(false);
@@ -96,8 +100,10 @@ export default function HomePage() {
   };
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    if (!jumpActive.current) {
+      scrollToBottom();
+    }
+  }, [messages, jumpActive]);
 
   // Send an instructor to the dashboard, unless they also take a course here; then the
   // header links to the courses they instruct.
@@ -345,6 +351,7 @@ export default function HomePage() {
       fetchHandRaiseStatus();
     });
 
+    ws.current?.on('chat-jump', jump);
     ws.current?.on('fetch-messages', () => {
       fetchAllChatMessages();
     });
@@ -363,10 +370,11 @@ export default function HomePage() {
       ws.current?.off('connect', heartbeat);
       ws.current?.off('check-raised-hands');
       ws.current?.off('fetch-messages');
+      ws.current?.off('chat-jump', jump);
       ws.current?.off('exam-status-update', fetchExamState);
       ws.current?.off('check-update', checkChanged);
     };
-  }, [user, currentClassId]);
+  }, [user, currentClassId, jump]);
 
   // Sign out after marking the student as not present
   const handleSignOut = async () => {
@@ -714,7 +722,7 @@ export default function HomePage() {
           </Paper>
 
           {/* Messages */}
-          <ScrollArea style={{ flex: 1 }} p="md">
+          <ScrollArea viewportRef={chatViewport} style={{ flex: 1 }} p="md">
             <Stack gap="sm">
               {messages.length === 0 ? (
                 <Text size="sm" c="dimmed" ta="center" mt="xl">
@@ -726,6 +734,8 @@ export default function HomePage() {
                   return (
                     <Paper
                       key={msg.id}
+                      data-message-id={msg.id}
+                      className={highlightedId === msg.id ? jumpClasses.highlight : undefined}
                       p="sm"
                       radius="md"
                       bg={isOwnMessage ? theme.colors.buBlue[0] : theme.colors.gray[0]}

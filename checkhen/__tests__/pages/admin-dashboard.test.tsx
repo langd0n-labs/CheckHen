@@ -244,8 +244,10 @@ it('counts two open fails as failed, not excused', async () => {
 });
 
 it('keeps dashboard moderation and author profiles usable through newest-first chat refreshes', async () => {
-  const handlers: Record<string, () => void> = {};
+  const handlers: Record<string, (...args: any[]) => void> = {};
+  const emit = jest.fn();
   (getSocket as jest.Mock).mockReturnValue({
+    emit,
     on: jest.fn((event, handler) => {
       handlers[event] = handler;
     }),
@@ -270,12 +272,16 @@ it('keeps dashboard moderation and author profiles usable through newest-first c
   });
   let messages = [makeMessage('old', 12), makeMessage('new', 14), makeMessage('middle', 13)];
   const posts: { url: string; body: unknown }[] = [];
+  let sendFails = true;
   global.fetch = jest.fn(async (input, init?: RequestInit) => {
     const url = String(input).split('?')[0];
     let data: unknown = { message: '[]' };
     if (init?.method === 'POST') {
       const body = JSON.parse(String(init.body));
       posts.push({ url, body });
+      if (url === '/api/admin/send-chat' && sendFails) {
+        return { ok: false, json: async () => ({ message: 'Try again' }) } as Response;
+      }
       if (url === '/api/admin/hide-chat' || url === '/api/admin/unhide-chat') {
         messages = messages.map((msg) =>
           msg.id === body.messageId ? { ...msg, hidden: url === '/api/admin/hide-chat' } : msg
@@ -325,9 +331,20 @@ it('keeps dashboard moderation and author profiles usable through newest-first c
     expect.objectContaining({ email: 'new@example.edu' }),
     undefined
   );
+  fireEvent.click(newest.getByRole('button', { name: 'Show message: Message new' }));
+  expect(emit).toHaveBeenCalledWith('chat-jump', { classId: 'session-chat', messageId: 'new' });
+  const scroll = jest.spyOn(HTMLElement.prototype, 'scrollIntoView');
+  act(() => handlers['chat-jump']({ classId: 'session-chat', messageId: 'old' }));
+  expect(scroll.mock.instances[0]).toBe(region.querySelector('[data-message-id="old"]'));
+  expect(region.querySelector('[data-message-id="old"]')).toHaveAttribute(
+    'data-chat-highlight',
+    'true'
+  );
+  scroll.mockRestore();
   fireEvent.click(newest.getByRole('button', { name: 'Hide' }));
   await newest.findByRole('button', { name: 'Unhide' });
   expect(newest.getByText('Hidden')).toBeInTheDocument();
+  expect(newest.queryByRole('button', { name: /Show message/ })).not.toBeInTheDocument();
   fireEvent.click(newest.getByRole('button', { name: 'Unhide' }));
   await newest.findByRole('button', { name: 'Hide' });
   fireEvent.click(newest.getByRole('button', { name: 'Mute student' }));
@@ -338,16 +355,48 @@ it('keeps dashboard moderation and author profiles usable through newest-first c
       { url: '/api/admin/mute-student', body: { userId: 'user-new' } },
     ])
   );
-  const input = screen.getByRole('textbox', { name: 'Message as Instructor' });
+  const messageButton = screen.getByRole('button', { name: 'Message class' });
+  expect(screen.queryByRole('textbox', { name: 'Message as Instructor' })).not.toBeInTheDocument();
+  fireEvent.click(messageButton);
+  let input = await screen.findByRole('textbox', { name: 'Message as Instructor' });
+  await waitFor(() => expect(input).toHaveFocus());
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  expect(messageButton).toHaveFocus();
+  fireEvent.click(messageButton);
+  input = await screen.findByRole('textbox', { name: 'Message as Instructor' });
+  await waitFor(() => expect(input).toHaveFocus());
+  fireEvent.keyDown(input, { key: 'Escape' });
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  expect(messageButton).toHaveFocus();
+  fireEvent.click(messageButton);
+  input = await screen.findByRole('textbox', { name: 'Message as Instructor' });
   fireEvent.change(input, { target: { value: 'Hello class' } });
   fireEvent.click(screen.getByRole('button', { name: 'Send' }));
-  await waitFor(() => expect(input).toHaveValue(''));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).not.toBeDisabled());
+  expect(input).toHaveValue('Hello class');
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
+  sendFails = false;
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   expect(posts).toContainEqual({ url: '/api/admin/send-chat', body: { message: 'Hello class' } });
-  await waitFor(() => expect(input).toHaveFocus());
-  messages = [{ ...makeMessage('teacher', 15), userId: null, fromInstructor: true, anonymousName: 'Instructor' } as typeof messages[number]];
-  await act(async () => { handlers['fetch-messages'](); });
+  await waitFor(() => expect(messageButton).toHaveFocus());
+  fireEvent.click(messageButton);
+  expect(await screen.findByRole('textbox', { name: 'Message as Instructor' })).toHaveValue('');
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  messages = [
+    {
+      ...makeMessage('teacher', 15),
+      userId: null,
+      fromInstructor: true,
+      anonymousName: 'Instructor',
+    } as (typeof messages)[number],
+  ];
+  await act(async () => {
+    handlers['fetch-messages']();
+  });
   const teacher = within(region.querySelector('[data-message-id="teacher"]') as HTMLElement);
   expect(teacher.queryByRole('button', { name: 'Mute student' })).not.toBeInTheDocument();
   expect(teacher.getByRole('button', { name: 'Hide' })).toBeInTheDocument();
   view.unmount();
-});
+}, 15000);

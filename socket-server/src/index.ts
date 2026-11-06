@@ -3,6 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import cron from "node-cron";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { purposeKey } from "./keys";
+import { registerChatJump } from "./chat-jump";
 
 const prisma = new PrismaClient(); // Initialize Prisma client for database operations
 
@@ -118,6 +119,7 @@ io.on("connection", socket => {
   socket.on("disconnect", () => { ticketed -= 1; });
   const room = roomKey(socket.data.courseId, socket.data.classId);
   socket.join(room);
+  registerChatJump(socket, (event, payload) => io.to(room).emit(event, payload));
   if (!socket.data.admin && socket.data.userId) {
     socket.on("exam-heartbeat", async () => {
       const url = process.env.PORTAL_AGENT_URL;

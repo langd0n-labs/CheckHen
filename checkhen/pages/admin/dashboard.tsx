@@ -26,6 +26,7 @@ import {
   Flex,
   Group,
   Loader,
+  Modal,
   Paper,
   ScrollArea,
   Stack,
@@ -41,10 +42,12 @@ import DashboardChat, { newestFirst } from '@/components/Admin/DashboardChat';
 import chatClasses from '@/components/Admin/DashboardChat.module.css';
 import ClassSessionManager from '@/components/Admin/ClassSessionManager/ClassSessionManager';
 import { StudentProfileModal } from '@/components/Admin/StudentProfileModal';
+import jumpClasses from '@/components/ChatJump.module.css';
 import { UnderstandingCheck } from '@/components/UnderstandingCheck';
 import { EXAM_UNAVAILABLE } from '@/lib/mode';
 import { scopedFetch as fetch, selectScope } from '@/lib/scoped-fetch';
 import { getSocket } from '@/lib/socket';
+import { useChatJump } from '@/lib/use-chat-jump';
 import { useCheckhenMode, useDemoMode } from '@/lib/use-mode';
 
 type UserInfo = {
@@ -126,6 +129,14 @@ export default function AdminDashboard() {
   const [dashboardReady, setDashboardReady] = useState(false);
   const [handRaises, setHandRaises] = useState<HandRaise[]>([]);
   const [chatDraft, setChatDraft] = useState('');
+  const [messageBoxOpen, setMessageBoxOpen] = useState(false);
+  const chatButtonRef = useRef<HTMLButtonElement>(null);
+  const chatViewport = useRef<HTMLDivElement>(null);
+  const { highlightedId, jump } = useChatJump(currentClassId, chatViewport);
+  const closeMessageBox = () => {
+    setMessageBoxOpen(false);
+    chatButtonRef.current?.focus();
+  };
   const chatInputRef = useRef<HTMLInputElement>(null);
   const [sendingChat, setSendingChat] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -388,13 +399,13 @@ export default function AdminDashboard() {
         throw new Error(typeof data?.message === 'string' && data.message ? data.message : 'Could not send message');
       }
       setChatDraft('');
+      closeMessageBox();
       // The message is sent. A failed reload must not look like a failed send.
       void fetchAllChatMessages().catch(() => undefined);
     } catch (error) {
       notifications.show({ title: 'Error', message: error instanceof Error ? error.message : 'Could not send message', color: 'red' });
     } finally {
       setSendingChat(false);
-      chatInputRef.current?.focus();
     }
   };
 
@@ -542,6 +553,7 @@ export default function AdminDashboard() {
       fetchHandRaiseData();
     });
 
+    ws.current?.on('chat-jump', jump);
     ws.current?.on('fetch-messages', () => {
       fetchAllChatMessages();
     });
@@ -554,21 +566,20 @@ export default function AdminDashboard() {
     return () => {
       ws.current?.off('user-hand-update');
       ws.current?.off('fetch-messages');
+      ws.current?.off('chat-jump', jump);
       ws.current?.off('check-update', checkChanged);
       ws.current?.off('check-answer', checkChanged);
       ws.current?.off('exam-status-update', fetchExam);
       ws.current?.disconnect();
     };
-  }, [user, currentClassId]);
+  }, [user, currentClassId, jump]);
 
   return (
     <Box
       style={{
         height: narrow ? undefined : '100vh',
         minHeight: '100vh',
-        // When the session panel grows (an open check, an exam), the page scrolls
-        // instead of squeezing the three columns below it.
-        overflowY: narrow ? undefined : 'auto',
+        overflowY: narrow ? undefined : 'hidden',
         display: 'flex',
         flexDirection: 'column',
       }}
@@ -659,6 +670,9 @@ export default function AdminDashboard() {
         style={{
           borderRadius: 0,
           borderLeft: currentClassColor ? `4px solid ${currentClassColor}` : undefined,
+          maxHeight: narrow ? undefined : '40vh',
+          flexShrink: 0,
+          overflowY: 'auto',
         }}
       >
         <Stack gap="md">
@@ -883,7 +897,8 @@ export default function AdminDashboard() {
         /* 3 Column Layout - active class */
         <Flex
           style={{
-            flex: narrow ? 1 : '1 0 480px',
+            flex: 1,
+            minHeight: 0,
             overflow: narrow ? 'visible' : 'hidden',
           }}
           direction={narrow ? 'column' : 'row'}
@@ -932,7 +947,7 @@ export default function AdminDashboard() {
                           {raise.email}
                         </Text>
 
-                        <Group gap="xs" mt="xs">
+                        <Group gap="xs" mt="xs" wrap="wrap">
                           {!raise.isAcknowledged ? (
                             <Button
                               size="xs"
@@ -997,10 +1012,18 @@ export default function AdminDashboard() {
 
           {/* Center Column - De-anonymized Chat */}
           <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <Paper p="md" shadow="xs" withBorder style={{ borderRadius: 0 }}>
+            <Paper p="md" shadow="xs" withBorder style={{ borderRadius: 0, flexShrink: 0 }}>
               <Group justify="space-between">
                 <Title order={4}>Class Discussion</Title>
                 <Group gap="xs">
+                  <Button
+                    ref={chatButtonRef}
+                    size="xs"
+                    onClick={() => setMessageBoxOpen(true)}
+                    disabled={!currentClassId}
+                  >
+                    Message class
+                  </Button>
                   <Button
                     size="xs"
                     variant="light"
@@ -1036,7 +1059,7 @@ export default function AdminDashboard() {
               </Text>
             </Paper>
 
-            <DashboardChat key={currentClassId} narrow={narrow}>
+            <DashboardChat key={currentClassId} narrow={narrow} viewportRef={chatViewport}>
               <Stack gap="sm">
                 {messages.length === 0 ? (
                   <Text size="sm" c="dimmed" ta="center" mt="xl">
@@ -1046,6 +1069,9 @@ export default function AdminDashboard() {
                   newestFirst(messages).map((msg) => (
                     <Paper
                       data-message-id={msg.id}
+                      data-hidden={msg.hidden}
+                      data-chat-highlight={highlightedId === msg.id}
+                      className={highlightedId === msg.id ? jumpClasses.highlight : undefined}
                       key={msg.id}
                       p="sm"
                       radius="md"
@@ -1089,7 +1115,22 @@ export default function AdminDashboard() {
                         )}
                       </Group>
                       <Text className={chatClasses.message}>{msg.message}</Text>
-                      <Group gap="xs" mt="xs">
+                      <Group gap="xs" mt="xs" wrap="wrap">
+                        {!msg.hidden && (
+                          <Button
+                            size="xs"
+                            variant="light"
+                            aria-label={`Show message: ${msg.message}`}
+                            onClick={() =>
+                              ws.current?.emit('chat-jump', {
+                                classId: currentClassId,
+                                messageId: msg.id,
+                              })
+                            }
+                          >
+                            Show
+                          </Button>
+                        )}
                         {msg.hidden ? (
                           <Button
                             size="xs"
@@ -1123,17 +1164,45 @@ export default function AdminDashboard() {
                 )}
               </Stack>
             </DashboardChat>
-            <form onSubmit={(event) => { event.preventDefault(); void sendInstructorChat(); }}>
-              <Group mt="sm" align="end" wrap="nowrap">
-                <TextInput ref={chatInputRef} label="Message as Instructor" value={chatDraft}
-                  onChange={(event) => setChatDraft(event.currentTarget.value)} maxLength={1000}
-                  disabled={!currentClassId} readOnly={sendingChat}
-                  placeholder={currentClassId ? undefined : 'No active class'}
-                  style={{ flex: 1, minWidth: 0 }} />
-                <Button type="submit" loading={sendingChat}
-                  disabled={!currentClassId || !chatDraft.trim()}>Send</Button>
-              </Group>
-            </form>
+            <Modal
+              opened={messageBoxOpen}
+              onClose={closeMessageBox}
+              title="Message class"
+              onEnterTransitionEnd={() => chatInputRef.current?.focus()}
+              onExitTransitionEnd={() => chatButtonRef.current?.focus()}
+            >
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void sendInstructorChat();
+                }}
+              >
+                <Stack>
+                  <TextInput
+                    ref={chatInputRef}
+                    data-autofocus
+                    label="Message as Instructor"
+                    value={chatDraft}
+                    onChange={(event) => setChatDraft(event.currentTarget.value)}
+                    maxLength={1000}
+                    disabled={!currentClassId}
+                    readOnly={sendingChat}
+                  />
+                  <Group justify="end">
+                    <Button variant="default" onClick={closeMessageBox}>
+                      Cancel
+                    </Button>
+                    <Button
+                      type="submit"
+                      loading={sendingChat}
+                      disabled={!currentClassId || !chatDraft.trim()}
+                    >
+                      Send
+                    </Button>
+                  </Group>
+                </Stack>
+              </form>
+            </Modal>
           </Box>
 
           {/* Right drag handle */}
