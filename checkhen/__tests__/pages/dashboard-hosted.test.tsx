@@ -31,6 +31,34 @@ it('explains that exam mode is unavailable in hosted mode', async () => {
           duration: 60,
         }),
       };
+    } else if (url === '/api/admin/fetch-check-ins') {
+      data = {
+        message: JSON.stringify([
+          {
+            id: 'present',
+            anonymousName: 'Hidden Hen',
+            joinTime: new Date().toISOString(),
+            user: {
+              email: 'student@example.edu',
+              name: 'Student Name',
+              displayName: 'Nickname',
+              profilePicture: null,
+            },
+          },
+        ]),
+      };
+    } else if (url === '/api/admin/fetch-hand-raise') {
+      data = {
+        message: JSON.stringify([
+          {
+            id: 'hand',
+            email: 'student@example.edu',
+            name: 'Student Name',
+            nickname: 'Nickname',
+            profilePicture: null,
+          },
+        ]),
+      };
     } else if (url === '/api/admin/class-templates') {
       data = [];
     } else if (url.includes('pace')) {
@@ -45,6 +73,10 @@ it('explains that exam mode is unavailable in hosted mode', async () => {
   );
   expect(await screen.findByText(/not available in hosted mode/)).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Start exam' })).not.toBeInTheDocument();
+  await screen.findAllByText(/Student Name/);
+  expect(screen.queryByText('Hidden Hen')).not.toBeInTheDocument();
+  expect(screen.queryByText('student@example.edu')).not.toBeInTheDocument();
+  expect(screen.getAllByText(/Nickname/).length).toBeGreaterThan(0);
   // Roll call has its own button beside Cold call, and opens straight into roll call.
   fireEvent.click(screen.getByRole('button', { name: 'Roll call' }));
   expect(push).toHaveBeenCalledWith('/admin/call?roll-call');

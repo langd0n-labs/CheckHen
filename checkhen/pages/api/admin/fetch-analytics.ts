@@ -9,6 +9,7 @@ type StudentSummary = {
   email: string;
   name: string;
   displayName: string | null;
+  profilePicture: string | null;
   anonymousName: string | null;
   checkInTime: string;
   checkOutTime: string | null;
@@ -33,6 +34,7 @@ type PaceTimelineBucket = {
 type LeaveEvent = {
   name: string;
   displayName: string | null;
+  profilePicture: string | null;
   anonymousName: string | null;
   checkInTime: string;
   checkOutTime: string | null;
@@ -202,16 +204,20 @@ export default async function handler(
     }
 
     // Aggregate per student across all sessions
-    const studentMap: Record<string, {
-      email: string;
-      name: string;
-      displayName: string | null;
-      anonymousName: string | null;
-      firstCheckIn: string;
-      lastCheckOut: string | null;
-      totalMinutes: number | null;
-      hasIncompleteCheckout: boolean;
-    }> = {};
+    const studentMap: Record<
+      string,
+      {
+        email: string;
+        name: string;
+        displayName: string | null;
+        profilePicture: string | null;
+        anonymousName: string | null;
+        firstCheckIn: string;
+        lastCheckOut: string | null;
+        totalMinutes: number | null;
+        hasIncompleteCheckout: boolean;
+      }
+    > = {};
 
     for (const ci of checkIns) {
       const uid = ci.userId;
@@ -224,6 +230,7 @@ export default async function handler(
           email: ci.user.email,
           name: primaryName(ci.user),
           displayName: ci.user.displayName ?? null,
+          profilePicture: ci.user.profilePicture ?? null,
           anonymousName: ci.anonymousName,
           firstCheckIn: ci.createdAt.toISOString(),
           lastCheckOut: ci.checkOutTime?.toISOString() ?? null,
@@ -272,6 +279,7 @@ export default async function handler(
         email: s.email,
         name: s.name,
         displayName: s.displayName,
+        profilePicture: s.profilePicture,
         anonymousName: s.anonymousName,
         checkInTime: s.firstCheckIn,
         checkOutTime: s.lastCheckOut,
@@ -358,6 +366,7 @@ export default async function handler(
       email: checkIn.user.email,
       name: primaryName(checkIn.user),
       displayName: checkIn.user.displayName ?? null,
+      profilePicture: checkIn.user.profilePicture ?? null,
       anonymousName: checkIn.anonymousName,
       checkInTime: checkIn.createdAt.toISOString(),
       checkOutTime: checkIn.checkOutTime?.toISOString() ?? null,
@@ -396,6 +405,7 @@ export default async function handler(
     return {
       name: primaryName(ci.user),
       displayName: ci.user.displayName ?? null,
+      profilePicture: ci.user.profilePicture ?? null,
       anonymousName: ci.anonymousName,
       checkInTime: ci.createdAt.toISOString(),
       checkOutTime: ci.checkOutTime?.toISOString() ?? null,

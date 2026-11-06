@@ -53,6 +53,7 @@ type UserInfo = {
 };
 
 type HandRaise = {
+  profilePicture: string | null;
   nickname?: string | null;
   id: string;
   name: string;
@@ -321,6 +322,8 @@ export default function AdminDashboard() {
     const transformedData = jsonData.map((item: any) => ({
       id: item.id || item.email,
       name: item.name,
+      nickname: item.nickname,
+      profilePicture: item.profilePicture,
       email: item.email,
       raisedAt: new Date().toISOString(), // You may want to add this field to the API response
       isAcknowledged: item.isAck || false,
@@ -916,21 +919,21 @@ export default function AdminDashboard() {
                     <Card key={raise.id} padding="sm">
                       <Stack gap="xs">
                         <Group justify="space-between">
-                          <Text
-                            size="sm"
-                            fw={600}
-                            style={{ cursor: 'pointer', textDecoration: 'underline' }}
-                            onClick={() => setProfileEmail(raise.email)}
-                          >
-                            {raise.name}{raise.nickname && <Text span c="dimmed"> ({raise.nickname})</Text>}
-                          </Text>
+                          <Group gap="xs" wrap="nowrap" style={{ minWidth: 0 }}>
+                            <Avatar src={raise.profilePicture} size={36} radius="50%" />
+                            <Text
+                              size="sm"
+                              fw={600}
+                              style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                              onClick={() => setProfileEmail(raise.email)}
+                            >
+                              {raise.name}{raise.nickname && <Text span c="dimmed"> ({raise.nickname})</Text>}
+                            </Text>
+                          </Group>
                           <Text size="xs" c="dimmed">
                             {new Date(raise.raisedAt).toLocaleTimeString()}
                           </Text>
                         </Group>
-                        <Text size="xs" c="dimmed">
-                          {raise.email}
-                        </Text>
 
                         <Group gap="xs" mt="xs">
                           {!raise.isAcknowledged ? (
@@ -1213,9 +1216,6 @@ export default function AdminDashboard() {
                             {instructorLabel(record.user)}
                           </Text>
                           <Group justify="space-between" mt={2}>
-                            <Badge size="xs" variant="light">
-                              {record.anonymousName || 'No name'}
-                            </Badge>
                             <Text size="xs" c="dimmed">
                               {new Date(record.joinTime).toLocaleTimeString()}
                             </Text>

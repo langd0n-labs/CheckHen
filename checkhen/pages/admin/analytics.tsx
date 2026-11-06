@@ -24,6 +24,7 @@ type StudentSummary = {
   name?: string | null;
   displayName: string | null;
   email: string;
+  profilePicture: string | null;
   anonymousName: string | null;
   checkInTime: string;
   checkOutTime: string | null;
@@ -48,6 +49,7 @@ type PaceTimelineBucket = {
 type LeaveEvent = {
   name?: string | null;
   displayName: string | null;
+  profilePicture: string | null;
   anonymousName: string | null;
   checkInTime: string;
   checkOutTime: string | null;

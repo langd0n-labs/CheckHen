@@ -15,6 +15,7 @@ const payload = {
       {
         userId: 'ada',
         name: 'Ada',
+        profilePicture: 'https://example.com/ada.jpg',
         email: 'ada@example.edu',
         sessionsAttended: 3,
         sessionsHeld: 4,
@@ -114,7 +115,7 @@ const view = () =>
 it('shows the provisional target and each grade component per student', async () => {
   view();
   expect(await screen.findByText(/Target: A = 3 answers this term/)).toBeInTheDocument();
-  const row = screen.getByText('ada@example.edu').closest('tr')!;
+  const row = screen.getAllByText('Ada')[0].closest('tr')!;
   expect(within(row).getByText('3 of 4')).toBeInTheDocument();
   expect(within(row).getByText('1 (+1 excused)')).toBeInTheDocument();
   // Three volunteer answers, of which the cap of two count.
@@ -269,4 +270,11 @@ it('leads with the understanding trend and lists each check', async () => {
   const row = (await screen.findByText('Sampling')).closest('tr')!;
   expect(within(row).getByText('24 of 30')).toBeInTheDocument();
   expect(within(row).getByText('Needed another example')).toBeInTheDocument();
+});
+
+it('shows a student photo and name without the email', async () => {
+  view();
+  await screen.findByRole('table');
+  expect(document.querySelector('img[src="https://example.com/ada.jpg"]')).toBeInTheDocument();
+  expect(screen.queryByText('ada@example.edu')).not.toBeInTheDocument();
 });

@@ -1,5 +1,5 @@
 import { instructorLabel } from '@/lib/name-label';
-import { Box, Card, Group, Slider, Stack, Table, Text, Title, Tooltip, UnstyledButton } from '@mantine/core';
+import { Avatar, Box, Card, Group, Slider, Stack, Table, Text, Title, Tooltip, UnstyledButton } from '@mantine/core';
 import { useMantineTheme } from '@mantine/core';
 import { useState } from 'react';
 import { Info, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
@@ -9,6 +9,7 @@ type StudentSummary = {
   email: string;
   name?: string | null;
   displayName: string | null;
+  profilePicture: string | null;
   anonymousName: string | null;
   checkInTime: string;
   checkOutTime: string | null;
@@ -143,9 +144,9 @@ export function StudentDetailView({ data, accentColor, attendanceWeight, handRai
         <Table striped highlightOnHover withTableBorder withColumnBorders>
           <Table.Thead>
             <Table.Tr>
-              <Table.Th><SortHeader col="name" label="Preferred Name" /></Table.Th>
-              {!data.allTime && <Table.Th>Anonymous Name</Table.Th>}
-              <Table.Th>Email</Table.Th>
+              <Table.Th>
+                <SortHeader col="name" label="Preferred Name" />
+              </Table.Th>
               {!data.allTime && <Table.Th>Check-In</Table.Th>}
               {!data.allTime && <Table.Th>Check-Out</Table.Th>}
               <Table.Th>
@@ -224,16 +225,17 @@ export function StudentDetailView({ data, accentColor, attendanceWeight, handRai
                     style={isShortSession ? { backgroundColor: theme.colors.buBlue[0] } : undefined}
                   >
                     <Table.Td>
-                      <Text
-                        size="sm"
-                        style={{ cursor: 'pointer', textDecoration: 'underline' }}
-                        onClick={() => setProfileEmail(s.email)}
-                      >
-                        {instructorLabel(s)}
-                      </Text>
+                      <Group gap="sm" wrap="nowrap">
+                        <Avatar src={s.profilePicture} size={36} radius="50%" />
+                        <Text
+                          size="sm"
+                          style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                          onClick={() => setProfileEmail(s.email)}
+                        >
+                          {instructorLabel(s)}
+                        </Text>
+                      </Group>
                     </Table.Td>
-                    {!data.allTime && <Table.Td>{s.anonymousName ?? '—'}</Table.Td>}
-                    <Table.Td>{s.email}</Table.Td>
                     {!data.allTime && <Table.Td>{formatTime(s.checkInTime)}</Table.Td>}
                     {!data.allTime && <Table.Td>{formatTime(s.checkOutTime)}</Table.Td>}
                     <Table.Td>

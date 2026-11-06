@@ -3,6 +3,7 @@ import Link from 'next/link';
 import {
   Alert,
   Anchor,
+  Avatar,
   Badge,
   Box,
   Button,
@@ -252,11 +253,13 @@ export default function CourseRecord() {
                   {report.students.map((student) => (
                     <Table.Tr key={student.userId}>
                       <Table.Td>
-                        <Text fw={600}>{student.name}</Text>
-                        {student.nickname && <Text c="dimmed">{student.nickname}</Text>}
-                        <Text size="sm" c="dimmed">
-                          {student.email}
-                        </Text>
+                        <Group gap="sm">
+                          <Avatar src={student.profilePicture} size={36} radius="50%" />
+                          <div>
+                            <Text fw={600}>{student.name}</Text>
+                            {student.nickname && <Text c="dimmed">{student.nickname}</Text>}
+                          </div>
+                        </Group>
                       </Table.Td>
                       <Table.Td ta="right">
                         {student.sessionsAttended} of {student.sessionsHeld}

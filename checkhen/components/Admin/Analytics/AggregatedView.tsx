@@ -1,5 +1,5 @@
 import { instructorLabel } from '@/lib/name-label';
-import { Alert, Badge, Box, Card, Group, SimpleGrid, Stack, Table, Text, Title } from '@mantine/core';
+import { Alert, Avatar, Badge, Box, Card, Group, SimpleGrid, Stack, Table, Text, Title } from '@mantine/core';
 import { BarChart } from '@mantine/charts';
 import { useMantineTheme } from '@mantine/core';
 import { Info } from 'lucide-react';
@@ -36,6 +36,7 @@ type PaceTimelineBucket = {
 type LeaveEvent = {
   name?: string | null;
   displayName: string | null;
+  profilePicture: string | null;
   anonymousName: string | null;
   checkInTime: string;
   checkOutTime: string | null;
@@ -284,8 +285,7 @@ export function AggregatedView({ aggregated, classDuration, students, accentColo
           <Table striped highlightOnHover withTableBorder withColumnBorders>
             <Table.Thead>
               <Table.Tr>
-                <Table.Th>Preferred Name</Table.Th>
-                <Table.Th>Anonymous Name</Table.Th>
+                <Table.Th>Student</Table.Th>
                 <Table.Th>Check-In</Table.Th>
                 <Table.Th>Check-Out</Table.Th>
                 <Table.Th>Duration</Table.Th>
@@ -307,8 +307,15 @@ export function AggregatedView({ aggregated, classDuration, students, accentColo
 
                 return (
                   <Table.Tr key={i}>
-                    <Table.Td>{e.name ? `${e.name}${e.displayName ? ` (${e.displayName})` : ''}` : e.anonymousName || '—'}</Table.Td>
-                    <Table.Td>{e.anonymousName ?? '—'}</Table.Td>
+                    <Table.Td>
+                      <Group gap="sm" wrap="nowrap">
+                        <Avatar src={e.profilePicture} size={36} radius="50%" />
+                        <Text>
+                          {e.name ?? '—'}
+                          {e.displayName ? ` (${e.displayName})` : ''}
+                        </Text>
+                      </Group>
+                    </Table.Td>
                     <Table.Td>{formatTime(e.checkInTime)}</Table.Td>
                     <Table.Td>{formatTime(e.checkOutTime)}</Table.Td>
                     <Table.Td>{e.durationMinutes !== null ? `${e.durationMinutes} min` : '—'}</Table.Td>

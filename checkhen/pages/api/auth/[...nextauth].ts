@@ -58,7 +58,6 @@ export const authOptions = {
         return false;
       }
 
-      // On first sign-in seed profile picture from Google; on subsequent sign-ins preserve any custom upload
       await prisma.user.upsert({
         where: { email: user.email },
         update: { name: typeof profile?.name === 'string' ? profile.name.trim() || null : null },
@@ -69,6 +68,12 @@ export const authOptions = {
           isAdmin: isInstructor(user.email),
         },
       });
+      if (user.image) {
+        await prisma.user.updateMany({
+          where: { email: user.email, profilePicture: null },
+          data: { profilePicture: user.image },
+        });
+      }
       return true;
     },
     async jwt({ token, user }: any) {
