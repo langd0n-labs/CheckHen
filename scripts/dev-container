@@ -19,7 +19,7 @@ image=$(podman build -q -f "$root/containers/dev.Containerfile" "$root/container
 id=$(printf '%s' "$root" | sha256sum | cut -c1-12)
 # The main checkout holds the deployed stacks and their env files under wt/. Hide them.
 hide_worktrees=()
-[[ -d "$root/wt" ]] && hide_worktrees=(--tmpfs /src/wt)
+[[ -d "$root/wt" ]] && hide_worktrees=(-v /src/wt)
 exec podman run --rm --network=host --security-opt label=disable \
   -v "$root:/src" "${hide_worktrees[@]}" \
   -v "checkhen-dev-cache:/cache" \
