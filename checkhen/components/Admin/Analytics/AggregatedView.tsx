@@ -311,7 +311,7 @@ export function AggregatedView({ aggregated, classDuration, students, accentColo
                       <Group gap="sm" wrap="nowrap">
                         <Avatar src={e.profilePicture} size={36} radius="50%" />
                         <Text>
-                          {e.name}
+                          {e.name ?? '—'}
                           {e.displayName ? ` (${e.displayName})` : ''}
                         </Text>
                       </Group>
