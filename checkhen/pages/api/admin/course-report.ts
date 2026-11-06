@@ -47,6 +47,7 @@ async function loadReport(courseId: string, config: ColdCallConfig) {
         userId: entry.userId,
         name: primaryName(entry.user),
         nickname: entry.user.displayName,
+        profilePicture: entry.user.profilePicture,
         email: entry.user.email,
       }))
       .sort((a, b) => a.name.localeCompare(b.name) || a.userId.localeCompare(b.userId)),

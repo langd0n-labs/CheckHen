@@ -515,6 +515,7 @@ export function participationHandler(action: string, adminOnly = false) {
               email: student?.email,
               name: student ? primaryName(student) : entry.userId,
               nickname: student?.displayName ?? null,
+              profilePicture: student?.profilePicture ?? null,
               isAck: entry.isAcknowledged,
               isAcknowledged: entry.isAcknowledged,
               handRaiseCount: state.hands.filter((hand) => hand.userId === entry.userId).length,

@@ -5,9 +5,16 @@ import { grades, type ColdCallConfig, type Meeting } from './cold-call';
 import { effectiveEvents, foldEvents, MIN_ANSWERS_FOR_NOTICE } from './events';
 
 export type SessionMeta = { classId: string; name: string; startedAt: Date };
-export type RosterStudent = { userId: string; name: string; nickname?: string | null; email: string };
+export type RosterStudent = {
+  userId: string;
+  name: string;
+  profilePicture?: string | null;
+  nickname?: string | null;
+  email: string;
+};
 
 export type StudentRow = {
+  profilePicture?: string | null;
   nickname?: string | null;
   userId: string;
   name: string;
@@ -251,6 +258,7 @@ export function courseReport(
     return {
       userId: student.userId,
       name: student.name,
+      profilePicture: student.profilePicture ?? null,
       nickname: student.nickname ?? null,
       email: student.email,
       sessionsAttended: attended.get(student.userId) ?? 0,
