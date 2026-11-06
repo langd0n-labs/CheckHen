@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Run a command in checkhen/ inside the development container.
+# Examples: scripts/dev-container yarn jest
+#           scripts/dev-container ../scripts/test-postgres.sh
+set -euo pipefail
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+image=localhost/checkhen-dev:latest
+[[ $# -gt 0 ]] || { sed -n '2,4p' "$0" >&2; exit 2; }
+
+want=$(sed -n 's/^FROM \(node:[^ ]*\).*/\1/p' "$root/checkhen/Dockerfile" | head -1)
+grep -q "^FROM docker.io/library/$want\$" "$root/containers/dev.Containerfile" || {
+  echo "containers/dev.Containerfile must use the same image as checkhen/Dockerfile: $want" >&2
+  exit 2
+}
+podman build -q -t "$image" -f "$root/containers/dev.Containerfile" "$root/containers" >/dev/null
+
+# node_modules stays in volumes, one set for each checkout. The host work tree stays clean.
+# label=disable: a :Z mount would relabel the checkout, and wt/ under it holds the deployed stacks.
+id=$(printf '%s' "$root" | sha256sum | cut -c1-12)
+exec podman run --rm --network=host --security-opt label=disable \
+  -v "$root:/src" \
+  -v "checkhen-dev-cache:/cache" \
+  -v "checkhen-app-modules-$id:/src/checkhen/node_modules" \
+  -v "checkhen-socket-modules-$id:/src/socket-server/node_modules" \
+  -e COREPACK_ENABLE_DOWNLOAD_PROMPT=0 -e COREPACK_HOME=/cache/corepack \
+  -e YARN_GLOBAL_FOLDER=/cache/yarn \
+  ${CHECKHEN_TEST_PG_ADMIN_URL:+-e CHECKHEN_TEST_PG_ADMIN_URL} \
+  -w /src/checkhen "$image" "$@"
