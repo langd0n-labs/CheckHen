@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { Socket } from 'socket.io-client';
 import {
+  Affix,
   Alert,
   Anchor,
   Avatar,
@@ -574,18 +575,34 @@ export default function AdminDashboard() {
     };
   }, [user, currentClassId, jump]);
 
+  const messageClassButton = (
+    <Button ref={chatButtonRef} onClick={() => setMessageBoxOpen(true)} disabled={!currentClassId}>
+      Message class
+    </Button>
+  );
+
   return (
     <Box
       style={{
         height: narrow ? undefined : '100vh',
         minHeight: '100vh',
-        overflowY: narrow ? undefined : 'hidden',
+        // When the session panel grows (an open check, an exam), the page scrolls
+        // instead of squeezing the three columns below it.
+        overflowY: narrow ? undefined : 'auto',
         display: 'flex',
         flexDirection: 'column',
       }}
     >
       {/* Header */}
-      <Paper p="md" shadow="sm" withBorder style={{ borderRadius: 0 }}>
+      <Paper
+        p="md"
+        shadow="sm"
+        withBorder
+        style={{
+          borderRadius: 0,
+          ...(narrow ? {} : { position: 'sticky', top: 0, zIndex: 100, flexShrink: 0 }),
+        }}
+      >
         <Group justify="space-between">
           <Group>
             <Box
@@ -609,6 +626,7 @@ export default function AdminDashboard() {
             </div>
           </Group>
           <Group gap="xs">
+            {!narrow && messageClassButton}
             <Button
               variant="subtle"
               color="gray"
@@ -662,6 +680,47 @@ export default function AdminDashboard() {
         </Group>
       </Paper>
 
+      {narrow && (
+        <Affix position={{ bottom: 16, right: 16 }}>{messageClassButton}</Affix>
+      )}
+      <Modal
+        opened={messageBoxOpen}
+        onClose={closeMessageBox}
+        title="Message class"
+      >
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void sendInstructorChat();
+          }}
+        >
+          <Stack>
+            <TextInput
+              ref={chatInputRef}
+              data-autofocus
+              label="Message as Instructor"
+              value={chatDraft}
+              onChange={(event) => setChatDraft(event.currentTarget.value)}
+              maxLength={1000}
+              disabled={!currentClassId}
+              readOnly={sendingChat}
+            />
+            <Group justify="end">
+              <Button variant="default" onClick={closeMessageBox}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                loading={sendingChat}
+                disabled={!currentClassId || !chatDraft.trim()}
+              >
+                Send
+              </Button>
+            </Group>
+          </Stack>
+        </form>
+      </Modal>
+
       {/* Session Manager & Stats Bar */}
       <Paper
         p="md"
@@ -670,9 +729,6 @@ export default function AdminDashboard() {
         style={{
           borderRadius: 0,
           borderLeft: currentClassColor ? `4px solid ${currentClassColor}` : undefined,
-          maxHeight: narrow ? undefined : '40vh',
-          flexShrink: 0,
-          overflowY: 'auto',
         }}
       >
         <Stack gap="md">
@@ -897,8 +953,7 @@ export default function AdminDashboard() {
         /* 3 Column Layout - active class */
         <Flex
           style={{
-            flex: 1,
-            minHeight: 0,
+            flex: narrow ? 1 : '1 0 480px',
             overflow: narrow ? 'visible' : 'hidden',
           }}
           direction={narrow ? 'column' : 'row'}
@@ -1012,18 +1067,10 @@ export default function AdminDashboard() {
 
           {/* Center Column - De-anonymized Chat */}
           <Box style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <Paper p="md" shadow="xs" withBorder style={{ borderRadius: 0, flexShrink: 0 }}>
+            <Paper p="md" shadow="xs" withBorder style={{ borderRadius: 0 }}>
               <Group justify="space-between">
                 <Title order={4}>Class Discussion</Title>
                 <Group gap="xs">
-                  <Button
-                    ref={chatButtonRef}
-                    size="xs"
-                    onClick={() => setMessageBoxOpen(true)}
-                    disabled={!currentClassId}
-                  >
-                    Message class
-                  </Button>
                   <Button
                     size="xs"
                     variant="light"
@@ -1120,7 +1167,7 @@ export default function AdminDashboard() {
                           <Button
                             size="xs"
                             variant="light"
-                            aria-label={`Show message: ${msg.message}`}
+                            aria-label="Show this message on all screens"
                             onClick={() =>
                               ws.current?.emit('chat-jump', {
                                 classId: currentClassId,
@@ -1164,45 +1211,6 @@ export default function AdminDashboard() {
                 )}
               </Stack>
             </DashboardChat>
-            <Modal
-              opened={messageBoxOpen}
-              onClose={closeMessageBox}
-              title="Message class"
-              onEnterTransitionEnd={() => chatInputRef.current?.focus()}
-              onExitTransitionEnd={() => chatButtonRef.current?.focus()}
-            >
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void sendInstructorChat();
-                }}
-              >
-                <Stack>
-                  <TextInput
-                    ref={chatInputRef}
-                    data-autofocus
-                    label="Message as Instructor"
-                    value={chatDraft}
-                    onChange={(event) => setChatDraft(event.currentTarget.value)}
-                    maxLength={1000}
-                    disabled={!currentClassId}
-                    readOnly={sendingChat}
-                  />
-                  <Group justify="end">
-                    <Button variant="default" onClick={closeMessageBox}>
-                      Cancel
-                    </Button>
-                    <Button
-                      type="submit"
-                      loading={sendingChat}
-                      disabled={!currentClassId || !chatDraft.trim()}
-                    >
-                      Send
-                    </Button>
-                  </Group>
-                </Stack>
-              </form>
-            </Modal>
           </Box>
 
           {/* Right drag handle */}

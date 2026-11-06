@@ -9,6 +9,7 @@ export function useChatJump(
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const active = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     active.current = false;
@@ -16,6 +17,9 @@ export function useChatJump(
     return () => {
       if (timer.current) {
         clearTimeout(timer.current);
+      }
+      if (settle.current) {
+        clearTimeout(settle.current);
       }
       active.current = false;
     };
@@ -42,6 +46,9 @@ export function useChatJump(
       if (timer.current) {
         clearTimeout(timer.current);
       }
+      if (settle.current) {
+        clearTimeout(settle.current);
+      }
       active.current = true;
       setHighlightedId(event.messageId);
       target.scrollIntoView({
@@ -50,6 +57,12 @@ export function useChatJump(
           ? 'instant'
           : 'smooth',
       });
+      // A message that arrives during a smooth scroll can stop the scroll short of the target.
+      settle.current = setTimeout(() => {
+        if (target.isConnected) {
+          target.scrollIntoView({ block: 'center', behavior: 'instant' });
+        }
+      }, 1000);
       timer.current = setTimeout(() => {
         active.current = false;
         setHighlightedId(null);

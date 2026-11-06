@@ -69,6 +69,7 @@ export default function HomePage() {
   const [currentClassId, setCurrentClassId] = useState<string | null>(null);
   const chatViewport = useRef<HTMLDivElement>(null);
   const { highlightedId, active: jumpActive, jump } = useChatJump(currentClassId, chatViewport);
+  const newestWaiting = useRef(false);
   const [currentClassName, setCurrentClassName] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isCheckedIn, setIsCheckedIn] = useState(false);
@@ -100,10 +101,19 @@ export default function HomePage() {
   };
 
   useEffect(() => {
-    if (!jumpActive.current) {
+    if (jumpActive.current) {
+      newestWaiting.current = true;
+    } else {
       scrollToBottom();
     }
   }, [messages, jumpActive]);
+
+  useEffect(() => {
+    if (!highlightedId && newestWaiting.current) {
+      newestWaiting.current = false;
+      scrollToBottom();
+    }
+  }, [highlightedId]);
 
   // Send an instructor to the dashboard, unless they also take a course here; then the
   // header links to the courses they instruct.
