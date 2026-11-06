@@ -331,7 +331,7 @@ it('keeps dashboard moderation and author profiles usable through newest-first c
     expect.objectContaining({ email: 'new@example.edu' }),
     undefined
   );
-  fireEvent.click(newest.getByRole('button', { name: 'Show this message on all screens' }));
+  fireEvent.click(newest.getByRole('button', { name: /Show message from .* on all screens/ }));
   expect(emit).toHaveBeenCalledWith('chat-jump', { classId: 'session-chat', messageId: 'new' });
   const scroll = jest.spyOn(HTMLElement.prototype, 'scrollIntoView');
   act(() => handlers['chat-jump']({ classId: 'session-chat', messageId: 'old' }));
@@ -344,7 +344,7 @@ it('keeps dashboard moderation and author profiles usable through newest-first c
   fireEvent.click(newest.getByRole('button', { name: 'Hide' }));
   await newest.findByRole('button', { name: 'Unhide' });
   expect(newest.getByText('Hidden')).toBeInTheDocument();
-  expect(newest.queryByRole('button', { name: /Show this message/ })).not.toBeInTheDocument();
+  expect(newest.queryByRole('button', { name: /Show message from/ })).not.toBeInTheDocument();
   fireEvent.click(newest.getByRole('button', { name: 'Unhide' }));
   await newest.findByRole('button', { name: 'Hide' });
   fireEvent.click(newest.getByRole('button', { name: 'Mute student' }));

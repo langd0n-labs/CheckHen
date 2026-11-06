@@ -70,6 +70,7 @@ export default function HomePage() {
   const chatViewport = useRef<HTMLDivElement>(null);
   const { highlightedId, active: jumpActive, jump } = useChatJump(currentClassId, chatViewport);
   const newestWaiting = useRef(false);
+  const lastMessageId = useRef<string | undefined>(undefined);
   const [currentClassName, setCurrentClassName] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isCheckedIn, setIsCheckedIn] = useState(false);
@@ -101,8 +102,11 @@ export default function HomePage() {
   };
 
   useEffect(() => {
+    const newest = messages.at(-1)?.id;
+    const arrived = newest !== lastMessageId.current;
+    lastMessageId.current = newest;
     if (jumpActive.current) {
-      newestWaiting.current = true;
+      newestWaiting.current ||= arrived;
     } else {
       scrollToBottom();
     }

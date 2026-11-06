@@ -586,6 +586,8 @@ export default function AdminDashboard() {
       style={{
         height: narrow ? undefined : '100vh',
         minHeight: '100vh',
+        // Room for the floating Message class button below the last row.
+        paddingBottom: narrow && currentClassId ? 64 : undefined,
         // When the session panel grows (an open check, an exam), the page scrolls
         // instead of squeezing the three columns below it.
         overflowY: narrow ? undefined : 'auto',
@@ -680,8 +682,10 @@ export default function AdminDashboard() {
         </Group>
       </Paper>
 
-      {narrow && (
-        <Affix position={{ bottom: 16, right: 16 }}>{messageClassButton}</Affix>
+      {narrow && currentClassId && (
+        <Affix position={{ bottom: 16, right: 16 }} zIndex={150}>
+          {messageClassButton}
+        </Affix>
       )}
       <Modal
         opened={messageBoxOpen}
@@ -1167,7 +1171,7 @@ export default function AdminDashboard() {
                           <Button
                             size="xs"
                             variant="light"
-                            aria-label="Show this message on all screens"
+                            aria-label={`Show message from ${msg.userId ? instructorLabel(msg.user) : 'Instructor'} on all screens`}
                             onClick={() =>
                               ws.current?.emit('chat-jump', {
                                 classId: currentClassId,

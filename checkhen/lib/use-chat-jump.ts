@@ -51,18 +51,18 @@ export function useChatJump(
       }
       active.current = true;
       setHighlightedId(event.messageId);
-      target.scrollIntoView({
-        block: 'center',
-        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
-          ? 'instant'
-          : 'smooth',
-      });
+      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      target.scrollIntoView({ block: 'center', behavior: reducedMotion ? 'instant' : 'smooth' });
       // A message that arrives during a smooth scroll can stop the scroll short of the target.
-      settle.current = setTimeout(() => {
-        if (target.isConnected) {
-          target.scrollIntoView({ block: 'center', behavior: 'instant' });
-        }
-      }, 1000);
+      settle.current = reducedMotion
+        ? null
+        : setTimeout(() => {
+            const area = viewport.current?.getBoundingClientRect();
+            const box = target.getBoundingClientRect();
+            if (target.isConnected && area && (box.bottom < area.top || box.top > area.bottom)) {
+              target.scrollIntoView({ block: 'center', behavior: 'instant' });
+            }
+          }, 1000);
       timer.current = setTimeout(() => {
         active.current = false;
         setHighlightedId(null);
