@@ -75,9 +75,22 @@ socket copy with `corepack yarn prisma-gen` in `socket-server/` after a change.
 Grafana is removed. The application has an analytics interface at
 `/admin/analytics`.
 
+## People and support
+
+- [@a1icja](https://github.com/a1icja): original author.
+- [@aliciavcao](https://github.com/aliciavcao): development.
+
+Thanks to [@langdon](https://github.com/langdon) for project direction and the
+earlier research behind the anonymous chat, [@trgardos](https://github.com/trgardos)
+for the idea for cold calling, and [@PFPrzytycki](https://github.com/PFPrzytycki)
+for the idea for raising hands, guidance, feedback, and in-class testing.
+See [CONTRIBUTORS.md](CONTRIBUTORS.md) for full credits.
+
+Supported by a Boston University Shipley Center for Digital Learning & Innovation
+Accelerating Classroom Transformation (ACT) Grant.
+
 ## License
 
 CheckHen is licensed under the GNU Affero General Public License, version 3 or later
 (`LICENSE`). Anyone who runs a modified version as a service must offer its source to
 the people who use it.
-Contributors are listed in `CONTRIBUTORS.md`.
